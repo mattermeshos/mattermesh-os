@@ -14,13 +14,13 @@ struct Node {std::string name,key;int type=0;bool live=false;uint32_t age=0;floa
 struct MapPin {int x=0,y=0;bool repeater=false;std::string name;int step=-1;}; // step: route stop (0 = sender, 1.. = repeaters)
 struct MapSegment {int x0=0,y0=0,x1=0,y1=0;bool dashed=false;};
 struct State {
- const uint8_t *mapBits=nullptr;const uint16_t *mapPixels=nullptr;/* Plus: RGB565 map view */int mapStyle=0;/* Plus: 0 LIGHT, 1 NIGHT */int mapZoom=0,mapSelfX=-1,mapSelfY=-1,mapScalePx=0;bool mapFollow=false,messageRouteView=false;std::string mapStatus,mapScaleLabel;std::vector<MapPin> mapPins;std::vector<MapSegment> mapRoute;std::vector<std::string> mapLegend;
+ const uint8_t *mapBits=nullptr;const uint16_t *mapPixels=nullptr;/* Plus: RGB565 map view */int mapStyle=0;/* Plus: 0 LIGHT, 1 NIGHT */int mapSelfX=-1,mapSelfY=-1,mapScalePx=0;bool mapFollow=false,messageRouteView=false;std::string mapStatus,mapScaleLabel;std::vector<MapPin> mapPins;std::vector<MapSegment> mapRoute;std::vector<std::string> mapLegend;
  bool historyLoading=false;std::string historyError;
  // CLI (30): raw output lines (wrapped when drawn), prompt, edit line, scroll in wrapped lines from the bottom.
  std::vector<std::string> cliLines;std::string cliPrompt,cliInput;int cliCursor=0,cliScroll=0;bool cliStreaming=false,cliCanPaste=false;
  std::string firstRepeater;
  bool displayLightEnabled=true,keyboardLightEnabled=true;
- bool audioReady=false,audioNotifications=true,audioBusy=false;int audioVolume=20;std::string audioMessage;
+ bool audioReady=false,audioNotifications=true;int audioVolume=20;std::string audioMessage;
  Page page=Page::Home;Status status;
  // MeshCore app link (Plus): BLE name / PIN, Wi-Fi (TCP 5000) switch and address, which links are in use.
  // Link viewer: mode 0 loading, 1 page, 2 picture, 3 error; rows = visible page rows (kind -1 text, -2 heading,
@@ -28,15 +28,15 @@ struct State {
  bool contextHasLink=false;int linkMode=0,linkFocus=-1,linkProgress=-1,linkScrollTop=0,linkScrollTotal=0;std::string linkHost,linkTitle,linkMessage,linkInfo,linkSwitch;
  std::vector<std::pair<std::string,int>> linkRows;const uint16_t *linkPixels=nullptr;bool linkZoomButtons=false;
  std::string appBleName,appPin,appWifiDetail,appBleInput;bool appBleEditing=false,appWifi=false,appBleLinked=false,appUsbLinked=false,appWifiLinked=false;
- bool wifiEnabled=true,wifiConnected=false,wifiConnecting=false,wifiScanning=false,wifiEditing=false,bleEnabled=true,bleReady=false,bleClient=false;
+ bool wifiEnabled=true,wifiConnected=false,wifiConnecting=false,wifiScanning=false,wifiEditing=false,bleEnabled=true,bleReady=false;
  bool wifiHidden=false,wifiShowPassword=false;int wifiEditField=1;
  int wifiOffset=0,wifiFocus=0;std::string wifiSSID,wifiIP,wifiMessage,wifiPasswordMask;struct Network{std::string ssid;int rssi=0;bool secured=true,saved=false;};std::vector<Network> networks;
  bool weatherValid=false,weatherBusy=false,locationValid=false,gpsFix=false;
  bool gpsEnabled=true,gpsAvailable=false,gpsData=false,gpsNmeaFresh=false,gpsTimeValid=false,gpsTemporary=false;unsigned gpsUsed=0,gpsVisible=0,gpsBaud=0;
- float temperature=0,humidity=0,pressure=0,wind=0,high=0,low=0;int weatherCode=2;double latitude=0,longitude=0,altitude=0;int satellites=0;
+ float temperature=0,humidity=0,pressure=0,wind=0,high=0,low=0;int weatherCode=2;double latitude=0,longitude=0,altitude=0;
  std::string weatherText="No weather data",weatherUpdated,weatherMessage,weatherPlace,weatherSource;
  std::string homeFact;// T-Deck Plus Home without weather: one rotating line under the contact count (nodes heard, uptime, a tip)
- WeatherPhaseView weatherPhase=WeatherPhaseView::Closed;int weatherHours=0;float apparent=0,precipitation=0;int weatherHourCode[4]={};float weatherHourTemp[4]={};std::string weatherHourTime[4];
+ WeatherPhaseView weatherPhase=WeatherPhaseView::Closed;int weatherHours=0;float apparent=0;int weatherHourCode[4]={};float weatherHourTemp[4]={};std::string weatherHourTime[4];
  uint32_t displayTimeout=30,keyboardTimeout=30;int powerField=0;int wallpaper=0,wallpaperFocus=0;int textSize=1,textSizeFocus=1,accentMode=1,accentFocus=1;/* accent key: 0 off, 1 right Shift, 2 left Shift */// chat text size (0 compact, 1 large) and the focused card on its page// lock-screen wallpaper (mm_wallpaper::list index) and the focused card on its page
 bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
  std::string meshCoreVersion=MM_MESHCORE_VERSION;
@@ -51,9 +51,9 @@ bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
  std::string radarTime,radarMessage;int radarZoom=7;// RADAR tab: frame time, status, zoom (the view itself is mapPixels)// Date / time editor (Plus): day, month, year, hour, minute
  int welcomeWifiChoice=0,welcomeStep=0,welcomeBand=868,welcomeFocus=0,welcomeScroll=0,welcomeBytes=2;std::string welcomeName,welcomePreset,welcomeArchive;std::vector<std::pair<std::string,std::string>> welcomePresets;
  // Updates page (section 17): texts from device::otaState(); otaProgress -1 = no download bar.
- std::vector<std::string> otaNotes;// release notes, one item per line ("What's new")
+ std::vector<std::string> otaNotes;std::string otaNotesTitle="WHAT'S NEW";// release notes, one item per line ("What's new"); Launcher steps once saved to the SD
  std::string otaStatus="Not checked",otaDetail,otaAction="CHECK NOW";/* the update server is never shown */int otaProgress=-1;bool otaConfirm=false;std::string timeSource="Acquiring";uint64_t storageTotal=0,storageUsed=0;
- bool emojiPicker=false,quickEmoji=false;int emojiFocus=0,emojiTab=0;bool composerExpanded=false;/* any draft: the composer grows upward so every line can be proofread */size_t inputCursor=std::string::npos;/* byte offset of the caret in input; npos = end */std::vector<int> emojiRecent;std::string receivedChannel="Mesh messages";
+ bool emojiPicker=false,quickEmoji=false;int emojiFocus=0,emojiTab=0;bool composerExpanded=false;/* any draft: the composer grows upward so every line can be proofread */size_t inputCursor=std::string::npos;/* byte offset of the caret in input; npos = end */std::vector<int> emojiRecent;
  bool quickSent=false;
  int unread=0;std::string receivedName="No messages",receivedPreview="Waiting for mesh messages",receivedTime="--:--";
  bool lockHasMessage=false,lockHint=false,unlockCounting=false;int quickCountdown=-1;// ENTER on the lock: dots 0..2 filled while the quick reply opens (-1 none)

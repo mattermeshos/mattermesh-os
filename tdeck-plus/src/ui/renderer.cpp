@@ -598,7 +598,7 @@ void Renderer::section(const State &s){
   // A companion row opens its chat.
   g.fillRect(34,StatusH,W-34,HeaderH-1,BG);g.drawFastHLine(0,Top-1,W,BG); // the tabs are the title
   auto tab=[&](Rect r,const char *label,bool selected){c.tab(r,label,selected,selected);};
-  const auto ago=agoText;
+
   const char *filters[]={"ALL","COMP","RPT"};for(int i=0;i<ContactTabCount;i++)tab(contactTabRect(i),filters[i],s.filter==i);
   {
    // Plus: search + count row, full-width rows (type badge, name, detail line, distance, signal), scrollbar.
@@ -656,7 +656,7 @@ void Renderer::section(const State &s){
    else c.text(Margin+8,Top+46,field==matter::SpreadFactor?"SF 5 to 12":field==matter::CodingRate?"5 to 8 (4/5 to 4/8)":"-9 to 22 dBm",Font::ChatMeta,FG,W-2*Margin-16);
    c.card(RadioPowerInput);auto tail=c.inputTail(s.radioPowerInput,RadioPowerInput.w-20,Font::ChatBody);c.text(RadioPowerInput.x+8,RadioPowerInput.y+10,s.radioPowerInput.empty()?"Type value...":tail,Font::ChatBody,FG,RadioPowerInput.w-16);g.drawFastVLine(RadioPowerInput.x+9+c.width(tail,Font::ChatBody),RadioPowerInput.y+8,16,FG);
    c.button(RadioPowerSave,"SAVE EDIT");c.button(RadioPowerCancel,"CANCEL");
-   if(!s.notice.empty())c.text(Margin+8,Top+120,s.notice.empty()?"Then APPLY to update LoRa":s.notice,Font::ChatMeta,FG,W-2*Margin-16);
+   c.text(Margin+8,Top+120,s.notice.empty()?"Then APPLY to update LoRa":s.notice,Font::ChatMeta,FG,W-2*Margin-16);
   }
   
  }else if(s.page==Page::Storage){
@@ -755,11 +755,6 @@ void Renderer::section(const State &s){
   c.toggleRow(AppWifiToggle,Icon::Wifi,"App over Wi-Fi",!s.appWifi?"Off":s.appWifiLinked?"MeshCore app connected":s.appWifiDetail,s.appWifi);
   c.text(Margin+2,AppWifiToggle.y+AppWifiToggle.h+8,s.appUsbLinked?"USB: MeshCore app connected":"USB cable: always available",Font::ChatMeta,FG,W-2*Margin);
   c.text(Margin+2,AppWifiToggle.y+AppWifiToggle.h+24,"MeshCore app: settings and contacts (messages soon).",Font::ChatMeta,Muted,W-2*Margin);
- }else if(s.page==Page::Bluetooth){
-  c.toggleRow(BleToggle,Icon::Bluetooth,"Bluetooth",s.bleReady?(s.bleClient?"Device connected":"Visible to nearby phones"):s.bleEnabled?"Starting...":"Off",s.bleEnabled);
-  c.sectionLabel(SettingsSectionY,"THIS DEVICE");valueCard({Margin,SettingsBodyY,W-2*Margin,40},"NAME","MatterMesh OS");
-  valueCard({Margin,SettingsBodyY+46,W-2*Margin,40},"CONNECTION",!s.bleReady?"Bluetooth off":s.bleClient?"Device connected":"None");
-  c.text(Margin+2,SettingsBodyY+102,"Device information service only.",Font::ChatMeta,FG,W-2*Margin);c.text(Margin+2,SettingsBodyY+118,"Mesh companion over BLE: not yet.",Font::ChatMeta,FG,W-2*Margin);
  }else if(s.page==Page::Audio){
   c.toggleRow(AudioNotify,Icon::Messages,"Notification sound",s.audioReady?"Speaker ready":s.audioMessage,s.audioNotifications);
   c.sectionLabel(SettingsSectionY,"VOLUME",std::to_string(s.audioVolume)+"%");for(auto r:{AudioMinus,AudioPlus}){c.card(r);int cx=r.x+r.w/2,cy=r.y+r.h/2;g.fillRect(cx-6,cy-1,12,2,FG);if(r.x==AudioPlus.x)g.fillRect(cx-1,cy-6,2,12,FG);}c.slider(AudioSlider,s.audioVolume);
@@ -886,7 +881,7 @@ void Renderer::section(const State &s){
   if(s.otaProgress>=0){Rect bar={Margin,y,W-2*Margin,12};g.drawRoundRect(bar.x,bar.y,bar.w,bar.h,4,Line);int fill=std::max(4,(bar.w-4)*std::min(s.otaProgress,100)/100);c.fillRound(bar.x+2,bar.y+2,fill,bar.h-4,2,Accent);y+=18;}
   if(!s.otaNotes.empty()&&s.otaProgress<0){
    // "What's new": the release notes as a list, wrapped, as many lines as fit above the button.
-   Rect card={Margin,y,W-2*Margin,UpdatesAction.y-6-y};c.card(card);c.text(card.x+8,card.y+5,"WHAT'S NEW",Font::ChatMeta,Accent);
+   Rect card={Margin,y,W-2*Margin,UpdatesAction.y-6-y};c.card(card);c.text(card.x+8,card.y+5,s.otaNotesTitle,Font::ChatMeta,Accent);
    int ly=card.y+22,lh=c.lineHeight(Font::ChatMeta);
    for(auto &item:s.otaNotes){auto lines=c.lines(item,card.w-30,Font::ChatMeta);for(size_t k=0;k<lines.size();k++){if(ly+lh>card.y+card.h-2)break;if(!k)g.fillCircle(card.x+12,ly+lh/2,2,Accent);c.text(card.x+20,ly,lines[k],Font::ChatMeta,FG,card.w-28);ly+=lh;}}
   }else c.text(Margin+2,y,s.otaDetail,Font::ChatMeta,FG,W-2*Margin);

@@ -59,6 +59,21 @@ official images.
 MatterMesh OS is free and has no ads. If you find it useful, you can support it with a donation of any amount at
 [ko-fi.com/mattermeshos](https://ko-fi.com/mattermeshos) — on the device: Settings → Donate / Unlock.
 
+## Download
+
+Ready-to-flash **Free** image for the **T-Deck Plus**, always the latest release:
+
+**[mattermesh-os.bin](https://mattermeshos.com/firmware/plus/mattermesh-os.bin)** — copy it to the SD card and install it from
+[bmorcelli's Launcher](https://github.com/bmorcelli/Launcher), or flash it at `0x10000` with esptool.
+
+Tested with Launcher 2.9.1 on the T-Deck Plus (install from the SD card, signed updates saved to the SD card and
+installed from the Launcher). MatterMesh OS has no agreement or affiliation with the Launcher project: it has only been
+tested with it.
+
+A first install without the Launcher needs the bootloader and partition table too: the easiest way is the browser
+installer at [mattermeshos.com](https://mattermeshos.com), which writes everything (Chrome or Edge, USB-C data cable).
+Later updates arrive signed over Wi-Fi: Settings → OTA update.
+
 ## License
 
 MatterMesh OS Free edition — GNU General Public License v3.0, see [LICENSE](LICENSE).

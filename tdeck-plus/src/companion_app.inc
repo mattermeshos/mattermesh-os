@@ -57,7 +57,9 @@ void appLinkBegin(){
 void appWifiToggle(){appWifiEnabled=!appWifiEnabled;device::prefPutInt("mmble","tcp",appWifiEnabled?1:0);if(!appWifiEnabled&&appServerOn){if(appClient)appClient.stop();appServer.end();appServerOn=false;}}
 // USB: called by the serial reader for the bytes after a '<' at the start of a line.
 static uint8_t appUsbBuf[matter::COMPANION_FRAME_MAX];static int appUsbState=0;static uint16_t appUsbLen=0,appUsbGot=0;
+static uint32_t appUsbByteAt=0;// last byte of a frame being assembled: a frame stalled 2 s is dropped (as on TCP)
 bool appUsbByte(uint8_t c){// true while a binary frame is being assembled (the byte is consumed)
+ if(appUsbState&&uint32_t(millis()-appUsbByteAt)>2000)appUsbState=0;appUsbByteAt=millis();
  if(appUsbState==0){if(c!='<')return false;appUsbState=1;return true;}
  if(appUsbState==1){appUsbLen=c;appUsbState=2;return true;}
  if(appUsbState==2){appUsbLen|=uint16_t(c)<<8;appUsbGot=0;appUsbState=appUsbLen&&appUsbLen<=matter::COMPANION_FRAME_MAX?3:0;return true;}

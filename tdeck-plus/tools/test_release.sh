@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Broad native audit suite. Real radio/USB/Wi-Fi tests are deliberately separate.
 bash tools/test_ui.sh
+python3 tools/check_line_comments.py src
 mkdir -p artifacts/release-tests
 for test in services ringtones first_repeater lock repeater_observer time_sync sd_replace battery_gauge cli_line rx_log emoji_frequent keyboard_layout; do
   g++ -std=c++17 -O2 -Isrc "sim/test_${test}.cpp" -o "artifacts/release-tests/${test}"

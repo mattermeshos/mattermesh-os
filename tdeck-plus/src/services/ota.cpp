@@ -6,6 +6,8 @@
 #include <WiFiClientSecure.h>
 #include <Update.h>
 #include <esp_ota_ops.h>
+#include <esp_partition.h>
+#include <esp_heap_caps.h>
 #include <mbedtls/sha256.h>
 #include <memory>
 #include "ed_25519.h"
@@ -30,7 +32,7 @@ static const uint8_t LicenseKey[32]={0x4f,0x30,0xf1,0x95,0x9a,0xd3,0x8e,0xa8,0x3
 // Edition sent with every check (docs/unlock-protocol.md). A Free image is offered the Full one once the server holds
 // a license for this device; Full images are signed for "<board>-full".
 static const char *Edition="free";
-static Preferences preferences;static OtaState state;static SemaphoreHandle_t mutex=nullptr;static bool busy=false,healthy=false,checkedOnce=false;
+static Preferences preferences;static OtaState state;static SemaphoreHandle_t mutex=nullptr;static bool busy=false,healthy=false,checkedOnce=false,launcherHosted=false;
 // rejected: a build that rolled back twice is no longer offered (one rollback can be a power cut in the first 30 s).
 // offerEdition: edition of the release on offer, saved with "try" so a Free -> Full switch that rolls back is seen.
 static uint32_t connectedAt=0,lastCheck=0,restartAt=0;static int32_t rejected=0;static String servers,pendingReport,pendingDetail,sha256,signature,path,license,offerEdition,rejectedEdition;
@@ -105,13 +107,15 @@ static void checkWorker(void*){
    xSemaphoreTake(mutex,portMAX_DELAY);state.phase=OtaPhase::UpToDate;state.message="Up to date";state.server=base;state.checkedAt=millis();publish();xSemaphoreGive(mutex);break;
   }
   String version=doc["version"]|"",sha=doc["sha256"]|"",sig=doc["sig"]|"",file=doc["path"]|"";int32_t code=doc["code"]|0;uint32_t size=doc["size"]|0;
-  const esp_partition_t *slot=esp_ota_get_next_update_partition(nullptr);
+  // With a single OTA slot (the Launcher's layout) ESP-IDF hands back the running one, and Update would erase the
+  // image it runs from: that is never a slot. Under the Launcher the image goes to the SD card instead (no slot needed).
+  const esp_partition_t *slot=esp_ota_get_next_update_partition(nullptr);if(slot==esp_ota_get_running_partition())slot=nullptr;const bool toSd=launcherHosted;
   // Free -> Full is offered at the same build number too: the edition is what changes, never an older build.
   bool full=String(doc["edition"]|"")=="full",switching=full&&String(Edition)=="free";String signedBoard=String(otaBoard())+(full?"-full":"");
-  String problem=String(doc["board"]|"")!=otaBoard()?"Release for another board":code<MM_VERSION_CODE||(code==MM_VERSION_CODE&&!switching)?"Server offers an older build":code==bad&&(!rejectedEdition.length()||rejectedEdition==(full?"full":"free"))?"Build "+String(code)+" rolled back / ignored":!slot||size==0||size>slot->size?"Release larger than the update slot":!file.startsWith("/fw/")?"Bad download path":!signatureValid(signedBoard,version,code,sha,sig)?"Signature not valid / ignored":"";
+  String problem=String(doc["board"]|"")!=otaBoard()?"Release for another board":code<MM_VERSION_CODE||(code==MM_VERSION_CODE&&!switching)?"Server offers an older build":code==bad&&(!rejectedEdition.length()||rejectedEdition==(full?"full":"free"))?"Build "+String(code)+" rolled back / ignored":size==0?"Release without a size":!toSd&&!slot?"No idle update slot":!toSd&&size>slot->size?"Release larger than the update slot":!file.startsWith("/fw/")?"Bad download path":!signatureValid(signedBoard,version,code,sha,sig)?"Signature not valid / ignored":"";
   xSemaphoreTake(mutex,portMAX_DELAY);state.server=base;state.checkedAt=millis();
   if(problem.length()){state.phase=OtaPhase::Error;state.message=problem;}
-  else{state.phase=OtaPhase::Available;state.version=version;state.code=code;state.size=size;state.done=0;state.notes=doc["notes"]|"";state.message=version+(full?" Full":"")+" available";sha256=sha;signature=sig;path=file;offerEdition=full?"full":"free";}
+  else{state.phase=OtaPhase::Available;state.version=version;state.code=code;state.size=size;state.done=0;state.toSd=toSd;state.notes=doc["notes"]|"";state.message=version+(full?" Full":"")+" available";sha256=sha;signature=sig;path=file;offerEdition=full?"full":"free";}
   publish();xSemaphoreGive(mutex);break;
  }
  // Not reached: an offer found earlier stays (it is still signed and valid); otherwise say what went wrong.
@@ -119,9 +123,10 @@ static void checkWorker(void*){
  xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);networkJobEnd();vTaskDelete(nullptr);
 }
 
-// Streams the image into the idle slot, resuming with a Range request when the connection drops.
-static bool download(const String &url,uint32_t size,const String &expected,String &problem){
- if(!Update.begin(size,U_FLASH)){problem="Update slot unavailable";return false;}
+// Streams the image into the idle slot (ram: into that PSRAM buffer instead), resuming with a Range request when the connection drops.
+static bool download(const String &url,uint32_t size,const String &expected,uint8_t *ram,String &problem){
+ if(!ram&&!Update.begin(size,U_FLASH)){problem="Update slot unavailable";return false;}
+ auto abort=[&](){if(!ram)Update.abort();};
  mbedtls_sha256_context hash;mbedtls_sha256_init(&hash);mbedtls_sha256_starts(&hash,0);
  std::unique_ptr<uint8_t[]> buffer(new uint8_t[4096]);uint32_t done=0;int attempts=0;problem="Update server unreachable";
  while(done<size&&attempts<4){
@@ -134,16 +139,18 @@ static bool download(const String &url,uint32_t size,const String &expected,Stri
    if(!available){if(!http.connected()||uint32_t(millis()-lastData)>20000)break;delay(5);continue;}
    size_t n=stream->readBytes(buffer.get(),std::min<size_t>(std::min<size_t>(available,4096),size-done));if(!n)continue;
    mbedtls_sha256_update(&hash,buffer.get(),n);
-   if(Update.write(buffer.get(),n)!=n){http.end();mbedtls_sha256_free(&hash);Update.abort();problem="Flash write failed";return false;}
+   if(ram)memcpy(ram+done,buffer.get(),n);
+   else if(Update.write(buffer.get(),n)!=n){http.end();mbedtls_sha256_free(&hash);abort();problem="Flash write failed";return false;}
    done+=n;lastData=millis();
    if(done==size||done%(32*1024)<n){xSemaphoreTake(mutex,portMAX_DELAY);state.done=done;publish();xSemaphoreGive(mutex);}
   }
   http.end();if(done<size)problem="Connection lost";
  }
- if(done==size)setPhase(OtaPhase::Verifying,"Verifying");
+ if(done==size&&!ram)setPhase(OtaPhase::Verifying,"Verifying");// the SD save sets its own phase
  uint8_t digest[32];mbedtls_sha256_finish(&hash,digest);mbedtls_sha256_free(&hash);
- if(done<size){Update.abort();return false;}
- if(expected!=mm::hexString(digest,32).c_str()){Update.abort();problem="Checksum mismatch / discarded";return false;}
+ if(done<size){abort();return false;}
+ if(expected!=mm::hexString(digest,32).c_str()){abort();problem="Checksum mismatch / discarded";return false;}
+ if(ram)return true;// SD save: nothing is installed here, no boot slot changes
  // The install state goes in before end() switches the boot slot: a power cut right after it still sees the rollback.
  xSemaphoreTake(mutex,portMAX_DELAY);String edition=offerEdition;int32_t code=state.code;xSemaphoreGive(mutex);
  preferences.putString("tryed",edition);preferences.putInt("from",MM_VERSION_CODE);preferences.putInt("try",code);
@@ -151,9 +158,61 @@ static bool download(const String &url,uint32_t size,const String &expected,Stri
  return true;
 }
 
+// Under the Launcher the downloaded image (PSRAM) is written to the SD card by otaLoop() on the main loop, one slice per
+// pass (the card shares its SPI bus with the LCD and the radio: written from the download task the file came out 32
+// bytes short). It is then read back and hashed, and renamed from .part only once verified, so the Launcher never
+// lists a damaged file. "busy" stays set until the save ends.
+struct SdSave {uint8_t *ram=nullptr;uint32_t size=0,at=0;bool verifying=false;String name,expected;File file;mbedtls_sha256_context hash;};
+static SdSave sdSave;static volatile bool sdSavePending=false;
+constexpr uint32_t SdSlice=32*1024;
+static void sdSaveFinish(bool ok,String problem){
+ String part=sdSave.name+".part";if(sdSave.file)sdSave.file.close();
+ if(sdSave.verifying){uint8_t digest[32];mbedtls_sha256_finish(&sdSave.hash,digest);mbedtls_sha256_free(&sdSave.hash);
+  if(ok&&sdSave.expected!=mm::hexString(digest,32).c_str()){ok=false;problem="SD card copy damaged / discarded";}}
+ // A failed rename keeps the verified .part (the Launcher does not list it): the old copy is already gone.
+ if(ok){SD.remove(sdSave.name);ok=SD.rename(part,sdSave.name);if(!ok)problem="SD card rename failed";}else SD.remove(part);
+ heap_caps_free(sdSave.ram);sdSave.ram=nullptr;sdSavePending=false;
+ if(ok)Serial.printf("OTA_SAVED file=%s bytes=%lu\n",sdSave.name.c_str(),(unsigned long)sdSave.size);else Serial.printf("OTA_FAILED %s\n",problem.c_str());
+ xSemaphoreTake(mutex,portMAX_DELAY);if(ok){state.phase=OtaPhase::Saved;state.sdFile=sdSave.name;state.message="Saved "+sdSave.name.substring(1);}else{state.phase=OtaPhase::Error;state.message=problem;}
+ busy=false;publish();xSemaphoreGive(mutex);
+}
+static void sdSaveStep(){
+ if(!sdSavePending)return;String part=sdSave.name+".part";uint32_t n=std::min(SdSlice,sdSave.size-sdSave.at);
+ if(!sdSave.verifying){
+  if(!sdSave.at){SD.remove(part);sdSave.file=SD.open(part,FILE_WRITE);if(!sdSave.file){sdSaveFinish(false,"SD card unavailable");return;}}
+  if(sdSave.file.write(sdSave.ram+sdSave.at,n)!=n){sdSaveFinish(false,"SD card write failed");return;}
+  sdSave.at+=n;
+  if(sdSave.at==sdSave.size){
+   sdSave.file.flush();sdSave.file.close();sdSave.file=SD.open(part,FILE_READ);
+   if(!sdSave.file||sdSave.file.size()!=sdSave.size){sdSaveFinish(false,"SD card copy damaged / discarded");return;}
+   sdSave.verifying=true;sdSave.at=0;mbedtls_sha256_init(&sdSave.hash);mbedtls_sha256_starts(&sdSave.hash,0);
+  }
+ }else{
+  // Read back into the image's own buffer: the RAM copy is no longer needed and the hash covers what the card returns.
+  if(sdSave.file.read(sdSave.ram+sdSave.at,n)!=n){sdSaveFinish(false,"SD card copy damaged / discarded");return;}
+  mbedtls_sha256_update(&sdSave.hash,sdSave.ram+sdSave.at,n);sdSave.at+=n;
+  if(sdSave.at==sdSave.size){sdSaveFinish(true,"");return;}
+ }
+ xSemaphoreTake(mutex,portMAX_DELAY);state.done=(sdSave.verifying?sdSave.size:0)+sdSave.at;publish();xSemaphoreGive(mutex);
+}
+
 static void installWorker(void*){
- xSemaphoreTake(mutex,portMAX_DELAY);String url=state.server+path,version=state.version,expected=sha256;uint32_t size=state.size;int32_t code=state.code;state.phase=OtaPhase::Downloading;state.done=0;state.message="Downloading "+version;publish();xSemaphoreGive(mutex);
- String problem;bool ok=download(url,size,expected,problem);
+ xSemaphoreTake(mutex,portMAX_DELAY);String url=state.server+path,version=state.version,expected=sha256,edition=offerEdition;uint32_t size=state.size;int32_t code=state.code;bool toSd=state.toSd;state.phase=OtaPhase::Downloading;state.done=0;state.message="Downloading "+version;publish();xSemaphoreGive(mutex);
+ if(toSd){
+  // A name of its own per edition and version; the Launcher shows the first 20 characters as the app name.
+  String name="/MatterMesh-"+String(edition=="full"?"Full":"Free")+"-"+version+".bin",problem;
+  uint8_t *ram=(uint8_t*)heap_caps_malloc(size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+  if(!ram)problem="Not enough memory for the image";
+  else if(download(url,size,expected,ram,problem)){
+   sdSave.ram=ram;sdSave.size=size;sdSave.at=0;sdSave.verifying=false;sdSave.name=name;sdSave.expected=expected;
+   xSemaphoreTake(mutex,portMAX_DELAY);state.phase=OtaPhase::Verifying;state.done=0;state.message="Saving to the SD card";publish();xSemaphoreGive(mutex);
+   sdSavePending=true;networkJobEnd();vTaskDelete(nullptr);return;
+  }
+  if(ram)heap_caps_free(ram);
+  Serial.printf("OTA_FAILED %s\n",problem.c_str());setPhase(OtaPhase::Error,problem);
+  xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);networkJobEnd();vTaskDelete(nullptr);return;
+ }
+ String problem;bool ok=download(url,size,expected,nullptr,problem);
  if(ok){
   setPhase(OtaPhase::Restarting,"Installed "+version+" / restarting");Serial.printf("OTA_INSTALLED version=%s code=%ld\n",version.c_str(),long(code));
   // otaLoop() restarts in 2.5 s from the main task, between its own SD writes, after closing the card (the SD is
@@ -170,8 +229,11 @@ static bool spawn(TaskFunction_t worker,const char *name,uint32_t stack){
  xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);setPhase(OtaPhase::Error,"Update worker unavailable");return false;
 }
 
+bool otaLauncherHosted(){return launcherHosted;}
 void otaBegin(){
  mutex=xSemaphoreCreateMutex();preferences.begin("mmota",false);
+ // bmorcelli's Launcher lives in an app partition of subtype "test" (its bootloader starts it at power-on).
+ launcherHosted=esp_partition_find_first(ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_APP_TEST,nullptr)!=nullptr;
  license=preferences.getString("license","");if(!licenseValid(license))license="";
  servers=preferences.isKey("servers")?preferences.getString("servers",DefaultServers):String(DefaultServers);
  // A list saved from serial keeps the servers of this build in front: a T-Deck set by hand to the NAS still moves to new defaults.
@@ -194,10 +256,11 @@ void otaBegin(){
  }
  rejected=preferences.getInt("badn",0)>=2?preferences.getInt("bad",0):0;rejectedEdition=preferences.getString("bade","");state.refused=rejected;// offered again after one rollback
  const esp_partition_t *running=esp_ota_get_running_partition();esp_ota_img_states_t image;
- Serial.printf("OTA_BOOT board=%s code=%ld slot=%s state=%d tried=%ld\n",otaBoard(),long(MM_VERSION_CODE),running?running->label:"?",running&&esp_ota_get_state_partition(running,&image)==ESP_OK?int(image):-1,long(tried));
+ Serial.printf("OTA_BOOT board=%s code=%ld slot=%s state=%d tried=%ld launcher=%d\n",otaBoard(),long(MM_VERSION_CODE),running?running->label:"?",running&&esp_ota_get_state_partition(running,&image)==ESP_OK?int(image):-1,long(tried),launcherHosted);
 }
 
 void otaLoop(bool wifiConnected,bool uiReady){
+ sdSaveStep();
  {xSemaphoreTake(mutex,portMAX_DELAY);uint32_t at=restartAt;xSemaphoreGive(mutex);if(at&&int32_t(millis()-at)>=0){SD.end();ESP.restart();}}
  if(!healthy&&uiReady&&millis()>=OTA_HEALTHY_AFTER_MS){
   healthy=true;const esp_partition_t *running=esp_ota_get_running_partition();esp_ota_img_states_t image;
@@ -219,8 +282,12 @@ bool otaCheck(){
  checkedOnce=true;lastCheck=millis();return spawn(checkWorker,"matter-ota-check",8192);
 }
 bool otaInstall(){
- xSemaphoreTake(mutex,portMAX_DELAY);bool ready=state.phase==OtaPhase::Available;xSemaphoreGive(mutex);
+ xSemaphoreTake(mutex,portMAX_DELAY);bool ready=state.phase==OtaPhase::Available,toSd=state.toSd;uint32_t size=state.size;xSemaphoreGive(mutex);
  if(!ready||WiFi.status()!=WL_CONNECTED)return false;
+ // Under the Launcher the card is checked here, on the main loop, before anything is downloaded: room for the .part next
+ // to an older copy of the same file (replaced only once the new one is verified) + 64 KB slack.
+ if(toSd){uint64_t total=SD.totalBytes(),used=total?SD.usedBytes():0;
+  if(!total||total-used<uint64_t(size)+65536){setPhase(OtaPhase::Error,total?"Not enough space on the SD card":"SD card unavailable");return false;}}
  return spawn(installWorker,"matter-ota-install",12288);
 }
 OtaState otaState(){xSemaphoreTake(mutex,portMAX_DELAY);auto view=state;xSemaphoreGive(mutex);return view;}

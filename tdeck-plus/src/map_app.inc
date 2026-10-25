@@ -79,7 +79,7 @@ uint32_t rev=device::mapTilesRevision();
  bool reuse=composed.z==z&&composed.lat==mapView.lat&&composed.lon==mapView.lon&&composed.style==mapStyleIndex&&composed.rev==rev;
  int missing=mapComposeTiles(mapViewBits,mapView.lat,mapView.lon,z,reuse);
  if(!reuse){if(missing==0){composed.lat=mapView.lat;composed.lon=mapView.lon;composed.z=z;composed.style=mapStyleIndex;composed.rev=rev;}else composed.z=-1;}
- mapMissingCount=missing;v.mapStyle=mapStyleIndex;v.mapPixels=reinterpret_cast<const uint16_t*>(mapViewBits);v.mapZoom=z;v.mapFollow=mapView.follow;
+ mapMissingCount=missing;v.mapStyle=mapStyleIndex;v.mapPixels=reinterpret_cast<const uint16_t*>(mapViewBits);v.mapFollow=mapView.follow;
  auto center=device::mapProject(mapView.lat,mapView.lon,z);double north,west,south,east;device::mapUnproject({center.x-w/2.0,center.y-h/2.0},z,north,west);device::mapUnproject({center.x+w/2.0,center.y+h/2.0},z,south,east);
  matter::NodePin pins[24];int count=matter::nodePins(south,west,north,east,pins,24);
  for(int i=0;i<count;i++){double x,y;mapScreen(pins[i].lat,pins[i].lon,mapView.lat,mapView.lon,z,x,y);if(!mapInside(x,y))continue;mm::MapPin pin;pin.x=lround(x);pin.y=lround(y);pin.repeater=pins[i].repeater;pin.name=mm::senderDisplayName(pins[i].name);v.mapPins.push_back(pin);}
