@@ -163,8 +163,10 @@ static bool verifyIdentity(){const uint8_t challenge[]={0x4d,0x61,0x74,0x74,0x65
 // stock tdeck max per la potenza"). Default RX gain and no AGC reset are kept: the 0.4.1.14/16 combination
 // of 2.4 V + AGC reset + boosted gain left the companion "mute" to repeaters; the 1.6 V MeshCore value was
 // an interim choice. Sync word, preamble and CRC stay MeshCore (protocol, not power).
-// T-Deck Plus: MeshCore lilygo_tdeck values (TCXO 1.8 V, no DIO2 RF switch, boosted RX gain), as its stock MeshCore.
-static constexpr float tcxoVoltage=1.8f;static constexpr bool dio2RfSwitch=false;
+// T-Deck / T-Deck Plus: TCXO 1.8 V, boosted RX gain, and DIO2 as the RF switch: the module routes the +22 dBm PA to the
+// antenna through a switch driven by DIO2 (off, as in stock MeshCore lilygo_tdeck, TX reaches the antenna ~16 dB weaker;
+// Meshtastic and WADAMESH drive it). User decision 2026-10-26, to verify in the field with Heard xN.
+static constexpr float tcxoVoltage=1.8f;static constexpr bool dio2RfSwitch=true;
 static bool initRadio(){state.error=radio.begin(state.config.frequency,state.config.bandwidth,state.config.sf,state.config.cr,RADIOLIB_SX126X_SYNC_WORD_PRIVATE,state.config.power,16,tcxoVoltage,false);if(state.error)return false;state.error=radio.setCRC(1);if(state.error)return false;state.error=radio.setCurrentLimit(140);if(state.error)return false;state.error=radio.setDio2AsRfSwitch(dio2RfSwitch);if(state.error)return false;
  state.error=radio.setRxBoostedGainMode(true);if(state.error)return false;
  driver.setParams(state.config.frequency,state.config.bandwidth,state.config.sf,state.config.cr);driver.begin();state.error=radio.startReceive();return state.error==0;}

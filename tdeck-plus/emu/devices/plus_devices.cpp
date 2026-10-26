@@ -60,12 +60,13 @@ struct Backlight {int level=0;bool high=false;uint64_t lowSince=0;
 // ---- ESP32-C3 keyboard ----
 struct KeyboardC3:emu::I2cDevice {
  static constexpr uint8_t codes[5][7]={{10,9,32,20,30,33,34},{8,19,18,1,28,29,35},{7,16,6,31,26,27,17},{4,15,5,21,25,24,14},{2,12,3,11,22,23,13}};
- bool raw=false;int light=0;std::set<int> held;std::vector<char> typed;
+ // MM_EMU_KB_OLD=1: the character-only firmware of the first T-Deck (ignores 0x03, pads a longer read with zeros).
+ bool raw=false,old=getenv("MM_EMU_KB_OLD")!=nullptr;int light=0;std::set<int> held;std::vector<char> typed;
  bool write(const uint8_t *d,size_t n)override{
-  if(!n)return true;if(d[0]==0x03)raw=true;else if(d[0]==0x04)raw=false;else if(d[0]==0x01&&n>=2)light=d[1];return true;}
+  if(!n)return true;if(d[0]==0x03)raw=!old;else if(d[0]==0x04)raw=false;else if(d[0]==0x01&&n>=2)light=d[1];return true;}
  size_t read(uint8_t *d,size_t n)override{
   if(raw){uint8_t cols[5]={};for(int c=0;c<5;c++)for(int r=0;r<7;r++)if(held.count(codes[c][r]))cols[c]|=uint8_t(1<<r);size_t k=std::min<size_t>(n,5);memcpy(d,cols,k);return k;}
-  if(!n)return 0;d[0]=0;if(!typed.empty()){d[0]=uint8_t(typed.front());typed.erase(typed.begin());}return 1;}
+  if(!n)return 0;d[0]=0;if(!typed.empty()){d[0]=uint8_t(typed.front());typed.erase(typed.begin());}if(old){memset(d+1,0,n-1);return n;}return 1;}
 } keyboardChip;
 
 // ---- GT911 ----
@@ -111,7 +112,9 @@ int frameHeight(){return lcd.height();}
 bool frameDirty(bool clear){bool d=lcd.dirty;if(clear)lcd.dirty=false;return d;}
 bool displayOn(){return lcd.on&&!lcd.sleeping;}
 int backlight(){return backlightLine.current();}
-void key(int code,bool pressed){if(pressed)keyboardChip.held.insert(code);else keyboardChip.held.erase(code);}
+void key(int code,bool pressed){if(pressed)keyboardChip.held.insert(code);else keyboardChip.held.erase(code);
+ static const char letters[]="poiuytrewq\blkjhgfdsa\n$mnbvcxz";// codes 1..29 (character firmware: one char per press)
+ if(pressed&&keyboardChip.old){char c=code==33?' ':code>=1&&code<=29?letters[code-1]:0;if(c)keyboardChip.typed.push_back(c);}}
 void touch(int x,int y,bool down){touchChip.set(x,y,down);}
 // One unit = one detent movement: three line changes, as main.cpp counts TrackballStep edges per move.
 void roll(int dx,int dy){

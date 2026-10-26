@@ -2,6 +2,7 @@
 #include "services/clock_limits.h"
 #include "services/ota.h"
 #include <Arduino.h>
+#include <driver/gpio.h>
 #include "board/device_model.h"
 #include <nvs.h>
 #include <algorithm>
@@ -1835,6 +1836,9 @@ void setup(){
  for(int pin:{BOARD_LORA_CS,BOARD_SD_CS,BOARD_EPD_CS}){pinMode(pin,OUTPUT);digitalWrite(pin,HIGH);}
  // Shared SPI: every device retains its own chip select and transaction settings.
  SPI.begin(BOARD_SPI_SCK,BOARD_SPI_MISO,BOARD_SPI_MOSI);
+ // The first T-Deck has no pull-up on the shared MISO line: without it the SX1262 may not answer at boot ("Radio
+ // unavailable"). Set after SPI.begin, which reconfigures the pin (LilyGO examples and WADAMESH pull it up too).
+ gpio_set_pull_mode(gpio_num_t(BOARD_SPI_MISO),GPIO_PULLUP_ONLY);
  lcd.init();analogWrite(BOARD_EPD_BL,100);splash(0,"Initializing mesh services...");
  pinMode(BOARD_I2C_SDA,INPUT_PULLUP);pinMode(BOARD_I2C_SCL,OUTPUT_OPEN_DRAIN);digitalWrite(BOARD_I2C_SCL,HIGH);
  if(digitalRead(BOARD_I2C_SDA)==LOW){

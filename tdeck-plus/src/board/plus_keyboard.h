@@ -3,6 +3,10 @@
 // 2025-06) it answers five column bytes, one bit per row; the changes become the TCA8418 key events of the T-Deck Max
 // (same key caps and code numbers, bit 7 = pressed), so modifiers, holds and the lock keys work unchanged.
 // Older keyboard firmware only returns typed characters: they are replayed as press/release pairs (no holds).
+// The first T-Deck ships that older firmware: it ignores 0x03 and pads a 5-byte read with zeros, so at boot it looks
+// like an idle raw matrix. Raw is therefore confirmed on the first key: a real key stays down for several polls,
+// a typed character shows for one read only (the firmware clears it once read). Two such one-read blips that decode
+// as characters switch to character mode, and both are typed then.
 #include <Arduino.h>
 #include <Wire.h>
 #include "plus_board.h"
@@ -12,6 +16,8 @@ class Keyboard {
  static uint8_t code(int col,int row){static const uint8_t codes[5][7]={{10,9,32,20,30,33,34},{8,19,18,1,28,29,35},{7,16,6,31,26,27,17},{4,15,5,21,25,24,14},{2,12,3,11,22,23,13}};return codes[col][row];}
  uint8_t address=BOARD_I2C_ADDR_KEYBOARD,state[5]={};uint8_t queue[32];uint8_t head=0,count=0;uint32_t polledAt=0;
  void push(uint8_t event){if(count<sizeof(queue)){queue[(head+count)%sizeof(queue)]=event;count++;}else overflow=true;}
+ void pushChar(char c){bool shift,sym;int code=codeFor(c,shift,sym);if(!code)return;
+  if(shift)push(0x80|35);if(sym)push(0x80|32);push(uint8_t(0x80|code));push(uint8_t(code));if(sym)push(32);if(shift)push(35);}
  static int codeFor(char c,bool &shift,bool &sym){
   static const char letters[]="poiuytrewq\blkjhgfdsa\n$mnbvcxz";// codes 1..29 in order, as keys[][] in main.cpp
   static const char symbolKeys[]="@+-_)(321#\b\"';:/654*\n0.,!?987";
@@ -22,7 +28,7 @@ class Keyboard {
   return 0;
  }
 public:
- bool raw=false,overflow=false;uint32_t polls=0,errors=0;
+ bool raw=false,overflow=false,confirmed=false;uint32_t polls=0,errors=0;uint8_t pending[5]={};bool pendingSet=false;int blips=0;char early=0;
  bool begin(uint8_t addr,TwoWire*){
   address=addr;Wire.beginTransmission(address);if(Wire.endTransmission()!=0)return false;
   Wire.beginTransmission(address);Wire.write(0x03);Wire.endTransmission();delay(5);
@@ -38,12 +44,22 @@ public:
   if(count)return true;uint32_t now=millis();if(now-polledAt<8)return false;polledAt=now;polls++;
   if(raw){
    uint8_t bytes[5];if(Wire.requestFrom(address,uint8_t(5))!=5){errors++;return false;}for(int i=0;i<5;i++)bytes[i]=Wire.read();
-   for(int col=0;col<5;col++){if(bytes[col]&0x80){errors++;return count>0;}uint8_t changed=bytes[col]^state[col];
+   for(int col=0;col<5;col++)if(bytes[col]&0x80){errors++;return count>0;}
+   if(!confirmed){
+    bool changed=memcmp(bytes,state,5)!=0;
+    if(!pendingSet){if(changed){memcpy(pending,bytes,5);pendingSet=true;}return count>0;}// hold the first change one poll
+    pendingSet=false;
+    if(!changed){// gone after one read: a character from the older firmware, not a key
+     bool shift,sym;bool tail=true;for(int i=1;i<5;i++)tail=tail&&(pending[i]==0||pending[i]==pending[0]);
+     if(tail&&codeFor(char(pending[0]),shift,sym)){if(++blips<2)early=char(pending[0]);else{raw=false;Serial.println("PLUS_KEYBOARD raw=0 (character firmware)");pushChar(early);pushChar(char(pending[0]));}}
+     return count>0;}
+    confirmed=true;// still down on the next poll: a real matrix
+   }
+   for(int col=0;col<5;col++){uint8_t changed=bytes[col]^state[col];
     for(int row=0;row<7;row++)if(changed&(1<<row))push(uint8_t(code(col,row)|((bytes[col]&(1<<row))?0x80:0)));state[col]=bytes[col];}
   }else{
    if(Wire.requestFrom(address,uint8_t(1))!=1){errors++;return false;}char c=char(Wire.read());if(!c)return false;
-   bool shift,sym;int code=codeFor(c,shift,sym);if(!code)return false;
-   if(shift)push(0x80|35);if(sym)push(0x80|32);push(uint8_t(0x80|code));push(uint8_t(code));if(sym)push(32);if(shift)push(35);
+   pushChar(c);
   }
   return count>0;
  }
