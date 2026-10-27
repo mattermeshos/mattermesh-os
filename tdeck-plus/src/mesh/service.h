@@ -10,7 +10,7 @@
 namespace matter {
 struct Config { float frequency=869.618f,bandwidth=62.5f;uint8_t sf=8,cr=8,pathBytes=OUTGOING_PATH_HASH_BYTES;int8_t power=MAX_TX_POWER;String name="MatterMesh"; };
 struct Node {String key,name;uint8_t type=0;uint32_t seen=0;int hops=-1;float rssi=0,snr=0;bool live=false;int32_t lat=0,lon=0;};
-struct NodePin {double lat=0,lon=0;bool repeater=false;char name[16]={};};
+struct NodePin {double lat=0,lon=0;bool repeater=false,live=false;char name[16]={};};
 struct Received {int channelId=-1;String key,channel,sender,body,scope,path;uint32_t timestamp=0;int hops=-1;bool direct=false;};
 struct Delivery {bool txComplete=false,txSuccess=false;uint32_t token=0;String state,heard,firstRepeater;int repeaters=-1;};
 struct Snapshot {bool ready=false,identity=false,rx=false,tx=false;int error=0,nodes=0,queued=0;uint32_t received=0,sent=0,errors=0;float rssi=0,snr=0;Config config;};
@@ -24,6 +24,10 @@ struct RadioCounters {bool ready=false;uint32_t received=0,sent=0;};// the main 
 void loop();Snapshot snapshot();RadioCounters radioCounters();std::vector<Node> nodes(int filter,int offset=0,int limit=NODE_CAPACITY);int nodeCount(int filter=0);
 // Contacts page: live nodes first (most recently heard), then saved ones by name; `query` filters names case-insensitively.
 struct ContactPage {std::vector<Node> rows;int total=0,live=0;};ContactPage contacts(int filter,const std::string &query,int offset,int limit);int contactsCount(int filter,const std::string &query);
+// Home Main area, without copying the node list: nodes with a position, live ones, a digest of the positions, best live SNR.
+struct NodeStats {int placed=0,live=0;long digest=0;float bestSnr=0;bool snrKnown=false;};NodeStats nodeStats();
+// The k contacts nearest to lat / lon that sent a position, nearest first (one pass, no copy of the node list).
+int nearestPins(double lat,double lon,NodePin *out,int k);
 int nodePins(double south,double west,double north,double east,NodePin *out,int capacity);
 int repeaterPinsForPrefix(const String &prefix,NodePin *out,int capacity,int &matches);int nodePinsForName(const String &name,NodePin *out,int capacity,int &matches);
 String nodeNameForPrefix(const String &prefix,int &matches,int type=0);

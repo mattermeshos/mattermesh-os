@@ -5,7 +5,7 @@
 #include "reply_policy.h"
 #include "mesh/message_limits.h"
 namespace device {
-constexpr uint32_t QUICK_REPLY_HOLD_MS=2000,QUICK_REPLY_DEBOUNCE_MS=30,QUICK_REPLY_LOST_RELEASE_MS=10000;
+constexpr uint32_t QUICK_REPLY_HOLD_MS=2000,QUICK_REPLY_SHOW_MS=400,QUICK_REPLY_DEBOUNCE_MS=30,QUICK_REPLY_LOST_RELEASE_MS=10000;
 enum class EnterAction {None,Short,Hold};
 struct LockEnter {
  bool down=false,consumed=false;uint32_t started=0,lastRelease=0;

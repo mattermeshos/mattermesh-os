@@ -67,6 +67,8 @@ SET_LOOP_TASK_STACK_SIZE(UI_TASK_STACK_BYTES);
 #include "services/touch_pipeline.h"
 #include "mesh/companion_settings.h"
 #include "services/gps_position_policy.h"
+#include "services/sky.h"
+#include "services/home_data.h"
 #include "services/channel_catalog_policy.h"
 #include "services/message_banner.h"
 #include "mesh/history_page.h"
@@ -124,12 +126,12 @@ constexpr uint32_t UI_INPUT_SETTLE_MS=0,UI_TYPING_FRAME_MS=16,UI_MIN_FRAME_MS=16
 enum class Screen { Chats, Chat, NewChat, Home, Section, Launcher, PickContact, Welcome };
 Screen screen=Screen::Home,chatsParent=Screen::Home,sectionParent=Screen::Home;
 Screen chatParent=Screen::Chats;int chatParentSection=0;
-bool deviceLocked=false,lockScreenDirty=false;Screen previousScreen=Screen::Home;
+bool deviceLocked=false,lockScreenDirty=false,lockPaintNow=false;Screen previousScreen=Screen::Home;// lockPaintNow: a key changed the lock screen, paint without the settle
 device::LockKey lockKey;device::SpaceTaps unlockTaps;device::LockMessages lockMessages;device::ReceivedRepeater receivedRepeater;bool lockHintPainted=false;int trackballUnlockTaps=0;/* Plus: trackball clicks of the unlock gesture, shown as the banner dots */String stormBanner,stormLockText;uint32_t stormBannerUntil=0,stormLockUntil=0;/* storm alert: banner, lock band (weather_apps.inc) */uint32_t lockHintUntil=0,unlockCountdownAt=0;bool locked40Supported=true;uint32_t keyboardHardwareOverflows=0,lockRecoveries=0;int renderedUnlockTaps=-1;uint32_t lockedCpuPollAt=0;uint32_t lockMinute=0;
 device::LockEnter lockEnter;device::QuickReply quickReply;
-// ENTER on the lock screen with a message: a banner fills two dots over QUICK_REPLY_HOLD_MS, then the quick reply
-// opens (no need to keep ENTER down: works with keyboards that only report taps). 0 = no countdown.
-uint32_t quickCountdownAt=0;bool quickEmojiPicker=false;/* emoji picker open over the quick reply (Plus) */bool quickTxReady=false,quickTxSuccess=false;uint32_t quickTxToken=0;
+// ENTER on the lit lock screen with a message: a tap shows the next message at once; ENTER held past QUICK_REPLY_SHOW_MS
+// shows the dots, filled until QUICK_REPLY_HOLD_MS, then opens the quick reply. quickCountdownAt: when that ENTER went down (0 = no countdown).
+uint32_t quickCountdownAt=0,quickDotsPaints=0;/* lock frames painted with the hold dots (tests) */bool quickEmojiPicker=false;/* emoji picker open over the quick reply (Plus) */bool quickTxReady=false,quickTxSuccess=false;uint32_t quickTxToken=0;
 device::ReplyOriginal pendingQuickOriginal;uint32_t lockMessageShownAt=0,paintedLockToken=0;
 std::string lockReadError;bool consumeLockMessage(uint32_t token);
 extern uint32_t quickReplyInputAt;void openQuickReply();void closeQuickReply();void sendQuickReply();void quickReplyKey(char c);void pollQuickReply();static void resolveQuickOriginal();static void lockShowNext(uint32_t token);static int quickCountdownDots();
@@ -181,6 +183,11 @@ void applyTextSize(){
 // One NVS integer: the default when the namespace cannot be opened; put reports whether all 4 bytes were written.
 void loadTextSize(){chatTextSize=device::prefGetInt("mmui","chatlg",1)?1:0;textSizeFocus=chatTextSize;applyTextSize();}
 bool setTextSize(int index){index=index?1:0;if(!device::prefPutInt("mmui","chatlg",index))return false;chatTextSize=index;applyTextSize();return true;}// applied only once saved
+int homeWidget=mm::HomeWidgetDefault,homeWidgetFocus=mm::HomeWidgetDefault;// Settings > Home widgets > Beside clock, NVS "mmui"/"homewg"
+int homeMain=mm::MainWidgetDefault,homeMainFocus=mm::MainWidgetDefault,homeWidgetsRow=0;String noteInput;// Main area (NVS "mmui"/"homemn"), the Home widgets row, the note being edited
+void loadHomeWidget(){homeWidget=constrain(device::prefGetInt("mmui","homewg",mm::HomeWidgetDefault),0,mm::HomeWidgetCount-1);homeWidgetFocus=homeWidget;}
+void loadHomeMain();bool setHomeMain(int index);
+bool setHomeWidget(int index){index=constrain(index,0,mm::HomeWidgetCount-1);if(!device::prefPutInt("mmui","homewg",index))return false;homeWidget=index;return true;}// applied only once saved
 int lockWallpaper=0,wallpaperFocus=0;// theme index (mm::theme), persisted in NVS "mmlock"
 void loadWallpaper(){lockWallpaper=constrain(device::prefGetInt("mmlock","wall",0),0,WALLPAPER_COUNT-1);wallpaperFocus=lockWallpaper;
  mm::setTheme(lockWallpaper);
@@ -407,6 +414,7 @@ void configureChannels(){matter::clearChannels();for(int i=0;i<MAX_CHATS;i++){St
 bool commitChannelCatalog(const ChatEntry *next,const String *keys,const String *peers,int count,const int *mapping){
  if(!sdReady||deviceLocked||matter::busy()||count<0||count>MAX_CHATS)return false;
  uint16_t unread[MAX_CHATS]={};uint32_t mute=0;String drafts[MAX_CHATS];
+ incomingBanner.clear();// its chat id may move with the new catalog
  for(int i=0;i<chatCount;i++)if(mapping[i]>=0){int j=mapping[i];unread[j]=unreadMessages[i];drafts[j]=chatDrafts.saved[i];if(mutedChannels&(uint32_t(1)<<i))mute|=uint32_t(1)<<j;}
  uint32_t mappedLocalBoundary[MAX_CHATS]={};
  const char *paths[]={"/maxchat/catalog.tsv","/mattermesh/bindings.tsv","/mattermesh/messages.tsv"};
@@ -577,11 +585,12 @@ void otaAction(){
  if(phase==P::Available){if(!otaConfirm){otaConfirm=true;render();return;}otaConfirm=false;notice=device::otaInstall()?"":"Install could not start";render();return;}
  if(phase!=P::Checking&&phase!=P::Downloading&&phase!=P::Verifying&&phase!=P::Restarting){otaConfirm=false;device::otaCheck();render();}// otaCheck() refuses while busy too
 }
+static void fillHomeWidget(mm::State &v);static void fillMainWidget(mm::State &v);
 mm::State uiStateBuild();
 mm::State uiState(){uint32_t t=micros();auto v=uiStateBuild();uiStateUs+=micros()-t;uiStateCalls++;return v;}
 mm::State uiStateBuild(){
  auto audio=device::audioState();
- mm::State v;if(screen==Screen::Section&&section==mm::SupportSection){static String code=device::otaUnlockCode();v.unlockCode=code.c_str();v.supportTab=supportTab;}if(screen==Screen::Section&&section==17)fillOta(v);if(!deviceLocked&&screen==Screen::Section&&section==mm::LinkSection)linkFill(v);if(screen==Screen::Section&&section==14)appLinkFill(v);v.quickPending=quickReply.pending;v.quickSent=quickReply.sent;v.shutdownConfirm=shutdownConfirm;auto timeState=device::timeSyncState();v.timeSource=timeState.acquiring?timeState.message:timeState.source==device::TimeSource::WiFi?"Wi-Fi / NTP":timeState.source==device::TimeSource::GPS?"GPS":timeState.source==device::TimeSource::Manual?"Set by hand":timeState.message;if(screen==Screen::Section&&section==mm::QuickSettingsSection){auto source=device::batteryPowerSource();v.usbPower=source==device::PowerSource::USB;v.powerSourceKnown=source!=device::PowerSource::Unknown;}if(screen==Screen::Section&&section==24&&sdReady){v.storageTotal=SD.totalBytes();v.storageUsed=SD.usedBytes();}v.emojiPicker=emojiPicker;v.quickEmoji=quickEmojiPicker&&quickReply.active;v.emojiFocus=emojiFocus;v.emojiTab=emojiTab;if(emojiPicker||quickEmojiPicker){if(emojiRecent.empty())emojiItems();v.emojiRecent=emojiRecent;}v.audioReady=audio.ready;v.audioNotifications=audio.notifications;v.audioVolume=audio.volume;v.messageTone=device::RINGTONES[device::ringtoneIndex(audio.messageTone)].name;v.mentionTone=device::RINGTONES[device::ringtoneIndex(audio.mentionTone)].name;v.audioMessage=audio.message.c_str();v.unlockTapCount=max(int(unlockTaps.taps),trackballUnlockTaps);v.scopePicker=scopePicker;v.scopeEditing=scopeEditing;v.clearChatConfirm=clearChatConfirm;v.chatMenuFocus=chatMenuFocus;v.scopeFocus=scopeFocus;v.scopeOffset=scopeFocus/mm::ScopeRows*mm::ScopeRows;v.scopeInput=scopeInput.c_str();if(scopePicker&&!deviceLocked)v.regionScopes=regionScopes;v.receivedName=lastReceivedSender.c_str();v.receivedPreview=lastReceivedBody.c_str();v.receivedTime=lastReceivedTime.c_str();v.lockHasMessage=lastReceivedToken!=0;v.lockHint=lockHintUntil&&int32_t(lockHintUntil-millis())>0;v.unlockCounting=unlockCountdownAt!=0;v.quickCountdown=quickCountdownAt&&deviceLocked&&!quickReply.active?quickCountdownDots():-1;
+ mm::State v;if(screen==Screen::Section&&section==mm::SupportSection){static String code=device::otaUnlockCode();v.unlockCode=code.c_str();v.supportTab=supportTab;}if(screen==Screen::Section&&section==17)fillOta(v);if(!deviceLocked&&screen==Screen::Section&&section==mm::LinkSection)linkFill(v);if(screen==Screen::Section&&section==14)appLinkFill(v);v.quickPending=quickReply.pending;v.quickSent=quickReply.sent;v.shutdownConfirm=shutdownConfirm;auto timeState=device::timeSyncState();v.timeSource=timeState.acquiring?timeState.message:timeState.source==device::TimeSource::WiFi?"Wi-Fi / NTP":timeState.source==device::TimeSource::GPS?"GPS":timeState.source==device::TimeSource::Manual?"Set by hand":timeState.message;if(screen==Screen::Section&&section==mm::QuickSettingsSection){auto source=device::batteryPowerSource();v.usbPower=source==device::PowerSource::USB;v.powerSourceKnown=source!=device::PowerSource::Unknown;}if(screen==Screen::Section&&section==24&&sdReady){v.storageTotal=SD.totalBytes();v.storageUsed=SD.usedBytes();}v.emojiPicker=emojiPicker;v.quickEmoji=quickEmojiPicker&&quickReply.active;v.emojiFocus=emojiFocus;v.emojiTab=emojiTab;if(emojiPicker||quickEmojiPicker){if(emojiRecent.empty())emojiItems();v.emojiRecent=emojiRecent;}v.audioReady=audio.ready;v.audioNotifications=audio.notifications;v.audioVolume=audio.volume;v.messageTone=device::RINGTONES[device::ringtoneIndex(audio.messageTone)].name;v.mentionTone=device::RINGTONES[device::ringtoneIndex(audio.mentionTone)].name;v.audioMessage=audio.message.c_str();v.unlockTapCount=max(int(unlockTaps.taps),trackballUnlockTaps);v.scopePicker=scopePicker;v.scopeEditing=scopeEditing;v.clearChatConfirm=clearChatConfirm;v.chatMenuFocus=chatMenuFocus;v.scopeFocus=scopeFocus;v.scopeOffset=scopeFocus/mm::ScopeRows*mm::ScopeRows;v.scopeInput=scopeInput.c_str();if(scopePicker&&!deviceLocked)v.regionScopes=regionScopes;v.receivedName=lastReceivedSender.c_str();v.receivedPreview=lastReceivedBody.c_str();v.receivedTime=lastReceivedTime.c_str();v.lockHasMessage=lastReceivedToken!=0;v.lockHint=lockHintUntil&&int32_t(lockHintUntil-millis())>0;v.unlockCounting=unlockCountdownAt!=0;v.quickCountdown=quickCountdownDots();
  std::string lockRxHash;if(deviceLocked){v.lockHasMessage=false;matter::Record r;if(loadedRecord(lockMessages.current,r)&&!r.mine){v.lockHasMessage=true;v.receivedName=r.sender.c_str();v.receivedPreview=r.body.c_str();v.receivedTime=messageTime(r.timestamp).c_str();lockRxHash=device::incomingRepeater(r.path.c_str());}}
  auto repeaterLabel=[&](const std::string &hash){int matches=0;String name=matter::nodeNameForPrefix(hash.c_str(),matches,2);return matches==1&&!name.isEmpty()?mm::senderDisplayName(name.c_str()):"["+hash+"]";};auto incomingLabel=[&](){return repeaterLabel(receivedRepeater.hash);};
  if(deviceLocked&&!lockRxHash.empty()&&uint32_t(millis()-lockMessageShownAt)<device::LOCK_RX_REPEATER_MS)v.lockRepeater="Received via: "+repeaterLabel(lockRxHash);for(auto n:unreadMessages)v.unread+=n;v.status.unread=v.unread;v.cpuMHz=getCpuFrequencyMhz();v.stackFree=uxTaskGetStackHighWaterMark(nullptr);v.rasterMs=lastRasterMs;v.paintMs=lastPaintMs;v.heapKB=ESP.getFreeHeap()/1024;v.flashMB=ESP.getFlashChipSize()/1048576;v.sd=sdReady;v.touch=touchBackend;v.keyboard=keyboardReady;
@@ -649,13 +658,84 @@ v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequency=radio.config.freque
  if(!deviceLocked&&screen==Screen::Section&&section==9)mapCompose(v);
  if(!deviceLocked&&screen==Screen::Section&&mm::toolsSection(section))toolsCompose(v);
  if(!deviceLocked&&screen==Screen::Section&&section==10)weatherTabsCompose(v);
+ v.homeWidget=homeWidget;v.homeWidgetFocus=homeWidgetFocus;v.homeMain=homeMain;v.homeMainFocus=homeMainFocus;v.homeWidgetsRow=homeWidgetsRow;// Settings shows the choices on its Home widgets row
+ if(screen==Screen::Section&&section==mm::NoteSection)v.noteInput=noteInput.c_str();
+ if(!deviceLocked&&(screen==Screen::Home||(screen==Screen::Section&&section==mm::MainAreaSection)))fillMainWidget(v);// Home widgets: its preview is a Home state
+ if(!deviceLocked&&(screen==Screen::Home||(screen==Screen::Section&&section==mm::BesideClockSection)))fillHomeWidget(v);
  return v;
 }
 // Home fact line (Plus, no weather): nodes heard, packets, uptime, unread, then a tip; one per minute.
 String homeFact(){auto radio=matter::snapshot();uint32_t minutes=millis()/60000;unsigned unread=0;for(auto n:unreadMessages)unread+=n;
- const char *tips[]={"Tap the status bar for quick settings","Hold the trackball to lock","N / M switch the emoji tabs","ENTER on the lock for Quick Reply","Trackball click opens the focused item","Themes live under Menu > Themes"};
+ const char *tips[]={"Tap the status bar for quick settings","Hold the trackball to lock","N / M switch the emoji tabs","Hold ENTER on the lock: Quick Reply","Trackball click opens the focused item","Themes live under Menu > Themes"};
  switch(minutes%6){case 0:return String(radio.nodes)+" nodes heard";case 1:return String(radio.received)+" packets received";case 2:return "Up "+String(minutes/60)+" h "+String(minutes%60)+" min";case 3:return unread?String(unread)+" unread messages":String("No unread messages");default:return tips[(minutes/6+minutes)%6];}}
-void renderHome(){auto v=uiState();v.homeFact=homeFact().c_str();mm::Renderer renderer(frame);renderer.home(v);/* conversations come sorted by activity (conversationList) */int first=constrain(homeScroll,0,max(0,int(v.conversations.size())-mm::MenuHomeRows));for(int i=0;i<mm::MenuHomeRows&&first+i<int(v.conversations.size());i++)renderedChannels.push_back({mm::menuHomeRowRect(i),v.conversations[first+i].id});}
+// Weather over Wi-Fi: live while a forecast is held and Wi-Fi reaches a network. The action of the Weather page
+// button and the Wi-Fi button widget: Wi-Fi off turns it on, no network opens Wi-Fi settings, otherwise a refresh.
+static bool weatherOffline(device::WeatherPhase phase){return phase==device::WeatherPhase::WifiOff||phase==device::WeatherPhase::NoNetwork;}// = mm::weatherLive() on the view side
+static bool weatherLiveNow(){auto w=device::weatherState();return w.data.valid&&!weatherOffline(w.phase);}
+static void weatherWifiAction(){auto phase=device::weatherState().phase;if(phase==device::WeatherPhase::NoNetwork){openSection(4);return;}if(phase==device::WeatherPhase::WifiOff)device::weatherEnableWifi();else device::weatherRefresh();render();}
+// GPS position the Home widgets use: finite and set (0,0 is "none"); a live fix is also fresh.
+static bool gpsPositionSet(const device::LocationState &loc){return std::isfinite(loc.latitude)&&std::isfinite(loc.longitude)&&(loc.latitude||loc.longitude);}
+static bool gpsLiveFix(const device::LocationState &loc){return loc.fix&&gpsPositionSet(loc)&&loc.fixAgeMs<device::GPS_POSITION_MAX_AGE_MS;}
+// GPS fields shared by the Beside clock and Main area widgets; returns the location read.
+static device::LocationState fillGps(mm::State::HomeWidgetData &d){auto loc=device::locationState();bool valid=gpsPositionSet(loc);
+ d.gpsOn=loc.enabled;d.satellites=loc.satellitesUsed;d.gpsFix=gpsLiveFix(loc);d.position=valid&&loc.fixAgeMs<mm::HomePositionMaxAgeMs;
+ d.altitude=int(lround(loc.altitude));d.latitude=loc.latitude;d.longitude=loc.longitude;d.fixAgeS=loc.fixAgeMs/1000;return loc;}
+// Home widget data (Home, Settings > Home widgets): only what the widget on screen needs.
+static void fillHomeWidget(mm::State &v){
+ int id=screen==Screen::Section&&section==mm::BesideClockSection?homeWidgetFocus:homeWidget;auto &d=v.widget;
+ if(id==mm::WidgetMatterMesh){v.homeFact=homeFact().c_str();return;}
+ time_t now=time(nullptr);d.clock=now>=MM_EPOCH_MIN;struct tm local={};if(d.clock)localtime_r(&now,&local);
+ auto hhmm=[](time_t t){return std::string(messageTime(uint32_t(t)).c_str());};
+ if(id==mm::WidgetMeshLive)d.live=matter::contacts(0,"",0,0).live;
+ if(id==mm::WidgetUnread&&v.conversations.empty())v.conversations=conversationList();// Settings pages: the preview counts unread too
+ if(id==mm::WidgetRepeater){auto page=matter::contacts(2,"",0,1);/* live repeaters first, the latest heard on top */
+  if(!page.rows.empty()&&page.rows[0].live){auto &n=page.rows[0];d.repeater=true;d.repeaterName=n.name.c_str();d.repeaterSnr=n.snr;d.repeaterAgeS=(millis()-n.seen)/1000;}}
+ if(mm::gpsWidget(id)){auto loc=fillGps(d);bool valid=gpsPositionSet(loc);
+  if(mm::skyWidget(id)&&d.clock){// sky from the GPS position, else where the weather was last fetched
+   double lat=loc.latitude,lon=loc.longitude;if(!valid){auto w=device::weatherState().data;lat=w.latitude;lon=w.longitude;valid=w.valid&&(lat||lon);}
+   auto sun=valid?mm_sky::sunTimes(now,lat,lon):mm_sky::SunTimes{};d.sun=sun.valid;d.sunPolar=sun.polar;
+   if(sun.valid&&!sun.polar){d.sunrise=hhmm(sun.rise);d.sunset=hhmm(sun.set);d.dayPermille=now<sun.rise?-1:now>sun.set?1001:int((now-sun.rise)*1000/(sun.set-sun.rise));
+    d.nextIsSunset=now>=sun.rise&&now<sun.set;d.nextSunTime=d.nextIsSunset?d.sunset:now<sun.rise?d.sunrise:hhmm(mm_sky::sunTimes(now+86400,lat,lon).rise);}}}
+ if(id==mm::WidgetMoon&&d.clock){auto moon=mm_sky::moonPhase(now);d.moonWaxing=moon.waxing;d.moonName=moon.shortName;d.moonIllumination=moon.illumination;d.moonAge=moon.age;
+  struct tm full;localtime_r(&moon.nextFull,&full);char text[12];strftime(text,sizeof(text),"%b ",&full);d.moonFull=std::string(text)+std::to_string(full.tm_mday);}
+ if(id==mm::WidgetCalendar&&d.clock){char text[16];strftime(text,sizeof(text),"%b",&local);d.month=text;for(auto &ch:d.month)ch=toupper(ch);strftime(text,sizeof(text),"%A",&local);d.weekday=text;d.day=local.tm_mday;d.week=mm_sky::isoWeek(local);}
+ if(id==mm::WidgetLastWeather){auto updated=device::weatherState().data.updated;if(d.clock&&updated&&uint32_t(now)>=updated)d.weatherAgeS=uint32_t(now)-updated;}
+}
+// Main area data kept since boot: one altitude point every 10 min with a fix, packets per quarter hour.
+static mm_home::AltitudeTrack altitudeTrack;static mm_home::PacketHistory packetHistory;
+static_assert(mm::MainPacketBars==mm_home::PacketBuckets,"Mesh activity bars = packet buckets");static_assert(mm::mainWidgetSection(mm::MainNote)==mm::NoteSection&&mm::mainWidgetSection(mm::MainHourly)==10&&mm::mainWidgetSection(mm::MainRadar)==1&&mm::mainWidgetSection(mm::MainSky)==3,"Main area taps: Note, Weather, Contacts, GPS");
+static void trackHomeData(){uint32_t now=millis();packetHistory.update(now,matter::radioCounters().received);
+ auto loc=device::locationState();time_t clock=time(nullptr);if(gpsLiveFix(loc)&&loc.altitudeValid)altitudeTrack.add(now,int(lround(loc.altitude)),clock>=MM_EPOCH_MIN?uint32_t(clock):0);}
+String noteText;// the Main area note (NVS "mmui"/"note")
+// Main area data (Home, Settings > Home widgets / Main area): only what the widget on screen needs.
+static void fillMainWidget(mm::State &v){
+ int id=screen==Screen::Section&&section==mm::MainAreaSection?homeMainFocus:homeMain;auto &m=v.main;
+ if(mm::gpsMain(id))fillGps(v.widget);
+ if(id==mm::MainChats&&v.conversations.empty())v.conversations=conversationList();// Settings: the Chats preview
+ if(id==mm::MainTimeline){// the last 4 messages, read again (SD) only when the journal or the unread counts change
+  static std::vector<mm::State::TimelineRow> cache;static uint32_t cachedKey=0;static bool cached=false;uint32_t key=journalStamp()*31+radioJournal.index.size();for(auto n:unreadMessages)key=key*7+n;
+  if(!cached||key!=cachedKey){cache.clear();auto unread=lockMessageTokens();
+   bool failed=false;for(auto it=radioJournal.index.rbegin();it!=radioJournal.index.rend()&&int(cache.size())<mm::MainTimelineRows;++it){if(it->chat<0||it->chat>=chatCount)continue;matter::Record rec;if(!loadedRecord(it->token,rec)){failed=true;break;}if(rec.chat!=it->chat)continue;
+    mm::State::TimelineRow row;row.time=messageTime(rec.timestamp).c_str();row.channel=chats[rec.chat].name.c_str();row.direct=chats[rec.chat].direct;row.unread=!rec.mine&&std::find(unread.begin(),unread.end(),rec.token)!=unread.end();
+    row.text=rec.mine?std::string("You: ")+rec.body.c_str():row.direct||!rec.sender.length()?std::string(rec.body.c_str()):mm::senderDisplayName(rec.sender.c_str())+": "+rec.body.c_str();row.chat=rec.chat;cache.push_back(row);}
+   cachedKey=key;cached=!failed;}// an SD read error: read again at the next paint
+  m.timeline=cache;}
+ if(id==mm::MainRadar){auto &d=v.widget;matter::NodePin pins[mm::MainRadarMax];int count=d.position?matter::nearestPins(d.latitude,d.longitude,pins,mm::MainRadarMax):0;m.placed=matter::nodeStats().placed;
+  for(int i=0;i<count;i++){auto &n=pins[i];mm::State::NearbyNode node;node.name=n.name;node.live=n.live;
+   node.meters=int(lround(mm::geoDistanceMeters(d.latitude,d.longitude,n.lat,n.lon)));node.bearing=mm::geoBearing(d.latitude,d.longitude,n.lat,n.lon);m.nearby.push_back(node);}
+}// nearest first
+ if(id==mm::MainActivity){for(int i=0;i<mm_home::PacketBuckets;i++)m.packets[i]=packetHistory.at(i);m.packetsHour=packetHistory.lastHour();
+  auto stats=matter::nodeStats();m.nodesHeard=stats.live;m.bestSnr=stats.bestSnr;m.snrKnown=stats.snrKnown;}
+ if(id==mm::MainPosition||id==mm::MainSky)m.hdopHundredths=device::locationHdop();
+ if(id==mm::MainPosition&&v.widget.position){m.utm=mm_home::utm(v.widget.latitude,v.widget.longitude);m.spokenLat=mm_home::spoken(v.widget.latitude,true);m.spokenLon=mm_home::spoken(v.widget.longitude,false);}
+ if(id==mm::MainSky){device::SkySat sats[device::SkySatMax];int n=device::locationSky(sats,device::SkySatMax);for(int i=0;i<n;i++){mm::State::SkySatView view;view.azimuth=sats[i].azimuth;view.elevation=sats[i].elevation;view.used=sats[i].used;m.sky.push_back(view);}}
+ if(id==mm::MainElevation){for(int i=0;i<altitudeTrack.count;i++)m.elevation.push_back(altitudeTrack.at(i));m.climb=altitudeTrack.climb();if(altitudeTrack.count&&altitudeTrack.epochAt(0))m.elevationFrom=messageTime(altitudeTrack.epochAt(0)).c_str();}
+ if(id==mm::MainNote)m.note=noteText.c_str();
+}
+void loadHomeMain(){homeMain=constrain(device::prefGetInt("mmui","homemn",mm::MainWidgetDefault),0,mm::MainWidgetCount-1);homeMainFocus=homeMain;noteText=device::prefGetString("mmui","note");}
+bool setHomeMain(int index){index=constrain(index,0,mm::MainWidgetCount-1);if(!device::prefPutInt("mmui","homemn",index))return false;homeMain=index;return true;}// applied only once saved
+static bool saveNote(){String text=noteInput;text.trim();if(!device::prefPutString("mmui","note",text))return false;noteText=text;return true;}
+void renderHome(){auto v=uiState();mm::Renderer renderer(frame);renderer.home(v);/* conversations come sorted by activity (conversationList) */int first=constrain(homeScroll,0,max(0,int(v.conversations.size())-mm::MenuHomeRows));if(v.homeMain==mm::MainChats)for(int i=0;i<mm::MenuHomeRows&&first+i<int(v.conversations.size());i++)renderedChannels.push_back({mm::menuHomeRowRect(i),v.conversations[first+i].id});}
 void renderLauncher(){auto state=uiState();state.focus=launcherSelection;mm::Renderer renderer(frame);renderer.launcher(state);}
 
 bool saveLights(){
@@ -673,13 +753,21 @@ void loadLights(){
  f.close();
 }
 mm::Page sectionPage(int id){
- switch(id){case mm::LinkSection:return mm::Page::Link;case 1:return mm::Page::Mesh;case 2:return mm::Page::Radio;case 3:return mm::Page::GPS;case 4:return mm::Page::Wifi;case 5:return mm::Page::Battery;case 6:return mm::Page::Controls;case 7:return mm::Page::Files;case 8:return mm::Page::Info;case 9:return mm::Page::Maps;case 10:return mm::Page::Weather;case 11:return mm::Page::Terminal;case 14:return mm::Page::Bluetooth;case 16:return mm::Page::DateTime;case 17:return mm::Page::Updates;case mm::QuickSettingsSection:return mm::Page::QuickSettings;case 19:return mm::Page::Settings;case 20:return mm::Page::Power;case 21:return mm::Page::Audio;case 22:return mm::Page::Wallpaper;case mm::KeyboardSection:return mm::Page::Keyboard;case 24:return mm::Page::Storage;case mm::TextSizeSection:return mm::Page::TextSize;case mm::AccentKeySection:return mm::Page::AccentKey;case mm::CliSection:return mm::Page::Cli;case mm::SupportSection:return mm::Page::Support;default:return mm::Page::Info;}
+ switch(id){case mm::LinkSection:return mm::Page::Link;case 1:return mm::Page::Mesh;case 2:return mm::Page::Radio;case 3:return mm::Page::GPS;case 4:return mm::Page::Wifi;case 5:return mm::Page::Battery;case 6:return mm::Page::Controls;case 7:return mm::Page::Files;case 8:return mm::Page::Info;case 9:return mm::Page::Maps;case 10:return mm::Page::Weather;case 11:return mm::Page::Terminal;case 14:return mm::Page::Bluetooth;case 16:return mm::Page::DateTime;case 17:return mm::Page::Updates;case mm::QuickSettingsSection:return mm::Page::QuickSettings;case 19:return mm::Page::Settings;case 20:return mm::Page::Power;case 21:return mm::Page::Audio;case 22:return mm::Page::Wallpaper;case mm::KeyboardSection:return mm::Page::Keyboard;case 24:return mm::Page::Storage;case mm::TextSizeSection:return mm::Page::TextSize;case mm::HomeWidgetsSection:return mm::Page::HomeWidgets;case mm::BesideClockSection:return mm::Page::BesideClock;case mm::MainAreaSection:return mm::Page::MainArea;case mm::NoteSection:return mm::Page::Note;case mm::AccentKeySection:return mm::Page::AccentKey;case mm::CliSection:return mm::Page::Cli;case mm::SupportSection:return mm::Page::Support;default:return mm::Page::Info;}
 }
+// The state Home would paint now (Settings > Home widgets preview).
+static mm::State homeState(){auto shown=screen;screen=Screen::Home;auto v=uiState();screen=shown;return v;}
 void renderSection(){
  auto v=uiState();v.page=sectionPage(section);v.filter=discoverFilter;v.settingsFocus=settingsFocus;v.settingsOffset=settingsScroll;
  v.version=MM_RELEASE_LABEL;v.build=__DATE__;v.commit=MM_GIT_COMMIT;// version e.g. "ALPHA 0.3.0.7"
  if(section==7){v.scroll=filesScroll;if(sdReady){static std::vector<std::string> cache;static uint32_t cachedAt=0;if(cache.empty()||uint32_t(millis()-cachedAt)>=5000){cache.clear();File dir=SD.open("/");while(cache.size()<64){File f=dir.openNextFile();if(!f)break;cache.push_back(std::string(f.isDirectory()?"[DIR] ":"")+f.name());f.close();}dir.close();cachedAt=millis();}v.files=cache;}filesCount=v.files.size();}
+ // Home widgets: the whole Home drawn first, kept at half size (2x2 average), then copied into the page's frame.
+ static std::vector<uint16_t> half;// allocated once (19 K pixels), kept for the next paint of the page
+ bool preview=section==mm::HomeWidgetsSection;if(preview){mm::Renderer(frame).home(homeState());
+  const uint16_t *px=frame.getBuffer();half.resize(mm::W/2*(mm::H/2));for(int y=0;y<mm::H/2;y++)for(int x=0;x<mm::W/2;x++){unsigned r=0,g=0,b=0;
+   for(int dy=0;dy<2;dy++)for(int dx=0;dx<2;dx++){uint16_t c=mm::panelToRgb565(px[(2*y+dy)*mm::W+2*x+dx]);r+=c>>11;g+=(c>>5)&63;b+=c&31;}half[y*(mm::W/2)+x]=mm::rgb565ToPanel(uint16_t((r/4)<<11|(g/4)<<5|(b/4)));}}
  mm::Renderer renderer(frame);renderer.draw(v);
+ if(preview){uint16_t *px=frame.getBuffer();auto r=mm::HomeHalfPreview;for(int y=0;y<r.h&&y<mm::H/2;y++)memcpy(px+(r.y+y)*mm::W+r.x,&half[y*(mm::W/2)],r.w*sizeof(uint16_t));}
 }
 
 void confirmShutdown(){
@@ -690,12 +778,14 @@ void confirmShutdown(){
  if(!device::batteryShutdown()){device::powerLocked(false);setTouchEnabled(true);notice="Power off failed";render();return;}delay(200);device::powerLocked(false);setTouchEnabled(true);notice="Power cut not completed";render();
 }
 void loadRadioDraft(bool keepSelection);
+// Confirmations and pickers of the current page, closed before another page opens.
+static void closePageDialogs(){shutdownConfirm=otaConfirm=false;emojiPicker=false;scopePicker=scopeEditing=clearChatConfirm=channelOptions=deleteChannelConfirm=positionShare=false;}
 void openSection(int id,bool paint){
  
  if(id==mm::SupportSection)supportTab=0;// Settings > Donate / Unlock opens on Donate
- shutdownConfirm=otaConfirm=false;emojiPicker=false;scopePicker=scopeEditing=clearChatConfirm=channelOptions=deleteChannelConfirm=positionShare=false;
+ closePageDialogs();
  if(navigation.size()<16)navigation.push_back({screen,section});
- section=constrain(id,0,mm::MaxSection);notice="";if(section==1){contactSearching=false;contactQuery="";contactFocus=nodeScroll=0;}if(section==22)wallpaperFocus=lockWallpaper;if(section==mm::KeyboardSection){kbdQuery="";kbdSearching=false;kbdFocus=0;}if(section==mm::TextSizeSection)textSizeFocus=chatTextSize;if(section==mm::AccentKeySection)accentFocus=accentMode;if(section==10)weatherTab=0;if(section==16){dtLoad();dtFocus=0;}if(section==9)mapOpen();if(mm::toolsSection(section))toolsOpen(section);
+ section=constrain(id,0,mm::MaxSection);notice="";if(section==1){contactSearching=false;contactQuery="";contactFocus=nodeScroll=0;}if(section==22)wallpaperFocus=lockWallpaper;if(section==mm::KeyboardSection){kbdQuery="";kbdSearching=false;kbdFocus=0;}if(section==mm::TextSizeSection)textSizeFocus=chatTextSize;if(section==mm::BesideClockSection)homeWidgetFocus=homeWidget;if(section==mm::MainAreaSection)homeMainFocus=homeMain;if(section==mm::NoteSection)noteInput=noteText;if(section==mm::AccentKeySection)accentFocus=accentMode;if(section==10)weatherTab=0;if(section==16){dtLoad();dtFocus=0;}if(section==9)mapOpen();if(mm::toolsSection(section))toolsOpen(section);
  radioPowerEditing=false;radioDevicePage=false;radioDeviceFocus=0;if(section==2)loadRadioDraft(false);
  if(section==0){searching=false;searchQuery="";messagesMenu=false;chatsParent=screen==Screen::Launcher?Screen::Launcher:Screen::Home;screen=Screen::Chats;}
  else {sectionParent=screen==Screen::Launcher?Screen::Launcher:Screen::Home;screen=Screen::Section;}
@@ -703,6 +793,32 @@ void openSection(int id,bool paint){
 }
 // Unlocked idle policy: nothing to draw, no input for 3 s, no radio/audio/network work -> 80 MHz and a 20 ms loop; any activity or frame brings 240 MHz back.
 bool idleCpuLoop(bool audioBusy){if(deviceLocked)return false;bool busy=dirty||radioDirty||quickReply.active||device::networkJobActive()||deleteHeld||touchPipeline.contactActive()||matter::busy()||audioBusy||uint32_t(millis()-device::powerState().lastActivity)<3000||uint32_t(millis()-lastPhysicalPaint)<1500;uint32_t want=busy?device::NORMAL_CPU_FREQUENCY:80;if(getCpuFrequencyMhz()!=want)setCpuFrequencyMhz(want);return !busy;}
+// The notification card painted over the status bar while unlocked (one at a time, in this order) and opened by a tap.
+enum class TopBanner {None,Storm,Update,ChatNotice,Message};
+// No card at all: locked, welcome, pickers and forms, or any text field but the chat composer being typed (a tap would
+// lose the text; the composer keeps its draft).
+bool topBannerHidden(){
+ if(deviceLocked||screen==Screen::Welcome||welcomeWifi||screen==Screen::PickContact||screen==Screen::NewChat||channelOptions||lockKey.progress)return true;
+ String *field=editableField();return field&&field!=&input;
+}
+TopBanner topBanner(){
+ if(topBannerHidden())return TopBanner::None;
+ if(stormBannerUntil&&int32_t(stormBannerUntil-millis())>0)return TopBanner::Storm;
+ if(otaBannerUntil&&int32_t(otaBannerUntil-millis())>0&&!(screen==Screen::Section&&section==17))return TopBanner::Update;// not over OTA update itself
+ if(screen==Screen::Chat&&chatErrorUntil&&int32_t(chatErrorUntil-millis())>0)return TopBanner::ChatNotice;
+ if(incomingBanner.active&&incomingBanner.chat<chatCount&&!(screen==Screen::Chat&&activeChat==incomingBanner.chat))return TopBanner::Message;
+ return TopBanner::None;
+}
+mm::Rect topBannerRect(){return screen==Screen::Home?mm::NotificationBannerHome:mm::NotificationBanner;}
+// The card comes in and goes out animated (plus_display.h presentCardTransition); paintedBanner is what the panel shows.
+// A card's time on screen starts once it is fully in: the animation's length is added to whichever timer is running.
+TopBanner paintedBanner=TopBanner::None;
+void bannerAnimated(uint32_t ms){if(stormBannerUntil)stormBannerUntil+=ms;if(otaBannerUntil)otaBannerUntil+=ms;if(chatErrorUntil)chatErrorUntil+=ms;if(incomingBanner.active)incomingBanner.since+=ms;}
+// Where the page header ends under the card: Home's clock band, the LoRa / Contacts tabs over the rule, the map's
+// floating back button, the link viewer's thinner bar; else the header rule stays.
+int topBannerClearTo(){
+ if(screen==Screen::Home)return mm::MenuHomeRowY;if(screen!=Screen::Section)return mm::Top-1;
+ if(section==1||section==2)return mm::LoRaTabY+mm::LoRaTabH;if(section==9)return mm::MapBackFloat.y+mm::MapBackFloat.h;if(section==mm::LinkSection)return mm::LinkArea.y;return mm::Top-1;}
 void render(bool partialHint,int batteryPreview) {
  if(renderHold){renderPending=true;return;}// touchScroll: one frame for all the rows of a gesture step
  {static int seenScreen=-1,seenSection=-1;if(int(screen)!=seenScreen||section!=seenSection){seenScreen=int(screen);seenSection=section;touchBrowse=false;}}// touch browsing ends with the page
@@ -714,7 +830,7 @@ void render(bool partialHint,int batteryPreview) {
  uint32_t frameScene=touchScene();int frameChat=screen==Screen::Chat&&!deviceLocked?activeChat:-1;renderedChatMessages.clear();bool frameConfirmation=deviceLocked&&quickReply.active&&quickReply.sent;uint32_t frameLockToken=deviceLocked?lockMessages.current:0;uint32_t renderStarted=millis();renderCalls++;paintedReadChat=-1;renderedChannels.clear();
  (void)partialHint; // Dirty-region planner selects the refresh strategy.
  frame.fillScreen(mm::BG);frame.setTextWrap(false);frame.setTextSize(1);
- if(deviceLocked){mm::Renderer renderer(frame);renderer.lock(uiState());}
+ if(deviceLocked){mm::Renderer renderer(frame);auto v=uiState();if(v.quickCountdown>=0)quickDotsPaints++;renderer.lock(v);}
  else if(screen==Screen::Home)renderHome();
  else if(screen==Screen::Launcher)renderLauncher();
  else if(screen==Screen::Section)renderSection();
@@ -724,12 +840,16 @@ void render(bool partialHint,int batteryPreview) {
  else if(screen==Screen::Welcome){mm::Renderer r(frame);r.welcome(uiState());}
  else renderChat();
  if(!deviceLocked&&channelOptions){mm::Renderer renderer(frame);renderer.channelOptions(uiState());}
+ TopBanner frameBanner=TopBanner::None;
  if(!deviceLocked){mm::Renderer renderer(frame);
-  if(lockKey.progress)renderer.holdBanner("Lock device",lockKey.progress,min(20,int((millis()-lockKey.started)/100)));
-  else if(stormBannerUntil&&int32_t(stormBannerUntil-millis())>0)renderer.holdBanner(stormBanner.c_str(),6,20,true,mm::Icon::Weather);
-  else if(otaBannerUntil&&int32_t(otaBannerUntil-millis())>0)renderer.messageBanner("Update available",otaBannerText);
-  else if(screen==Screen::Chat&&chatErrorUntil&&int32_t(chatErrorUntil-millis())>0){frame.fillRect(0,mm::StatusH,mm::W,mm::HeaderH,mm::BG);mm::Components c(frame);c.text(mm::Margin,mm::StatusH+9,chatError.c_str(),mm::Font::ChatMeta,mm::FG,mm::W-2*mm::Margin);}
-  else if(incomingBanner.active&&!(screen==Screen::Chat&&activeChat==incomingBanner.chat))renderer.messageBanner(incomingBanner.sender,incomingBanner.body);
+  if(lockKey.progress)renderer.holdBanner("Lock device",lockKey.progress);
+  else switch(frameBanner=topBanner()){
+   case TopBanner::Storm:renderer.notificationBanner(topBannerRect(),topBannerClearTo(),mm::Icon::Weather,"Storm alert","Weather",stormBanner.c_str());break;
+   case TopBanner::Update:renderer.notificationBanner(topBannerRect(),topBannerClearTo(),mm::Icon::Settings,"Update available","OTA update",otaBannerText);break;
+   case TopBanner::ChatNotice:renderer.notificationBanner(topBannerRect(),topBannerClearTo(),mm::Icon::Info,chatError.c_str(),"","");break;
+   case TopBanner::Message:{const auto &chat=chats[incomingBanner.chat];renderer.notificationBanner(topBannerRect(),topBannerClearTo(),mm::Icon::Messages,mm::senderDisplayName(incomingBanner.sender),chat.direct?"Direct":chat.name.c_str(),incomingBanner.body);break;}
+   case TopBanner::None:break;
+  }
  }
  // USB-only single-frame preview: never changes battery state or calibration.
  if(batteryPreview>=-1&&batteryPreview<=100){auto status=uiState().status;status.battery=batteryPreview;mm::Components components(frame);components.statusBar(status);}
@@ -738,7 +858,11 @@ void render(bool partialHint,int batteryPreview) {
  lastRasterMs=millis()-renderStarted;
  // LCD: no refresh planning, only the changed rows go to the panel.
  struct {bool full=false,changed=false;} plan;plan.full=paintedScreen<0||forceFullRefresh;forceFullRefresh=false;composerUrgent=false;
- panelPainting=true;touchTransition=frameScene!=visibleTouchScene;plan.changed=!plan.full&&!deviceLocked&&paintedScreen==paintPage&&paintedSection==section&&screen!=Screen::Chat?lcd.presentScrolling(frame.getBuffer()):lcd.present(frame.getBuffer(),plan.full);/* the chat scrolls pixel by pixel: no eased frames *//* same page: a vertical move is animated */panelPainting=false;if(plan.changed)lastPhysicalPaint=millis();
+ panelPainting=true;touchTransition=frameScene!=visibleTouchScene;
+ const bool samePage=!plan.full&&!deviceLocked&&paintedScreen==paintPage&&paintedSection==section,cardIn=frameBanner!=TopBanner::None&&paintedBanner==TopBanner::None,cardOut=frameBanner==TopBanner::None&&paintedBanner!=TopBanner::None;
+ if(samePage&&(cardIn||cardOut)){mm::Rect card=topBannerRect();uint32_t started=millis();plan.changed=lcd.presentCardTransition(frame.getBuffer(),card.y-2,card.y+card.h+6,cardIn);if(cardIn)bannerAnimated(millis()-started);}/* the card comes down fading in, or goes up fading out */
+ else plan.changed=samePage&&screen!=Screen::Chat?lcd.presentScrolling(frame.getBuffer()):lcd.present(frame.getBuffer(),plan.full);/* the chat scrolls pixel by pixel: no eased frames *//* same page: a vertical move is animated */
+ paintedBanner=frameBanner;panelPainting=false;if(plan.changed)lastPhysicalPaint=millis();
  paintedChatMessages.swap(renderedChatMessages);paintedChatConversation=frameChat;
  if(frameConfirmation)quickReply.didPaint(millis());
  if(deviceLocked&&!quickReply.active)paintedLockToken=frameLockToken;if(!deviceLocked)commitReadFrame();lastPaintMs=millis()-renderStarted;if(deviceLocked){renderedUnlockTaps=unlockTaps.taps;lockHintPainted=lockHintUntil&&int32_t(lockHintUntil-millis())>0;}paintedScreen=paintPage;paintedSection=section;dirty=false;lastPaint=millis();visibleTouchScene=frameScene;if(!touchDisplayReady)touchPipeline.waitForRelease();touchDisplayReady=true;touchTransition=false;paintedChannels.swap(renderedChannels);
@@ -873,6 +997,7 @@ String *editableField(){
  if(screen==Screen::Welcome&&welcomeStep==4)return &welcomeName;
  if(screen==Screen::Section&&section==1&&contactSearching)return &contactQuery;
  if(screen==Screen::Section&&section==14&&bleNameEditing)return &bleNameInput;
+ if(screen==Screen::Section&&section==mm::NoteSection)return &noteInput;
  if(screen==Screen::NewChat){if(formField==1)return newForm==int(mm::ChannelForm::JoinPrivate)?&newKey:nullptr;return formField==0?&newName:&newScope;}
  if(screen==Screen::Section){if(mm::toolsSection(section))return toolsField();if(section==2&&radioPowerEditing)return &radioPowerInput;if(section==4&&wifiEditing)return wifiEditField==0?&wifiTarget:&wifiPassword;}
  return nullptr;
@@ -1006,6 +1131,16 @@ static void welcomeTap(int x,int y){
 static void welcomeWifiLoop(){
  if(!welcomeWifi)return;if(screen==Screen::Welcome){welcomeWifi=false;render();return;}
  static uint32_t connectedAt=0;if(screen==Screen::Section&&section==4&&!wifiEditing&&device::wifiConnected()){if(!connectedAt)connectedAt=millis();if(millis()-connectedAt>=1500){connectedAt=0;back();}}else connectedAt=0;}
+static void stepFocus(int &focus,int count,int step){notice="";focus=(focus+step+count)%count;render();}// a carousel: the next / previous widget
+void stepHomeWidget(int step){stepFocus(homeWidgetFocus,mm::HomeWidgetCount,step);}
+void useHomeWidget(){bool ok=setHomeWidget(homeWidgetFocus);notice=ok?"In use on Home":"Save failed";if(!ok)homeWidgetFocus=homeWidget;render();}
+void stepHomeMain(int step){stepFocus(homeMainFocus,mm::MainWidgetCount,step);}
+// Carousels (Beside clock, Main area): trackball down / right or j l the next widget, up or k h the previous (left is
+// Back everywhere), ENTER / click uses it; taps: the selector's arrow ends step, the selector or the preview uses it.
+static void carouselKey(char c,void(*step)(int),void(*use)()){if(c=='d'||c=='j'||c=='l')step(1);else if(c=='k'||c=='h')step(-1);else if(c=='\n'||c==' ')use();}
+static void carouselTap(int x,int y,mm::Rect selector,mm::Rect preview,void(*step)(int),void(*use)()){if(selector.contains(x,y)&&x<selector.x+mm::BesideArrowW)step(-1);else if(selector.contains(x,y)&&x>=selector.x+selector.w-mm::BesideArrowW)step(1);else if(selector.contains(x,y)||preview.contains(x,y))use();}
+void useHomeMain(){bool ok=setHomeMain(homeMainFocus);notice=ok?"In use on Home":"Save failed";if(!ok)homeMainFocus=homeMain;render();}
+void openHomeWidgetsRow(int row){openSection(row?mm::MainAreaSection:mm::BesideClockSection);}
 void key(char c) {
  if(deviceLocked){if(quickReply.active)quickReplyKey(c);return;}
  if(screen==Screen::Welcome){device::activity();welcomeKey(c);return;}
@@ -1014,7 +1149,8 @@ void key(char c) {
  if(c==3){back();return;}
  if(screen==Screen::Section&&mm::toolsSection(section)&&toolsKey(c))return;
  if(screen==Screen::Section&&section==mm::LinkSection&&linkKey(c))return;
- if(c=='\b'){auto field=editableField();if(!field||!field->length()){back();return;}if(field==&input)inputEraseBeforeCursor();else eraseLastCodepoint(*field);notice="";if(screen==Screen::Chats&&searching){auto list=conversationList();selected=list.empty()?chatCount:list[0].id;}if(screen==Screen::PickContact){pickerFocus=0;refreshPicker();}if(screen==Screen::Section&&section==1)contactFocus=nodeScroll=0;if(screen==Screen::Section&&section==mm::KeyboardSection)kbdFocus=0;repaintSettled();return;}
+ if(c=='\b'){auto field=editableField();if(field==&noteInput&&!noteInput.length()&&noteText.length()){bool ok=saveNote();notice=ok?"Note cleared":"Save failed";if(ok)back();else render();return;}// emptied note: saved as cleared
+  if(!field||!field->length()){back();return;}if(field==&input)inputEraseBeforeCursor();else eraseLastCodepoint(*field);notice="";if(screen==Screen::Chats&&searching){auto list=conversationList();selected=list.empty()?chatCount:list[0].id;}if(screen==Screen::PickContact){pickerFocus=0;refreshPicker();}if(screen==Screen::Section&&section==1)contactFocus=nodeScroll=0;if(screen==Screen::Section&&section==mm::KeyboardSection)kbdFocus=0;repaintSettled();return;}
  if(screen==Screen::Section&&section==9&&mapKey(c))return;
  if(channelOptions){if(c=='a'){back();return;}if(deleteChannelConfirm){if(c=='\n')deleteSelectedChannel();return;}if(channelKeyView){if(c=='\n')back();return;}const bool direct=chats[channelOptionTarget].direct;const int slots=direct?2:3;if(c=='w'||c=='k'||c=='s'||c=='j'){channelOptionFocus=(channelOptionFocus+(c=='s'||c=='j'?1:slots-1))%slots;render();}else if(c=='\n'||c=='d')channelOption(direct&&channelOptionFocus==1?2:channelOptionFocus);return;}
  if(screen==Screen::Chat&&positionShare){if(c=='\n'||c=='d')shareGpsPosition();else if(c=='a')back();return;}
@@ -1025,7 +1161,7 @@ void key(char c) {
  if(screen==Screen::Chat&&messageActions){if(contextMessage.mine&&(c=='j'||c=='k')){int count=repeaterRows(contextSnapshot()).size();heardOffset=constrain(heardOffset+(c=='j'?1:-1),0,max(0,count-mm::HeardRows));render();}else if(c=='m'&&!contextMessage.mine)messageAction(mm::MessageMapAction);else if(c=='l'&&!contextMessage.mine)linkOpenFromChat(contextMessage.body);else if(c>='1'&&c<=(contextMessage.mine?'5':'0'+mm::ReceivedMessageActions))messageAction(contextMessage.mine?c-'1':mm::receivedMessageAction(c-'1'));return;}
  if(screen==Screen::Chat&&messagePath){if(messageRouteView)return;if(c=='j')scrollMessagePath(5);else if(c=='k')scrollMessagePath(-5);render();return;}
  if(screen==Screen::Home){
-  if(c=='['||c==']'){homeScroll=constrain(homeScroll+(c==']'?1:-1),0,max(0,chatCount-mm::MenuHomeRows));render();return;}
+  if((c=='['||c==']')&&homeMain==mm::MainChats){homeScroll=constrain(homeScroll+(c==']'?1:-1),0,max(0,chatCount-mm::MenuHomeRows));render();return;}
   if(c=='j'||c=='s'||c=='d'){homeSelection=homeSelection<0?0:(homeSelection+1)%mm::MenuHomeTabCount;render();}
   else if(c=='k'||c=='w'||c=='a'){homeSelection=homeSelection<0?mm::MenuHomeTabCount-1:(homeSelection+mm::MenuHomeTabCount-1)%mm::MenuHomeTabCount;render();}
   else if(c=='\n'){int route=mm::HomeTabs[homeSelection<0?0:homeSelection].section;if(route<0){screen=Screen::Launcher;render();}else openSection(route);}
@@ -1065,6 +1201,10 @@ void key(char c) {
    return;}
   if(section==mm::AccentKeySection){if(c=='l'||c=='j'){accentFocus=(accentFocus+1)%3;notice="";}else if(c=='h'||c=='k'){accentFocus=(accentFocus+2)%3;notice="";}else if(c=='\n'||c==' '){bool ok=setAccentMode(accentFocus);notice=ok?"Accent key applied":"Save failed";if(!ok)accentFocus=accentMode;}render();return;}
   if(section==mm::SupportSection){if(c=='j'||c=='k'||c=='h'||c=='l'||c=='d'||c=='\n'||c==' '){supportTab=1-supportTab;render();}return;}
+  if(section==mm::HomeWidgetsSection){if(c=='k'||c=='j'){homeWidgetsRow=c=='j'?1:0;render();}else if(c=='\n'||c==' '||c=='d')openHomeWidgetsRow(homeWidgetsRow);return;}
+  if(section==mm::MainAreaSection){carouselKey(c,stepHomeMain,useHomeMain);return;}
+  if(section==mm::NoteSection){if(c=='\n'){bool ok=saveNote();notice=ok?"Note saved":"Save failed";if(ok)back();else render();}else if(c>=32&&c<=126&&noteInput.length()<mm::NoteMaxBytes){noteInput+=c;repaintSettled();}return;}
+  if(section==mm::BesideClockSection){carouselKey(c,stepHomeWidget,useHomeWidget);return;}
   if(section==mm::TextSizeSection){if(c=='j'||c=='l'||c=='k'||c=='h'){textSizeFocus=1-textSizeFocus;render();}else if(c=='\n'||c==' '){bool ok=setTextSize(textSizeFocus);notice=ok?"Text size applied":"Save failed";if(!ok)textSizeFocus=chatTextSize;render();}return;}
   if(section==22){if(c=='j'||c=='l'){wallpaperFocus=(wallpaperFocus+1)%WALLPAPER_COUNT;render();}else if(c=='k'||c=='h'){wallpaperFocus=(wallpaperFocus+WALLPAPER_COUNT-1)%WALLPAPER_COUNT;render();}else if(c=='\n'||c==' '){notice=setWallpaper(wallpaperFocus)?("Theme applied"):"Save failed";render();}return;}
   if(section==20){if(c=='j'||c=='k'){powerField=1-powerField;render();}else if(c=='\n'||c==' '){auto power=device::powerState();uint32_t current=powerField?power.keyboardSeconds:power.displaySeconds;int i=0;while(i<6&&device::TIMEOUT_VALUES[i]!=current)i++;device::timeout(powerField!=0,device::TIMEOUT_VALUES[(i+1)%6]);render();}return;}
@@ -1160,16 +1300,36 @@ void quickSettingsTap(int x,int y){
   render();return;
  }
 }
+static void weatherSelectTab(int tab);
+// A tap on the notification card opens what it announces: the chat, Settings > OTA update, Weather > STORMS; a chat
+// notice just goes away. The card covers the status bar and the header, so nothing under it gets the tap.
+bool bannerTap(int x,int y){
+ auto banner=topBanner();if(banner==TopBanner::None||!topBannerRect().contains(x,y))return false;
+ device::activity();Serial.printf("BANNER_TAP kind=%d\n",int(banner));
+ if(banner==TopBanner::Storm){stormBannerUntil=0;if(!(screen==Screen::Section&&section==10))openSection(10,false);weatherSelectTab(1);render();}
+ else if(banner==TopBanner::Update){otaBannerUntil=0;openSection(17);}
+ else if(banner==TopBanner::ChatNotice){chatErrorUntil=0;chatError="";render();}
+ else{int id=incomingBanner.chat;incomingBanner.clear();closePageDialogs();if(screen==Screen::Chat){chatLeft();openConversation(id,chatParent,chatParentSection);}
+  else if(screen==Screen::Section){navigation.clear();openConversation(id,sectionParent);}/* leaves the app (its close hook runs): BACK goes Home / Apps */else openConversation(id,screen,section);}
+ return true;
+}
 void tap(int x,int y) {
  if(x<0||x>=mm::W||y<0||y>=mm::H)return;
  if(screen==Screen::Welcome&&!deviceLocked){device::activity();welcomeTap(x,y);return;}
  if(deviceLocked){if(quickReply.active){quickReplyInputAt=millis();if(quickEmojiTap(x,y))return;if(mm::QuickReplySend.contains(x,y))sendQuickReply();else if(mm::QuickReplyCancel.contains(x,y)||mm::BackButton.contains(x,y))closeQuickReply();}return;}device::activity();
  if(channelOptions){if(mm::BackButton.contains(x,y)){back();return;}if(deleteChannelConfirm){if(mm::ChatClearYes.contains(x,y))deleteSelectedChannel();else if(mm::ChatClearNo.contains(x,y))back();}else if(channelKeyView)back();else{const bool direct=chats[channelOptionTarget].direct;for(int slot=0;slot<(direct?2:3);slot++)if(mm::channelOptionRect(slot).contains(x,y)){channelOption(direct&&slot==1?2:slot);break;}}return;}
  Serial.printf("TOUCH_TAP x=%d y=%d screen=%d\n",x,y,int(screen));
+ if(bannerTap(x,y))return;
  // Status bar: opens Quick settings from any screen; tapping it there closes the panel.
  if(y<mm::StatusH){if(screen==Screen::Section&&section==mm::QuickSettingsSection)back();else openSection(mm::QuickSettingsSection);return;}
  if(screen==Screen::Home){
   if(mm::MenuHomeClock.contains(x,y)){navigation.clear();screen=Screen::Launcher;render();return;}
+  if(homeWidget==mm::WidgetWifi&&mm::HomeWidgetBox.contains(x,y)&&!weatherLiveNow()){weatherWifiAction();return;}// the button shows while there is no live weather
+  // Main area widgets other than the chat cards: Timeline opens the tapped message's chat, the Note its editor,
+  // the weather widgets Weather, the mesh ones Contacts, the GPS ones the GPS page.
+  if(homeMain!=mm::MainChats&&mm::MainArea.contains(x,y)){
+   if(homeMain==mm::MainTimeline){auto v=uiState();int row=mm::mainTimelineRow(y);if(row>=0&&row<int(v.main.timeline.size())&&v.main.timeline[row].chat>=0){chatsParent=Screen::Home;openConversation(v.main.timeline[row].chat,Screen::Home);}return;}
+   if(mm::mainWidgetSection(homeMain)>=0)openSection(mm::mainWidgetSection(homeMain));return;}
   for(int row=0;row<mm::MenuHomeRows;row++)if(mm::menuHomeRowRect(row).contains(x,y)){auto list=conversationList();/* sorted by activity, as painted */int at=max(0,min(homeScroll,max(0,int(list.size())-mm::MenuHomeRows)))+row;/* rows follow homeScroll, as painted */if(at<int(list.size())){chatsParent=Screen::Home;openConversation(list[at].id,Screen::Home);}return;}
   for(int tab=0;tab<mm::MenuHomeTabCount;tab++)if(mm::menuHomeTabRect(tab).contains(x,y)){homeSelection=tab;int route=mm::HomeTabs[tab].section;if(route<0){navigation.clear();screen=Screen::Launcher;render();}else openSection(route);return;}return;
  }
@@ -1195,6 +1355,9 @@ void tap(int x,int y) {
    return;}
   if(section==mm::AccentKeySection){for(int i=0;i<3;i++)if(mm::accentCardRect(i).contains(x,y)){bool ok=setAccentMode(i);notice=ok?"Accent key applied":"Save failed";accentFocus=ok?i:accentMode;render();return;}return;}
   if(section==mm::SupportSection){for(int i=0;i<2;i++)if(mm::supportTabRect(i).contains(x,y)&&supportTab!=i){supportTab=i;render();}return;}
+  if(section==mm::HomeWidgetsSection){if(mm::HomeWidgetsRow.contains(x,y))openHomeWidgetsRow(homeWidgetsRow=0);else if(mm::HomeWidgetsMainRow.contains(x,y))openHomeWidgetsRow(homeWidgetsRow=1);return;}
+  if(section==mm::MainAreaSection){carouselTap(x,y,mm::MainSelector,mm::MainPreview,stepHomeMain,useHomeMain);return;}
+  if(section==mm::BesideClockSection){carouselTap(x,y,mm::BesideSelector,mm::BesidePreview,stepHomeWidget,useHomeWidget);return;}
   if(section==mm::TextSizeSection){for(int i=0;i<2;i++)if(mm::textSizeCardRect(i).contains(x,y)){bool ok=setTextSize(i);notice=ok?"Text size applied":"Save failed";textSizeFocus=ok?i:chatTextSize;render();return;}return;}
   if(section==22){for(int i=0;i<WALLPAPER_COUNT&&i<mm::WallpaperCardCount;i++)if(mm::wallpaperCardRect(i).contains(x,y)){wallpaperFocus=i;notice=setWallpaper(i)?("Theme applied"):"Save failed";render();return;}return;}
   if(section==20){for(int i=0;i<2;i++)if(mm::powerRowRect(i).contains(x,y)){powerField=i;render();return;}for(int i=0;i<6;i++)if(mm::timeoutOptionRect(i).contains(x,y)){notice=device::timeout(powerField!=0,device::TIMEOUT_VALUES[i])?"Timeout saved":"Save failed";render();return;}return;}
@@ -1204,7 +1367,7 @@ void tap(int x,int y) {
   if(section==14&&mm::BleToggle.contains(x,y)){device::bleEnabled(!device::connectivityStatus().ble);render();return;}
   if(section==14&&mm::AppWifiToggle.contains(x,y)){appWifiToggle();render();return;}
   if(section==10&&weatherTabTap(x,y))return;
-  if(section==10){auto phase=device::weatherState().phase;bool offline=phase==device::WeatherPhase::WifiOff||phase==device::WeatherPhase::NoNetwork;if(offline&&mm::WeatherWifiButton.contains(x,y)){if(phase==device::WeatherPhase::WifiOff){device::weatherEnableWifi();render();}else openSection(4);return;}if(!offline&&mm::WeatherRefresh.contains(x,y)){device::weatherRefresh();render();return;}}
+  if(section==10){bool offline=weatherOffline(device::weatherState().phase);if(offline&&mm::WeatherWifiButton.contains(x,y)){weatherWifiAction();return;}if(!offline&&mm::WeatherRefresh.contains(x,y)){device::weatherRefresh();render();return;}}
   if(section==19){for(int i=0;i<mm::SettingsCount;i++){if(mm::settingsVisible(i,settingsScroll)&&mm::settingsRect(i,settingsScroll).contains(x,y)){settingsFocus=i;openSection(mm::SettingsItems[i].section);return;}}}
   if(section==2){
    if(radioPowerEditing){if(mm::RadioPowerSave.contains(x,y))saveRadioPower();else if(mm::RadioPowerCancel.contains(x,y)){radioPowerEditing=false;notice="";render();}return;}
@@ -1300,7 +1463,7 @@ void touchScrollRows(int dy){device::activity();uint32_t now=millis();if(uint32_
  // fn(+1): the finger moves up, show later items; fn(-1): earlier items.
  auto step=[&](int px,std::function<void(int)> fn){while(touchScrollAcc>=px){touchScrollAcc-=px;touchScrollSteps++;fn(-1);}while(touchScrollAcc<=-px){touchScrollAcc+=px;touchScrollSteps++;fn(1);}};
  if(channelOptions||positionShare){return;}
- if(screen==Screen::Home){step(mm::MenuHomeRowH+mm::MenuHomeRowGap,[&](int d){homeScroll=constrain(homeScroll+d,0,max(0,chatCount-mm::MenuHomeRows));render();});return;}
+ if(screen==Screen::Home){if(homeMain!=mm::MainChats)return;/* the chat cards are not shown */step(mm::MenuHomeRowH+mm::MenuHomeRowGap,[&](int d){homeScroll=constrain(homeScroll+d,0,max(0,chatCount-mm::MenuHomeRows));render();});return;}
  if(screen==Screen::Chats&&!messagesMenu){beginTouchBrowse();step(mm::ChatRowH,[&](int d){int n=conversationCount();chatsTop=constrain(chatsTop+d,0,max(0,n-chatsRows()));render();});return;}
  if(screen==Screen::Chat&&!(scopePicker||messageActions||messagePath||chatDetails||clearChatConfirm||emojiPicker)){{if(touchScrollAcc){chatPixel+=touchScrollAcc;touchScrollAcc=0;touchScrollSteps++;render();}return;}}
  if(screen==Screen::Section){
@@ -1316,7 +1479,7 @@ void swipe(int dy) {if(deviceLocked)return;
  device::activity();
  if(channelOptions||positionShare)return;
  if(screen==Screen::Section&&section==mm::KeyboardSection){int count=int(keyboardLanguageRows().size());kbdFocus=constrain(kbdFocus+(dy<0?mm::KeyboardRows:-mm::KeyboardRows),0,max(0,count-1));render();return;}
- if(screen==Screen::Home){homeScroll=constrain(homeScroll+(dy<0?1:-1),0,max(0,chatCount-mm::MenuHomeRows));render();return;}
+ if(screen==Screen::Home){if(homeMain!=mm::MainChats)return;homeScroll=constrain(homeScroll+(dy<0?1:-1),0,max(0,chatCount-mm::MenuHomeRows));render();return;}
  if(screen==Screen::PickContact){int start=pickerFocus/mm::PickerRows*mm::PickerRows+(dy<0?mm::PickerRows:-mm::PickerRows);if(start>=0&&start<int(pickerContacts.size())){pickerFocus=start;render();}return;}
  if(screen==Screen::Chat&&scopePicker){if(!scopeEditing){scopeFocus=constrain(scopeFocus+(dy<0?mm::ScopeRows:-mm::ScopeRows),0,int(regionScopes.size())-1);render();}return;}
  if(screen==Screen::Chat&&messageActions){if(contextMessage.mine){int count=repeaterRows(contextSnapshot()).size();heardOffset=constrain(heardOffset+(dy<0?mm::HeardRows:-mm::HeardRows),0,max(0,count-mm::HeardRows));render();}return;}
@@ -1407,10 +1570,16 @@ void keyboardEvent(int event,uint32_t capturedAt=0,bool hardwareDebounced=false)
   if(code==21){
    uint32_t now=capturedAt?capturedAt:millis();
    if(pressed){
-    if(!quickReply.active)device::wakeDisplay(10000);// Plus: a quick ENTER lights the lock screen for 10 s
+    // Screen dark: this ENTER only lights the lock screen for 10 s (its release does nothing); the quick reply
+    // countdown starts with an ENTER on the lit screen, once the message can be read.
+    if(!quickReply.active&&device::wakeRemaining()<=0){device::wakeDisplay(10000);lockEnter.press(now,hardwareDebounced);lockEnter.consumed=true;lockScreenDirty=true;return;}
+    if(!quickReply.active)device::wakeDisplay(10000);
     if(lockEnter.press(now,hardwareDebounced)&&!quickReply.active){resolveQuickOriginal();
-     if(pendingQuickOriginal.token&&!quickCountdownAt){quickCountdownAt=millis();lockHintUntil=0;lockScreenDirty=true;}}}
-   else{auto action=lockEnter.release(now,hardwareDebounced);if(quickReply.active){if(action==device::EnterAction::Short){if(quickEmojiPicker)insertEmoji(emojiFocus);else sendQuickReply();}}}// the countdown opens the quick reply; without a message ENTER only lights the screen
+     if(pendingQuickOriginal.token&&!quickCountdownAt){quickCountdownAt=millis();lockHintUntil=0;}}}// nothing painted until a hold shows the dots
+   else{auto action=lockEnter.release(now,hardwareDebounced);
+    if(quickReply.active){if(action==device::EnterAction::Short){if(quickEmojiPicker)insertEmoji(emojiFocus);else sendQuickReply();}}
+    // Released after the hold time (before pollQuickReply saw it): the quick reply; before it: a tap, the next message.
+    else if(quickCountdownAt){if(action==device::EnterAction::Hold){openQuickReply();return;}quickCountdownAt=0;lockShowNext(pendingQuickOriginal.token);}}
   }else if(quickReply.active){
    if(code==accentCode()&&(!pressed||accentContext()))accentKey(pressed);
    if(keyboardModifiers.update(code,pressed))return;
@@ -1470,7 +1639,7 @@ bool gpsStoreSave(const std::vector<uint8_t> &data){if(!sdReady||data.empty())re
 int channelAtPoint(int x,int y){if(deviceLocked||channelOptions)return -1;for(auto &hit:paintedChannels)if(hit.area.contains(x,y))return hit.id;return -1;}
 
 void longPressChannel(int x,int y){int id=channelAtPoint(x,y);if(id>=0){device::activity();openChannelOptions(id);}}
-uint32_t touchScene(){uint32_t hash=2166136261u;auto add=[&](uint32_t value){hash=(hash^value)*16777619u;};add(int(screen));add(section);add(activeChat);if(screen==Screen::Chat&&!deviceLocked)add(chatRowsRevision);add(channelOptions);add(channelKeyView);add(deleteChannelConfirm);add(positionShare);add(chatDetails);add(scopePicker);add(scopeEditing);add(clearChatConfirm);add(messageActions);add(messagePath);add(messageBodyView);add(emojiPicker);add(searching);add(messagesMenu);add(contactSearching);add(discoverFilter);add(shutdownConfirm);add(radioPowerEditing);add(radioDevicePage);add(wifiEditing);add(chatOffset);add(nodeScroll);add(settingsScroll);add(filesScroll);add(wifiOffset);if(screen==Screen::Chats)add(selected);add(deviceLocked);add(quickReply.active);add(quickReply.pending);add(quickReply.sent);return hash;}
+uint32_t touchScene(){uint32_t hash=2166136261u;auto add=[&](uint32_t value){hash=(hash^value)*16777619u;};add(int(screen));add(section);add(activeChat);if(screen==Screen::Chat&&!deviceLocked)add(chatRowsRevision);add(channelOptions);add(channelKeyView);add(deleteChannelConfirm);add(positionShare);add(chatDetails);add(scopePicker);add(scopeEditing);add(clearChatConfirm);add(messageActions);add(messagePath);add(messageBodyView);add(emojiPicker);add(searching);add(messagesMenu);add(contactSearching);add(discoverFilter);add(shutdownConfirm);add(radioPowerEditing);add(radioDevicePage);add(wifiEditing);add(chatOffset);add(nodeScroll);add(settingsScroll);add(filesScroll);add(wifiOffset);if(screen==Screen::Chats)add(selected);add(deviceLocked);add(quickReply.active);add(quickReply.pending);add(quickReply.sent);add(int(topBanner()));return hash;}
 struct UiReplay {int kind=0,step=0;uint32_t started=0;bool released=false;};UiReplay uiReplay;uint32_t injectedTouchUntil=0;int injectedTouchX=0,injectedTouchY=0;
 // "touch drag x y0 y1 ms": a finger sliding at constant speed, sampled like the real panel (test of drag and fling).
 struct InjectedDrag{bool on=false,ended=false;int x=0,y0=0,y1=0;uint32_t start=0,ms=1;} injectedDrag;
@@ -1522,9 +1691,10 @@ bool consumeLockMessage(uint32_t token){
 }
 // The lock screen message being answered: the one painted now (a newer one may have arrived during the countdown).
 static void resolveQuickOriginal(){pendingQuickOriginal=device::ReplyOriginal{};matter::Record r;if(loadedRecord(paintedLockToken,r)&&!r.mine&&r.chat>=0&&r.chat<chatCount)pendingQuickOriginal=replyOriginalFrom(r);}
-// Another key during the countdown: no reply; mark the shown message read and step to the next one.
-static void lockShowNext(uint32_t token){lockHintUntil=0;if(consumeLockMessage(token)){if(lockMessages.current==token||!lockMessages.current)lockMessages.next(lockMessageTokens());else lockMessages.receive(lockMessageTokens(),lockMessages.current);}lockMessageShownAt=millis();lockScreenDirty=true;}
-static int quickCountdownDots(){return min(2,int((millis()-quickCountdownAt)*2/device::QUICK_REPLY_HOLD_MS)+1);}
+// A tap of ENTER, or another key during the countdown: no reply; mark the shown message read and step to the next one.
+static void lockShowNext(uint32_t token){lockHintUntil=0;if(consumeLockMessage(token)){if(lockMessages.current==token||!lockMessages.current)lockMessages.next(lockMessageTokens());else lockMessages.receive(lockMessageTokens(),lockMessages.current);}lockMessageShownAt=millis();lockScreenDirty=lockPaintNow=true;}
+// -1 (hidden) for a tap; 0, 1, 2 filled dots in thirds of QUICK_REPLY_SHOW_MS..QUICK_REPLY_HOLD_MS (both full the last third).
+static int quickCountdownDots(){if(!quickCountdownAt||!deviceLocked||quickReply.active)return -1;uint32_t held=millis()-quickCountdownAt;return held<device::QUICK_REPLY_SHOW_MS?-1:min(2,int((held-device::QUICK_REPLY_SHOW_MS)*3/(device::QUICK_REPLY_HOLD_MS-device::QUICK_REPLY_SHOW_MS)));}
 void openQuickReply(){
  quickEmojiPicker=false;accentReset();quickReplyInputAt=millis();if(deviceLocked&&!quickReply.active)resolveQuickOriginal();
  if(!deviceLocked||quickReply.active||!quickReply.open(pendingQuickOriginal,messageByteLimit(pendingQuickOriginal.chat))){quickCountdownAt=0;lockScreenDirty=true;return;}
@@ -1566,12 +1736,12 @@ void pollQuickReply(){
  if(quickReply.active&&quickReply.editable()&&uint32_t(millis()-quickReplyInputAt)>=60000UL)closeQuickReply();// a send waiting for the radio, or its result, stays
 
  if(quickCountdownAt){if(!deviceLocked||quickReply.active)quickCountdownAt=0;else{uint32_t held=millis()-quickCountdownAt;static int paintedDots=-1;int dots=quickCountdownDots();
-  if(held>=device::QUICK_REPLY_HOLD_MS){paintedDots=-1;openQuickReply();}else if(dots!=paintedDots){paintedDots=dots;lockScreenDirty=true;}}}
- lockEnter.recover(millis());static bool wasBoot=false;bool boot=digitalRead(BOARD_BOOT_PIN)==LOW;if(quickReply.active&&boot&&!wasBoot)closeQuickReply();if(quickCountdownAt&&boot&&!wasBoot){quickCountdownAt=0;lockEnter.consumed=true;lockScreenDirty=true;}wasBoot=boot;
+  if(held>=device::QUICK_REPLY_HOLD_MS){paintedDots=-1;openQuickReply();}else if(dots!=paintedDots){paintedDots=dots;if(dots>=0)lockScreenDirty=lockPaintNow=true;}}}
+ lockEnter.recover(millis());static bool wasBoot=false;bool boot=digitalRead(BOARD_BOOT_PIN)==LOW;if(quickReply.active&&boot&&!wasBoot)closeQuickReply();if(quickCountdownAt&&boot&&!wasBoot){quickCountdownAt=0;lockEnter.consumed=true;lockScreenDirty=lockPaintNow=true;}wasBoot=boot;
 }
 void enterLockMode(){
  device::audioCancel();previousScreen=screen;deviceLocked=true;quickTxReady=false;quickReply.close();quickCountdownAt=0;quickEmojiPicker=false;lockReadError.clear();lockEnter.reset();trackballUnlockTaps=0;unlockTaps.reset();lockMessages.reset(lockMessageTokens());lockMessageShownAt=millis();lockHintUntil=unlockCountdownAt=0;lockHintPainted=false;renderedUnlockTaps=-1;
- chatErrorUntil=0;deleteHeld=false;keyboardModifiers.reset();accentReset();setTouchEnabled(false);enterLowPowerMode();lockMinute=time(nullptr)/60;lockScreenDirty=false;
+ chatErrorUntil=0;deleteHeld=false;keyboardModifiers.reset();accentReset();setTouchEnabled(false);enterLowPowerMode();lockMinute=time(nullptr)/60;lockScreenDirty=lockPaintNow=false;
  bool batched=batchingInput;batchingInput=false;render();batchingInput=batched;
 }
 void exitLockMode(){
@@ -1579,9 +1749,9 @@ void exitLockMode(){
  quickReply.close();lockEnter.reset();if(activeChat>=0&&activeChat<MAX_CHATS&&!input.isEmpty()){chatDrafts.saved[activeChat]=input;input="";inputCursor=-1;}
  scopePicker=scopeEditing=clearChatConfirm=chatDetails=messageActions=messagePath=emojiPicker=channelOptions=deleteChannelConfirm=positionShare=false;scopeInput="";notice="";navigation.clear();
  screen=Screen::Home;homeSelection=-1;
- setTouchEnabled(true);radioDirty=false;lockScreenDirty=false;bool batched=batchingInput;batchingInput=false;render();batchingInput=batched;
+ setTouchEnabled(true);radioDirty=false;lockScreenDirty=lockPaintNow=false;bool batched=batchingInput;batchingInput=false;render();batchingInput=batched;
 }
-void updateLockScreen(){if(!deviceLocked)return;static bool viaPainted=false;bool via=uint32_t(millis()-lockMessageShownAt)<device::LOCK_RX_REPEATER_MS;if(via!=viaPainted){viaPainted=via;lockScreenDirty=true;}uint32_t minute=time(nullptr)/60;if(minute!=lockMinute){lockMinute=minute;lockScreenDirty=true;}uint32_t settle=quickReply.active?UI_INPUT_SETTLE_MS:500;if(lockScreenDirty&&!matter::busy()&&millis()-lastPaint>=settle){lockScreenDirty=false;render(true);}}
+void updateLockScreen(){if(!deviceLocked)return;static bool viaPainted=false;bool via=uint32_t(millis()-lockMessageShownAt)<device::LOCK_RX_REPEATER_MS;if(via!=viaPainted){viaPainted=via;lockScreenDirty=true;}uint32_t minute=time(nullptr)/60;if(minute!=lockMinute){lockMinute=minute;lockScreenDirty=true;}uint32_t settle=quickReply.active?UI_INPUT_SETTLE_MS:500;if(lockScreenDirty&&!matter::busy()&&(lockPaintNow||millis()-lastPaint>=settle)){lockScreenDirty=lockPaintNow=false;render(true);}}
 void handleLockKey(bool pressed,uint32_t capturedAt,bool hardwareDebounced){
  uint32_t now=capturedAt?capturedAt:millis();
  if(deviceLocked){
@@ -1637,10 +1807,16 @@ void handle(const String &s) {
  if(s=="composer text"){Serial.print("COMPOSER_TEXT hex=");for(unsigned i=0;i<input.length();i++)Serial.printf("%02x",uint8_t(input[i]));Serial.printf(" quick=");for(auto ch:quickReply.text)Serial.printf("%02x",uint8_t(ch));Serial.println();return;}
  if(s=="keyboard languages"){Serial.printf("KEYBOARD_LANGUAGES mask=%lu current=%s enabled=%d focus=%d searching=%d query_len=%u taps=%d\n",(unsigned long)kbdMask,mm_kbd::info(kbdLang).code,mm_kbd::enabledCount(kbdMask),kbdFocus,kbdSearching,unsigned(kbdQuery.length()),accentTaps);return;}
  if(s=="accent status"){Serial.printf("ACCENT_STATUS mode=%d key=%d context=%d taps=%d held=%d shift=%d\n",accentMode,accentCode(),accentContext(),accentTaps,accentHeld(),shiftHeld());return;}
+ if(s.startsWith("home main set ")){bool ok=setHomeMain(s.substring(14).toInt());homeMainFocus=homeMain;Serial.printf("HOME_MAIN_SET ok=%d id=%d\n",ok,homeMain);render();return;}
+ if(s.startsWith("note set ")){noteInput=s.substring(9);if(noteInput.length()>mm::NoteMaxBytes)noteInput.remove(mm::NoteMaxBytes);bool ok=saveNote();Serial.printf("NOTE_SET ok=%d bytes=%u\n",ok,noteText.length());render();return;}
+ if(s=="home main status"){auto v=uiState();auto &m=v.main;Serial.printf("HOME_MAIN id=%d focus=%d timeline=%u position=%d nearby=%u packets_h=%d nodes=%d sky=%u elevation=%u utm=%s note=%u name=\"%s\"\n",homeMain,homeMainFocus,unsigned(m.timeline.size()),v.widget.position,unsigned(m.nearby.size()),m.packetsHour,m.nodesHeard,unsigned(m.sky.size()),unsigned(m.elevation.size()),m.utm.empty()?"-":m.utm.c_str(),unsigned(m.note.size()),mm::MainWidgets[homeMain].name);return;}// fields of the main widget shown (the focused one on Main area)
+ if(s.startsWith("home widget set ")){bool ok=setHomeWidget(s.substring(16).toInt());homeWidgetFocus=homeWidget;Serial.printf("HOME_WIDGET_SET ok=%d id=%d\n",ok,homeWidget);render();return;}
+ if(s=="home widget status"){auto v=uiState();auto &d=v.widget;Serial.printf("HOME_WIDGET id=%d focus=%d sun=%d rise=%s set=%s next=%s clock=%d moon_pct=%d live=%d repeater=%d gps=%d fix=%d week=%d name=\"%s\"\n",homeWidget,homeWidgetFocus,d.sun,d.sunrise.c_str(),d.sunset.c_str(),d.nextSunTime.c_str(),d.clock,d.moonIllumination,d.live,d.repeater,d.gpsOn,d.gpsFix,d.week,mm::HomeWidgets[homeWidget].name);return;}// fields of the widget shown (the focused one on Beside clock), the others stay 0 / empty
  if(s.startsWith("textsize set ")){bool ok=setTextSize(s.substring(13).toInt());textSizeFocus=chatTextSize;Serial.printf("TEXTSIZE_SET ok=%d large=%d\n",ok,chatTextSize);render();return;}
  if(s.startsWith("wallpaper set ")){int index=s.substring(14).toInt();bool ok=setWallpaper(index);wallpaperFocus=lockWallpaper;Serial.printf("WALLPAPER_SET ok=%d index=%d name=%s\n",ok,lockWallpaper,WALLPAPER_NAME(lockWallpaper));render();return;}
- if(s=="quick reply status"){Serial.printf("QUICK_REPLY sent=%d active=%d locked=%d cpu=%u chat=%d token=%lu painted=%lu kind=%d editable=%d bytes=%u enter_down=%d hops=%d\n",quickReply.sent,quickReply.active,deviceLocked,getCpuFrequencyMhz(),quickReply.original.chat,quickReply.original.token,paintedLockToken,int(quickReply.plan.kind),quickReply.editable(),unsigned(quickReply.text.size()),lockEnter.down,quickReply.original.hops);return;}
+ if(s=="quick reply status"){Serial.printf("QUICK_REPLY sent=%d active=%d locked=%d cpu=%u chat=%d token=%lu painted=%lu kind=%d editable=%d bytes=%u enter_down=%d hops=%d dots=%d dots_paints=%lu\n",quickReply.sent,quickReply.active,deviceLocked,getCpuFrequencyMhz(),quickReply.original.chat,quickReply.original.token,paintedLockToken,int(quickReply.plan.kind),quickReply.editable(),unsigned(quickReply.text.size()),lockEnter.down,quickReply.original.hops,quickCountdownDots(),(unsigned long)quickDotsPaints);return;}
  if(s=="map cleanup step"){device::mapCleanupTrace=true;device::mapTilesCleanup();device::mapCleanupTrace=false;Serial.println("MAP_CLEANUP_DONE");return;}// diagnostics: one cleanup step, traced
+ if(s=="ui lock"){if(!deviceLocked&&screen!=Screen::Welcome&&!welcomeWifi)enterLockMode();Serial.printf("UI_LOCK locked=%d\n",deviceLocked);return;}// tests: as a trackball hold
  if(s=="ui unlock"){if(deviceLocked&&!quickReply.active)exitLockMode();Serial.printf("UI_UNLOCK locked=%d\n",deviceLocked);return;}// tests: the Plus unlocks with the trackball only
  if(s=="quick reply cancel"){if(deviceLocked&&quickReply.active)closeQuickReply();return;}
  if(s=="meshcore status"){Serial.printf("MESHCORE_STATUS version=%s commit=%s\n",MM_MESHCORE_VERSION,MM_MESHCORE_COMMIT);return;}
@@ -1778,6 +1954,13 @@ void handle(const String &s) {
  else if(s=="render")render();
  else if(s=="menu"){searching=false;searchQuery="";messagesMenu=false;screen=Screen::Chats;render();}
  else if(s=="notify incoming"){onIncomingMessage();Serial.println("RX_NOTIFICATION_TEST radio=off");}
+ else if(s=="banner status")Serial.printf("BANNER_STATUS kind=%d screen=%d section=%d tab=%d chat=%d\n",int(topBanner()),int(screen),section,weatherTab,activeChat);
+ else if(s.startsWith("banner demo ")){String kind=s.substring(12);// tests: the notification card without a radio, a server or a storm
+  if(kind=="message"&&chatCount>0)incomingBanner.receive(0,"Banner test","Tap the card to open this chat. A long message keeps going on a second line on Home and is cut after that",millis(),false,false,false);
+  else if(kind=="update"){otaBannerText="MatterMesh 9.9.9.9 is ready: tap to open";otaBannerUntil=millis()+6000;}
+  else if(kind=="storm"){stormBanner="Thunderstorm expected in about 2 h";stormBannerUntil=millis()+6000;}
+  else if(kind=="notice")showChatError("Keyboard: Italiano",3000);
+  Serial.printf("BANNER_DEMO kind=%d\n",int(topBanner()));render();}
  else if(s=="notify mention"){onIncomingMessage(true);Serial.println("RX_NOTIFICATION_TEST mention=1 radio=off");}
  else if(s=="ringtone status"){auto a=device::audioState();Serial.printf("RINGTONE_STATUS message=%d:%s mention=%d:%s message_ms=%d mention_ms=%d count=%d busy=%d bytes=%lu\n",a.messageTone,device::RINGTONES[a.messageTone].name,a.mentionTone,device::RINGTONES[a.mentionTone].name,device::ringtoneMs(a.messageTone),device::ringtoneMs(a.mentionTone),device::RINGTONE_COUNT,a.busy,(unsigned long)a.txBytes);}
  else if(s=="wdt status")device::wdtTraceReport();
@@ -1862,7 +2045,7 @@ void setup(){
  // e.g. when the card was missing); absent on devices installed before (nothing to archive).
  if(cleanInstall)device::prefPutInt("mmsetup","archived",0);
  if(sdReady&&!device::prefGetInt("mmsetup","archived",1)){bool done=false;welcomeArchive=archiveSdData(done);if(done)device::prefPutInt("mmsetup","archived",1);}
- loadLights();device::powerBegin(displayBrightness,keyboardBrightness);loadChats();loadRegionScopes();loadChannelNotifications();loadWallpaper();loadTextSize();loadAccentMode();loadKeyboardLanguages();
+ loadLights();device::powerBegin(displayBrightness,keyboardBrightness);loadChats();loadRegionScopes();loadChannelNotifications();loadWallpaper();loadTextSize();loadHomeWidget();loadHomeMain();loadAccentMode();loadKeyboardLanguages();
  batteryLogOn=device::prefGetInt("mmbatlog","on",0)!=0;// off by default; "battery log on" enables it (saved)
 loadMapStyle();
  device::audioBegin();
@@ -1909,7 +2092,7 @@ void pollTrackball(){
  pressesSeen=trackballPresses;firstPressAt=0;// presses made while unlocked never count towards an unlock
  if(down&&!clickDown){clickDown=true;clickAt=now;lockFired=false;device::activity();}
  else if(down&&clickDown&&!lockFired){uint32_t held=now-clickAt;int dots=int(held*7/TrackballLockMs);if(held>=TrackballLockMs){lockFired=true;lockKey.progress=0;if(screen!=Screen::Welcome&&!welcomeWifi)enterLockMode();else render();return;}// no lock during the welcome
-  if(held>=200&&dots!=lockKey.progress&&screen!=Screen::Welcome&&!welcomeWifi){lockKey.progress=dots;lockKey.started=clickAt;render();}}
+  if(held>=200&&dots!=lockKey.progress&&screen!=Screen::Welcome&&!welcomeWifi){lockKey.progress=dots;render();}}
  else if(!down&&clickDown){clickDown=false;if(lockKey.progress){lockKey.progress=0;render();}if(!lockFired&&uint32_t(now-clickAt)<TrackballLockMs)key('\n');}
  // Rolling: the balls toggle a line per detent step; three steps make one move (it used to be one, too twitchy).
  static int accX=0,accY=0;static uint32_t rolledAt=0;if(dx||dy){if(uint32_t(now-rolledAt)>400)accX=accY=0;rolledAt=now;accX+=dx;accY+=dy;}
@@ -1956,10 +2139,23 @@ void loop(){
  // LCD asleep while the backlight is off (it kept scanning and taking frames in the dark); on wake the whole frame is sent again.
  if(lcd.sleep(device::powerState().displayPWM==0)&&!lcd.asleep){lcd.invalidate();repaintNow();}
  // OTA: repaint Settings / OTA update on progress; a newly offered release shows a banner once per boot.
- {static uint32_t otaSeen=0;static bool lockedSeen=false;auto revision=device::otaRevision();if(revision!=otaSeen||deviceLocked!=lockedSeen){otaSeen=revision;lockedSeen=deviceLocked;auto o=device::otaState();otaPhaseNow=o.phase;
+ {static uint32_t otaSeen=0;static bool hiddenSeen=false;const bool hidden=topBannerHidden();auto revision=device::otaRevision();if(revision!=otaSeen||hidden!=hiddenSeen){otaSeen=revision;hiddenSeen=hidden;auto o=device::otaState();otaPhaseNow=o.phase;
   if(!deviceLocked&&screen==Screen::Section&&(section==17||section==19))markRadioDirty();
-  if(o.phase==device::OtaPhase::Available&&o.code!=otaAnnounced&&!deviceLocked){otaAnnounced=o.code;otaBannerText=std::string("MatterMesh ")+o.version.c_str()+" / Settings > OTA update";otaBannerUntil=millis()+6000;if(!(screen==Screen::Section&&section==17))repaintNow();else otaBannerUntil=0;}/* found while locked: shown after the unlock */}
+  if(o.phase==device::OtaPhase::Available&&o.code!=otaAnnounced&&!hidden){otaAnnounced=o.code;otaBannerText=std::string("MatterMesh ")+o.version.c_str()+" is ready: tap to open";otaBannerUntil=millis()+6000;if(!(screen==Screen::Section&&section==17))repaintNow();else otaBannerUntil=0;}/* found while locked or typing: shown once the card can be */}
   if(otaBannerUntil&&int32_t(otaBannerUntil-millis())<=0){otaBannerUntil=0;if(!deviceLocked)repaintNow();}}
+ // Every HomeGpsCheckMs: feed the Main area trackers (altitude, packets); on Home, repaint (through the radio-dirty path,
+ // which waits for touch and radio work) when what the GPS / activity widgets draw changed; ages move with the minute repaint.
+ {static uint32_t checkedAt=0;static String shown;if(millis()-checkedAt>=mm::HomeGpsCheckMs){checkedAt=millis();trackHomeData();if(screen==Screen::Home&&!deviceLocked){String key;
+  // What a GPS widget draws: on / fix / position, plus altitude (5 m steps), satellites, position (~100 m) as asked.
+  auto gpsKey=[](bool altitude,bool satellites,bool position,double scale=1e3){auto loc=device::locationState();String k=String(loc.enabled)+gpsLiveFix(loc)+gpsPositionSet(loc);
+   if(altitude)k+="/"+String(lround(loc.altitude/5));if(satellites)k+="/"+String(loc.satellitesUsed);if(position)k+="/"+String(lround(loc.latitude*scale))+"/"+String(lround(loc.longitude*scale));return k;};
+  if(mm::gpsWidget(homeWidget))key=gpsKey(homeWidget==mm::WidgetAltitude,homeWidget==mm::WidgetAltitude||homeWidget==mm::WidgetCoordinates,homeWidget==mm::WidgetCoordinates);
+  if(mm::gpsMain(homeMain)){bool reading=homeMain==mm::MainPosition||homeMain==mm::MainSky;key+="|"+String(homeMain)+gpsKey(reading,homeMain!=mm::MainRadar,homeMain==mm::MainPosition||homeMain==mm::MainRadar,homeMain==mm::MainPosition?1e4:1e3);// Position prints 4 decimals// satellites: also the no-fix texts
+   if(homeMain==mm::MainSky){device::SkySat sats[device::SkySatMax];key+="/"+String(device::locationSky(sats,device::SkySatMax))+"/"+String(device::locationHdop()/10);}// satellites seen, HDOP
+   if(homeMain==mm::MainRadar){auto stats=matter::nodeStats();key+="/"+String(stats.placed)+"/"+String(stats.live)+"/"+String(stats.digest);}// contacts placed, moved (~100 m) or heard
+   if(homeMain==mm::MainElevation)key+="/"+String(altitudeTrack.count)+"/"+String(altitudeTrack.head);}
+  if(homeMain==mm::MainActivity){auto stats=matter::nodeStats();key+="|a"+String(packetHistory.bucketStart)+"/"+String(packetHistory.at(mm_home::PacketBuckets-1))+"/"+String(stats.live)+"/"+String(lround(stats.bestSnr));}
+  if(key!=shown){shown=key;if(key.length())markRadioDirty();}}}}
  static uint32_t serviceAt=0;if(millis()-serviceAt>=(deviceLocked?100u:20u)){serviceAt=millis();device::connectivityLoop();device::locationLoop();device::timeSyncLoop();device::weatherSetOpen(!deviceLocked&&((screen==Screen::Section&&section==10)||(screen==Screen::Home)));/* Plus: the Home header keeps the weather fresh (15 min) */device::weatherLoop();device::stormLoop();device::mapTilesLoop();if(deviceLocked)device::mapTilesCleanup();/* Plus: old OpenTopoMap caches */device::otaLoop(device::wifiConnected(),lastPaint!=0);appLinkLoop();welcomeWifiLoop();}
  static uint32_t timeRevision=0;auto clockRevision=device::timeSyncState().revision;if(clockRevision!=timeRevision){timeRevision=clockRevision;lockScreenDirty=true;if(!deviceLocked){markRadioDirty();}}
  serviceReplay();appVisibilityLoop();toolsTick();weatherAppsTick();pollKeyboard();pollQuickReply();pollLockKey();pollBanners();if(deviceLocked){if(quickReply.active){pollTouch();static uint32_t keepAt=0;/* Plus: the screen stays on while the quick reply is open */if(millis()-keepAt>=1000){keepAt=millis();device::wakeDisplay(15000);}}

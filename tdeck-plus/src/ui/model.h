@@ -4,9 +4,10 @@
 #include "mesh/power_limits.h"
 #include "mesh/discovery_limits.h"
 #include "mesh/message_limits.h"
+#include "home_widgets.h"
 namespace mm {
 enum class WeatherPhaseView {Closed,WifiOff,Connecting,NoNetwork,WaitingClock,Locating,Fetching,Ready,Error};
-enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Keyboard,Storage,QuickSettings,Cli,ContactPicker,TextSize,AccentKey ,Link,Support};
+enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Keyboard,Storage,QuickSettings,Cli,ContactPicker,TextSize,AccentKey ,Link,Support,HomeWidgets,BesideClock,MainArea,Note};
 struct Conversation { std::string name,scope,preview,time="--:--",sender,age="--";bool direct=false;int id=0,unread=0,activity=0; };
 struct Message {std::string sender,time,body,meta;bool mine;std::string path,heard,scope;int hops=-1;uint32_t token=0;int repeaters=-1;Message(std::string s="",std::string t="",std::string b="",std::string m="",bool own=false):sender(s),time(t),body(b),meta(m),mine(own){} };
 struct ContactRow {std::string name,detail;};
@@ -35,6 +36,23 @@ struct State {
  bool gpsEnabled=true,gpsAvailable=false,gpsData=false,gpsNmeaFresh=false,gpsTimeValid=false,gpsTemporary=false;unsigned gpsUsed=0,gpsVisible=0,gpsBaud=0;
  float temperature=0,humidity=0,pressure=0,wind=0,high=0,low=0;int weatherCode=2;double latitude=0,longitude=0,altitude=0;
  std::string weatherText="No weather data",weatherUpdated,weatherMessage,weatherPlace,weatherSource;
+ // Home widget beside the clock (Settings > Home widgets): the chosen one, the carousel focus and what the widgets show.
+ // Times are local "HH:MM"; empty strings and false flags mean the data is not there yet.
+ struct HomeWidgetData {bool sun=false;int sunPolar=0;std::string sunrise,sunset,nextSunTime;bool nextIsSunset=true;int dayPermille=-1;/* -1 before sunrise, 1001 after sunset */
+  bool moonWaxing=true;int moonIllumination=0;double moonAge=0;std::string moonName,moonFull;
+  bool gpsOn=false,gpsFix=false,position=false;/* gpsFix: live fix; position: a fix within the hour (Coordinates) */int altitude=0,satellites=0;double latitude=0,longitude=0;uint32_t fixAgeS=0;
+  int live=0;bool repeater=false;std::string repeaterName;float repeaterSnr=0;uint32_t repeaterAgeS=0;
+  bool clock=false;std::string month,weekday;int day=0,week=0;uint32_t weatherAgeS=UINT32_MAX;};/* clock: the time is set (Moon, Calendar, the sun); weatherAgeS: UINT32_MAX unknown */
+ int homeWidget=HomeWidgetDefault,homeWidgetFocus=HomeWidgetDefault;HomeWidgetData widget;
+ // Main area (Settings > Home widgets > Main area): the big widget under the clock band; its GPS widgets also read `widget`.
+ struct TimelineRow {std::string time,channel,text;bool direct=false,unread=false;int chat=-1;};
+ struct NearbyNode {std::string name;int meters=0,bearing=0;bool live=false;};
+ struct SkySatView {int azimuth=0,elevation=0;bool used=false;};
+ struct MainWidgetData {std::vector<TimelineRow> timeline;std::vector<NearbyNode> nearby;int placed=0;/* contacts with a position (the radar shows the nearest) */
+  int packets[MainPacketBars]={};int packetsHour=0,nodesHeard=0;float bestSnr=0;bool snrKnown=false;
+  std::string utm,spokenLat,spokenLon;int hdopHundredths=-1;std::vector<SkySatView> sky;
+  std::vector<int> elevation;int climb=0;std::string elevationFrom;std::string note;};
+ int homeMain=MainWidgetDefault,homeMainFocus=MainWidgetDefault,homeWidgetsRow=0;/* homeWidgetsRow: focused row on Home widgets */MainWidgetData main;std::string noteInput;
  std::string homeFact;// T-Deck Plus Home without weather: one rotating line under the contact count (nodes heard, uptime, a tip)
  WeatherPhaseView weatherPhase=WeatherPhaseView::Closed;int weatherHours=0;float apparent=0;int weatherHourCode[4]={};float weatherHourTemp[4]={};std::string weatherHourTime[4];
  uint32_t displayTimeout=30,keyboardTimeout=30;int powerField=0;int wallpaper=0,wallpaperFocus=0;int textSize=1,textSizeFocus=1,accentMode=1,accentFocus=1;/* accent key: 0 off, 1 right Shift, 2 left Shift */// chat text size (0 compact, 1 large) and the focused card on its page// lock-screen wallpaper (mm_wallpaper::list index) and the focused card on its page
@@ -94,4 +112,6 @@ std::string lockRepeater;
  std::vector<std::string> files;
  std::vector<Conversation> conversations;std::vector<Message> messages;
 };
+// The Home weather header shows a forecast fetched over Wi-Fi; offline (Wi-Fi off, no network) the widget takes its place.
+inline bool weatherLive(const State &s){return s.weatherValid&&s.weatherPhase!=WeatherPhaseView::WifiOff&&s.weatherPhase!=WeatherPhaseView::NoNetwork;}
 }

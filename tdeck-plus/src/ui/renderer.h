@@ -18,6 +18,10 @@ private:
  void shell(const State &s,const std::string &title,bool back=true,Icon right=Icon::Menu);
  void mapView(const State &s); // MapArea: tiles, route, pins, own position, status, scale
  void linkView(const State &s); // link viewer: bar, page rows or picture (section 33)
+ void homeHeader(const State &s,int dy,bool widgetOnly);// Home clock, date and the box beside it, moved down by dy (Beside clock preview)
+ void homeWidget(const State &s,int id,int x,int top,int w);// one Home widget in the box right of the clock
+ void homeChats(const State &s,int dy);// Home chat cards, moved down by dy
+ void mainWidget(const State &s,int id,Rect r);// one Main area widget in r
 public:
  explicit Renderer(Adafruit_GFX &canvas):g(canvas),c(canvas){}
  explicit Renderer(FastCanvas16 &canvas):g(canvas),c(canvas){}
@@ -45,10 +49,10 @@ public:
  void quickTile(int index,const std::string &label,bool on,int glyph);
  void draw(const State &s);
  void welcome(const State &s);// first-boot setup (Plus)
- void holdBanner(const std::string &label,int progress,int elapsedTenths,bool done=false,Icon icon=Icon::Lock);
+ void holdBanner(const std::string &label,int progress);
  void unlockTapBanner(int taps);
- void quickCountdownBanner(int dots);
- void emojiPopup(const State &s);// emoji picker panel above the composer (chat) or over the quick reply// lock screen: ENTER pressed, quick reply opens when both dots are full
- void messageBanner(const std::string &sender,const std::string &preview);
+ void quickCountdownBanner(int dots);// lock screen: ENTER held, the quick reply opens when both dots are full
+ void emojiPopup(const State &s);// emoji picker panel above the composer (chat) or over the quick reply
+ void notificationBanner(Rect r,int clearTo,Icon icon,const std::string &title,const std::string &tag,const std::string &body);
 };
 }

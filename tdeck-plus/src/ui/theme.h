@@ -3,7 +3,7 @@
 #include <algorithm>
 namespace mm {
 // T-Deck Plus ST7789 LCD, landscape 320x240, colour. No vibration motor and no on-device dictation.
-constexpr int W=320,H=240,MaxSection=34;
+constexpr int W=320,H=240,MaxSection=39;
 
 constexpr bool Landscape=true;
 // T-Deck Plus colour LCD: the inks are runtime values so the themes (palette + illustrations) share every component.
@@ -13,6 +13,7 @@ constexpr bool Landscape=true;
 constexpr uint16_t rgb565(uint8_t r,uint8_t g,uint8_t b){return uint16_t(((r&0xF8)<<8)|((g&0xFC)<<3)|(b>>3));}
 constexpr uint16_t rgb(uint8_t r,uint8_t g,uint8_t b){return uint16_t(rgb565(r,g,b)<<8|rgb565(r,g,b)>>8);}
 constexpr uint16_t panelToRgb565(uint16_t c){return uint16_t(c<<8|c>>8);}
+constexpr uint16_t rgb565ToPanel(uint16_t c){return panelToRgb565(c);}// the same byte swap, back
 // lockLayout: where the lock screen puts the clock over the theme's illustration.
 enum class LockLayout {RightColumn,BottomLeft,TopLeft};
 struct Palette {const char *name,*detail;uint16_t bg,fg,accent,onAccent,surface,surfaceAlt,muted,line,mist,statusBg,statusFg,lockInk;LockLayout lockLayout;};
@@ -28,7 +29,7 @@ constexpr int Touch=28,IconStatus=12,IconRow=24;
 constexpr int StatusTextY=3,StatusIconY=2,StatusClockW=40;
 constexpr int StatusAntennaX=Margin+StatusClockW+5,StatusAntennaW=30;
 constexpr int HoldBannerY=StatusH,HoldBannerH=36;
-constexpr int HoldDots=6,HoldDotR=3,HoldDotStep=9,HoldDotsW=HoldDots*HoldDotStep;// hold banner progress dots (2 s hold), right-aligned like the unlock taps
+constexpr int HoldDots=6,HoldDotR=3,HoldDotStep=9,HoldDotsW=HoldDots*HoldDotStep;// hold banner progress dots (trackball lock hold), right-aligned like the unlock taps
 constexpr int StatusIconStep=18,StatusIconsX=W-152;
 constexpr int StatusBatteryY=3,StatusBatteryW=25,StatusBatteryH=12;// Plus: iOS-style battery
 
@@ -64,14 +65,14 @@ inline Rect appRect(int index){return {6+(index%AppCols)*(AppW+AppGap),Top+4+(in
 // New-channel form: 0 name, 1 secret key (two lines) or hashtag note, 2 region scope.
 inline Rect formRect(int field){if(field!=1)return {field?W/2+3:Margin,FormNameY,(W-2*Margin-6)/2,30};return {Margin,field==0?FormNameY:field==1?FormKeyY:FormScopeY,W-2*Margin,field==1?FormKeyH:30};}
 constexpr Rect ComposerEmoji={W-Margin-32,ComposerY+2,30,30};
-constexpr Rect MessageBannerArea={0,StatusH,W,HeaderH};// covers the page header (title + menu)
+constexpr Rect NotificationBanner={6,2,W-12,44};constexpr int NotificationRadius=12,NotificationDisc=30,NotificationTagW=90;// floats over the status bar and the page header (title + menu), its shadow ends above Top-1
 // Emoji picker: 6x4 glyphs on the Max; the Plus spreads 8x3 across the width with a lower panel (tab/choice rects in emoji_choices.h).
 constexpr int EmojiCols=8,EmojiRows=3;
 constexpr Rect EmojiPopup=(Rect{Margin,ComposerY-162,W-2*Margin,160});
 
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
 // T-Deck Plus: no Antenna row (one LoRa antenna), Wallpaper becomes Themes.
-constexpr int SettingsCount=18,SettingsRowH=36,SettingsDeviceFirst=4,SettingsSystemFirst=12;// Plus: Text size, Accent key and Keyboard languages rows after Themes
+constexpr int SettingsCount=19,SettingsRowH=36,SettingsDeviceFirst=4,SettingsSystemFirst=13;// Plus: Home widgets, Text size, Accent key and Keyboard languages rows after Themes
 // First-boot welcome (Plus landscape): BACK / NEXT at the bottom, two or three choice cards, preset rows.
 constexpr Rect WelcomeBack={Margin,H-38,92,30},WelcomeNext={W-Margin-128,H-38,128,30};
 constexpr int WelcomeRows=4,WelcomeRowH=34,WelcomeRowY=60;
@@ -261,6 +262,29 @@ constexpr Rect MenuHomeClock={Margin,22,112,46};
 constexpr int MenuHomeInfoX=MenuHomeClock.x+MenuHomeClock.w+Gap,MenuHomeInfoW=W-Margin-MenuHomeInfoX;
 constexpr Rect MenuHomeDate={MenuHomeInfoX,MenuHomeClock.y,MenuHomeInfoW,MenuHomeClock.h/2};
 constexpr Rect MenuHomeStatus={MenuHomeInfoX,MenuHomeClock.y+MenuHomeClock.h/2,MenuHomeInfoW,MenuHomeClock.h/2};
+constexpr Rect NotificationBannerHome={6,2,W-12,MenuHomeRowY-8};// Home: covers the big clock too, two text lines
+// Home: the widget box right of the clock (no live weather), the clock band it sits in.
+constexpr Rect HomeWidgetBox={W/2+4,StatusH+6,W-Margin-(W/2+4),40};// painted from its y; taps: the Wi-Fi button
+constexpr int HomeWidgetGap=8,HomeWidgetTitleY=2,HomeWidgetDetailY=23;// mark to text, title and detail rows from the box top
+constexpr int HomeBandY=StatusH+2,HomeBandH=MenuHomeRowY-1-HomeBandY;
+// Settings > Home widgets (36): the Beside clock row and a preview of the Home band. Beside clock (37): a carousel,
+// the Home band with the focused widget, the < name > selector, what it shows, and the position dots.
+constexpr int HomeWidgetsSection=36,BesideClockSection=37;// 35 is Trails on the test line
+constexpr Rect HomeWidgetsRow={Margin,Top+6,W-2*Margin,SettingsCardH};
+constexpr Rect BesidePreview={Margin-2,Top+4,W-2*Margin+4,HomeBandH+4};
+constexpr Rect BesideSelector={Margin,BesidePreview.y+BesidePreview.h+8,W-2*Margin,28};
+// Home Main area (the two chat cards' place) and its Settings carousel (38: preview at full size, selector, a line).
+constexpr Rect MainArea={6,MenuHomeRowY,W-12,MenuHomeTabY-4-MenuHomeRowY};
+constexpr int MainAreaSection=38,NoteSection=39;
+constexpr int MainTimelineRows=4,MainRowH=27,MainRowTop=9,MainRowSlop=4;// Timeline rows (drawn and tapped); slop: the divider sits 4 px above the next row
+constexpr int MainDialX=60,MainDialR=52,MainTextX=130,MainPositionTextX=170,MainRadarMax=8,MainRadarRows=3,MainRadarRowH=20;// Radar / GPS sky dial centre and radius, text columns
+constexpr int mainTimelineRow(int y){return (y-MainArea.y-MainRowTop+MainRowSlop)/MainRowH;}// the row a tap at y falls in; the caller checks the range
+constexpr Rect MainPreview={MainArea.x,Top+4,MainArea.w,MainArea.h};
+constexpr Rect MainSelector={Margin,MainPreview.y+MainPreview.h+8,W-2*Margin,26};
+constexpr Rect HomeWidgetsMainRow={Margin,HomeWidgetsRow.y+HomeWidgetsRow.h+4,W-2*Margin,SettingsCardH};
+constexpr Rect HomeHalfPreview={W/4,HomeWidgetsMainRow.y+HomeWidgetsMainRow.h+8,W/2,H-(HomeWidgetsMainRow.y+HomeWidgetsMainRow.h+8)-2};// Home widgets: the whole Home at half size (cropped at the bottom)
+constexpr Rect NoteBox={Margin,Top+6,W-2*Margin,H-Top-34};
+constexpr int BesideTextY=BesideSelector.y+BesideSelector.h+8,BesideDotsY=H-30,BesideDotPitch=10,BesideArrowW=56;// arrow zones: each end of the selector
 constexpr Rect menuHomeRowRect(int row){return {6,MenuHomeRowY+row*(MenuHomeRowH+MenuHomeRowGap),W-12,MenuHomeRowH};}
 constexpr Rect menuHomeTabRect(int tab){return {Margin+tab*(MenuHomeTabW+MenuHomeTabGap),MenuHomeTabY,MenuHomeTabW,MenuHomeTabH};}
 }

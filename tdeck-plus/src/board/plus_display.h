@@ -95,5 +95,30 @@ public:
   for(int y=y0;y<y1;y++){shown[y*Width]=uint16_t(~frame[y*Width]);shown[y*Width+Width-1]=uint16_t(~frame[y*Width+Width-1]);}// the panel holds an intermediate frame: resend the whole band
   scrollAnimations++;lastScrollShift=best;return present(frame);
  }
+ // Notification card: when it appears, the band y0..y1 plays eased frames where the card (taken from the new frame)
+ // comes down by `slide` px while it fades in over what the panel shows; when it leaves, the reverse (the old card
+ // fades out going up over the new frame). Frames are paced to frameMs, so the whole move lasts about
+ // (frames-1)*frameMs. Pixels are RGB565 in panel byte order, blended per channel.
+ uint32_t cardAnimations=0;
+ static uint16_t blend565(uint16_t under,uint16_t over,int alpha){// alpha 0..256 of `over`
+  under=uint16_t((under<<8)|(under>>8));over=uint16_t((over<<8)|(over>>8));const int keep=256-alpha;
+  int r=((under>>11)*keep+(over>>11)*alpha)>>8,g=(((under>>5)&63)*keep+((over>>5)&63)*alpha)>>8,b=((under&31)*keep+(over&31)*alpha)>>8;
+  uint16_t p=uint16_t((r<<11)|(g<<5)|b);return uint16_t((p<<8)|(p>>8));}
+ bool presentCardTransition(const uint16_t *frame,int y0,int y1,bool in,int frames=8,int slide=24,uint32_t frameMs=24){
+  if(asleep)return false;
+  if(!shown||!shownValid)return present(frame,true);
+  y0=std::max(0,y0);y1=std::min(Height,y1);const int h=y1-y0;if(h<=0||h>Height/2)return present(frame);
+  static uint16_t *band=nullptr;if(!band)band=(uint16_t*)heap_caps_malloc(Width*(Height/2)*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!band)return present(frame);
+  const uint16_t *under=in?shown:frame,*card=in?frame:shown;
+  for(int k=1;k<frames;k++){uint32_t started=millis();float t=float(k)/frames,e=1-(1-t)*(1-t)*(1-t);int alpha=int(256*(in?e:1-e)),shift=int(slide*(in?1-e:e));
+   for(int y=y0;y<y1;y++){uint16_t *out=band+(y-y0)*Width;const uint16_t *u=under+y*Width;int from=y+shift;
+    if(from>=y0&&from<y1){const uint16_t *c=card+from*Width;for(int x=0;x<Width;x++)out[x]=u[x]==c[x]?u[x]:blend565(u[x],c[x],alpha);}
+    else memcpy(out,u,Width*2);}
+   begin();send(0x2A,{0,0,uint8_t((Width-1)>>8),uint8_t(Width-1)});send(0x2B,{uint8_t(y0>>8),uint8_t(y0),uint8_t((y1-1)>>8),uint8_t(y1-1)});command(0x2C);
+   SPI.writeBytes(reinterpret_cast<const uint8_t*>(band),size_t(Width)*h*2);end();
+   uint32_t spent=millis()-started;if(spent<frameMs)delay(frameMs-spent);}
+  for(int y=y0;y<y1;y++){shown[y*Width]=uint16_t(~frame[y*Width]);shown[y*Width+Width-1]=uint16_t(~frame[y*Width+Width-1]);}// the panel holds an intermediate frame: resend the whole band
+  cardAnimations++;return present(frame);
+ }
 };
 }

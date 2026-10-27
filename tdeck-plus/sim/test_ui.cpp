@@ -123,9 +123,14 @@ int main(){
  for(int t=0;t<mm_emoji_picker::categoryCount;t++)assert(mm_emoji_picker::categories[t].count<=mm::EmojiPageSize&&mm_emoji_picker::categories[t].first+mm_emoji_picker::categories[t].count<=mm_emoji_picker::count);
  for(auto code:mm::DefaultRecentEmoji)assert(mm::emojiIndex(code)>=0);
  r.chat(s);auto beforeBanner=shot();
- r.messageBanner("River\nname",std::string(300,'W')+"\nmore");bool bannerChanged=false;
- for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++)if(beforeBanner[y*mm::W+x]!=px(x,y)){assert(mm::MessageBannerArea.contains(x,y));bannerChanged=true;}
+ // Notification card: drawn only above the header rule (that stays); the tall Home card and its clear stay above the
+ // first Home conversation row (painted over a chat frame: only the bounds are checked).
+ r.notificationBanner(mm::NotificationBanner,mm::Top-1,mm::Icon::Messages,"River\nname","Public",std::string(300,'W')+"\nmore");bool bannerChanged=false;
+ for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++)if(beforeBanner[y*mm::W+x]!=px(x,y)){assert(y<mm::Top-1);bannerChanged=true;}
  assert(bannerChanged);
+ r.chat(s);beforeBanner=shot();r.notificationBanner(mm::NotificationBannerHome,mm::MenuHomeRowY,mm::Icon::Weather,"Storm alert","",std::string(300,'W'));
+ for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++)if(beforeBanner[y*mm::W+x]!=px(x,y))assert(y<mm::MenuHomeRowY);
+ r.chat(s);
  for(int i=0;i<mm::ReceivedMessageActions;i++){auto box=mm::messageActionRect(i);assert(box.y+box.h<=mm::Bottom);}
  s=mm::State{};s.quickReply=true;s.quickReplyEditable=true;s.quickInput="@[River] ";r.lock(s);int caret=mm::QuickReplyComposer.x+7+c.width("@[River] ",mm::Font::ChatBody);assert(px(caret,mm::QuickReplyComposer.y+9)==mm::FG);
  s=mm::State{};s.quickReply=true;s.quickReplyEditable=true;s.quickInput="@[River] Copy";r.lock(s);auto beforeConfirmation=shot();s.quickSent=true;s.quickReplyEditable=false;r.lock(s);bool confirmationInk=false;for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++)if(beforeConfirmation[y*mm::W+x]!=px(x,y)){assert(mm::QuickReplyPanel.contains(x,y));confirmationInk=true;}assert(confirmationInk);bool messageInk=false;for(int y=mm::QuickReplyComposer.y+4;y<mm::QuickReplyComposer.y+mm::QuickReplyComposer.h-4;y++)for(int x=mm::QuickReplyComposer.x+4;x<mm::QuickReplyComposer.x+mm::QuickReplyComposer.w-4;x++)messageInk=messageInk||px(x,y)==mm::FG;assert(messageInk);

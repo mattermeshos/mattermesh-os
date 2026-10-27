@@ -8,6 +8,7 @@
 #include "board/device_model.h"
 #include "../services/direct_chat.h"
 #include "service.h"
+#include "../services/geo.h"
 #include "radio_parameters.h"
 #include "companion_settings.h"
 #include <CayenneLPP.h>
@@ -190,7 +191,13 @@ ContactPage contacts(int filter,const std::string &query,int offset,int limit){C
 int contactsCount(int filter,const std::string &query){int n=0;for(int i=0;i<discoveredCount;i++){auto &c=discovered[i];if(matchesFilter(c,filter)&&mm::contactMatches(c.name,query))n++;}return n;}
 std::vector<Node> nodes(int filter,int offset,int limit){std::vector<Node> out;if(offset<0||limit<=0)return out;int index=0;for(int i=0;i<discoveredCount&&int(out.size())<limit;i++){auto &n=discovered[i];if(!matchesFilter(n,filter)||index++<offset)continue;Node node;node.key=n.key;node.name=n.name;node.type=n.type;node.seen=n.seen;node.hops=n.hops;node.rssi=n.rssi;node.snr=n.snr;node.live=n.live;node.lat=n.lat;node.lon=n.lon;out.push_back(node);}return out;}
 // Map pins: nodes whose advert carried a position (MeshCore 1e-6 degrees) inside the box.
-int nodePins(double south,double west,double north,double east,NodePin *out,int capacity){int count=0;for(int i=0;i<discoveredCount&&count<capacity;i++){auto &n=discovered[i];if(!n.lat&&!n.lon)continue;double lat=n.lat/1e6,lon=n.lon/1e6;if(lat<south||lat>north||lon<west||lon>east)continue;auto &p=out[count++];p.lat=lat;p.lon=lon;p.repeater=n.type==ADV_TYPE_REPEATER;strlcpy(p.name,n.name,sizeof(p.name));}return count;}
+NodeStats nodeStats(){NodeStats st;for(int i=0;i<discoveredCount;i++){auto &n=discovered[i];if(n.lat||n.lon){st.placed++;st.digest+=n.lat/1000+n.lon/1000;}if(n.live){st.live++;if(!st.snrKnown||n.snr>st.bestSnr){st.bestSnr=n.snr;st.snrKnown=true;}}}return st;}
+int nearestPins(double lat,double lon,NodePin *out,int k){int count=0;double far[16];if(k>16)k=16;
+ for(int i=0;i<discoveredCount;i++){auto &n=discovered[i];if(!n.lat&&!n.lon)continue;double d=mm::geoDistanceMeters(lat,lon,n.lat/1e6,n.lon/1e6);
+  if(count==k&&d>=far[k-1])continue;int at=count<k?count++:k-1;while(at>0&&far[at-1]>d){far[at]=far[at-1];out[at]=out[at-1];at--;}
+  far[at]=d;auto &p=out[at];p=NodePin{};p.lat=n.lat/1e6;p.lon=n.lon/1e6;p.repeater=n.type==ADV_TYPE_REPEATER;p.live=n.live;strlcpy(p.name,n.name,sizeof(p.name));}
+ return count;}
+int nodePins(double south,double west,double north,double east,NodePin *out,int capacity){int count=0;for(int i=0;i<discoveredCount&&count<capacity;i++){auto &n=discovered[i];if(!n.lat&&!n.lon)continue;double lat=n.lat/1e6,lon=n.lon/1e6;if(lat<south||lat>north||lon<west||lon>east)continue;auto &p=out[count++];p.lat=lat;p.lon=lon;p.live=n.live;p.repeater=n.type==ADV_TYPE_REPEATER;strlcpy(p.name,n.name,sizeof(p.name));}return count;}
 // Route on map: repeaters matching a path hash prefix, or nodes with an exact name.
 // `matches` counts every candidate; only those with a position are returned.
 static int nodePinsWhere(bool (*match)(const CachedNode&,const String&),const String &value,NodePin *out,int capacity,int &matches){matches=0;int count=0;for(int i=0;i<discoveredCount;i++){auto &n=discovered[i];if(!match(n,value))continue;matches++;if((!n.lat&&!n.lon)||count>=capacity)continue;auto &p=out[count++];p.lat=n.lat/1e6;p.lon=n.lon/1e6;p.repeater=n.type==ADV_TYPE_REPEATER;strlcpy(p.name,n.name,sizeof(p.name));}return count;}

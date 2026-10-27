@@ -89,7 +89,7 @@ void locationLoop(){
  if(!offPending&&dumpWanted(now)&&uint32_t(now-fixFirstAt)>=GPS_BACKUP_AFTER_FIX_MS&&(!dumped||uint32_t(now-lastDumpAt)>=GPS_BACKUP_INTERVAL_MS))backup.startDump(now,clockEpoch(),sendUbx);
  if(fix&&gps.location.isUpdated()){
   double lat=gps.location.lat(),lon=gps.location.lng();bool changed=fabs(lat-state.latitude)>0.001||fabs(lon-state.longitude)>0.001;
-  state.latitude=lat;state.longitude=lon;state.configured=true;state.altitude=gps.altitude.meters();if(changed)state.revision++;
+  state.latitude=lat;state.longitude=lon;state.configured=true;if(gps.altitude.isValid()){state.altitude=gps.altitude.meters();state.altitudeValid=true;}if(changed)state.revision++;
   // The saved position (map start, weather without a fix, GPS aiding) only takes a fix held for 30 s.
   // NVS keeps the last good position for the next boot: rewritten only after ~100 m (0.001 deg), not every minute.
   static double savedLat=NAN,savedLon=NAN;
@@ -114,5 +114,8 @@ void locationStore(LocationStore s){store=s;}
 bool locationBackupNow(){if(!state.enabled||!state.available||!store.save||!backup.idle()||probe.busy())return false;return backup.startDump(millis(),clockEpoch(),sendUbx);}
 std::string locationBackupDiagnostic(){return "store="+std::to_string(store.save!=nullptr)+" "+backup.diagnostic()+" saves="+std::to_string(saves)+" save_failures="+std::to_string(saveFailures)+" saved_age_ms="+(dumped?std::to_string(uint32_t(millis()-lastDumpAt)):std::string("none"))+" fix_seen="+std::to_string(fixSeen)+" off_pending="+std::to_string(offPending);}
 uint32_t locationRevision(){return state.revision;}
+static_assert(SkySatMax==GpsNmea::SkyMax,"sky table");
+int locationHdop(){return state.enabled?nmea.hdopHundredths:-1;}
+int locationSky(SkySat *out,int max){uint32_t now=millis();int n=0;if(!state.enabled)return 0;for(auto &v:nmea.sky)if(v.prn&&uint32_t(now-v.at)<GpsNmea::SatStaleMs&&n<max){auto &o=out[n++];o.azimuth=v.azimuth;o.elevation=v.elevation;o.used=nmea.inFix(v.system,v.prn,now);}return n;}
 LocationState locationState(){auto view=state;view.fixAgeMs=state.enabled&&state.available&&gps.location.isValid()?gps.location.age():UINT32_MAX;view.fix=view.fix&&view.fixAgeMs<15000&&nmea.positionTrusted(millis());return view;}
 }
