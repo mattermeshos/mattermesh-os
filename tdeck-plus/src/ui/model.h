@@ -43,7 +43,7 @@ struct State {
   bool gpsOn=false,gpsFix=false,position=false;/* gpsFix: live fix; position: a fix within the hour (Coordinates) */int altitude=0,satellites=0;double latitude=0,longitude=0;uint32_t fixAgeS=0;
   int live=0;bool repeater=false;std::string repeaterName;float repeaterSnr=0;uint32_t repeaterAgeS=0;
   bool clock=false;std::string month,weekday;int day=0,week=0;uint32_t weatherAgeS=UINT32_MAX;};/* clock: the time is set (Moon, Calendar, the sun); weatherAgeS: UINT32_MAX unknown */
- int homeWidget=HomeWidgetDefault,homeWidgetFocus=HomeWidgetDefault;HomeWidgetData widget;
+ int homeWidget=HomeWidgetDefault,homeWidgetFocus=HomeWidgetDefault;bool homeWidgetChosen=false;/* picked in Settings: no live weather over it */HomeWidgetData widget;
  // Main area (Settings > Home widgets > Main area): the big widget under the clock band; its GPS widgets also read `widget`.
  struct TimelineRow {std::string time,channel,text;bool direct=false,unread=false;int chat=-1;};
  struct NearbyNode {std::string name;int meters=0,bearing=0;bool live=false;};

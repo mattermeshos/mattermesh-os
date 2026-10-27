@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-// Settings > Home widgets > Beside clock: the box right of the Home clock when there is no live weather.
+// Settings > Home widgets > Beside clock: the box right of the Home clock (the live weather takes it only while none was picked).
 // The index is saved (NVS "mmui"/"homewg"): append new widgets only, never reorder.
 namespace mm {
 struct HomeWidgetInfo {const char *name,*description,*needs;};

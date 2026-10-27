@@ -263,7 +263,7 @@ constexpr int MenuHomeInfoX=MenuHomeClock.x+MenuHomeClock.w+Gap,MenuHomeInfoW=W-
 constexpr Rect MenuHomeDate={MenuHomeInfoX,MenuHomeClock.y,MenuHomeInfoW,MenuHomeClock.h/2};
 constexpr Rect MenuHomeStatus={MenuHomeInfoX,MenuHomeClock.y+MenuHomeClock.h/2,MenuHomeInfoW,MenuHomeClock.h/2};
 constexpr Rect NotificationBannerHome={6,2,W-12,MenuHomeRowY-8};// Home: covers the big clock too, two text lines
-// Home: the widget box right of the clock (no live weather), the clock band it sits in.
+// Home: the widget box right of the clock, the clock band it sits in.
 constexpr Rect HomeWidgetBox={W/2+4,StatusH+6,W-Margin-(W/2+4),40};// painted from its y; taps: the Wi-Fi button
 constexpr int HomeWidgetGap=8,HomeWidgetTitleY=2,HomeWidgetDetailY=23;// mark to text, title and detail rows from the box top
 constexpr int HomeBandY=StatusH+2,HomeBandH=MenuHomeRowY-1-HomeBandY;

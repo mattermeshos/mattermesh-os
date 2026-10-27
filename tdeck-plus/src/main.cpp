@@ -183,11 +183,12 @@ void applyTextSize(){
 // One NVS integer: the default when the namespace cannot be opened; put reports whether all 4 bytes were written.
 void loadTextSize(){chatTextSize=device::prefGetInt("mmui","chatlg",1)?1:0;textSizeFocus=chatTextSize;applyTextSize();}
 bool setTextSize(int index){index=index?1:0;if(!device::prefPutInt("mmui","chatlg",index))return false;chatTextSize=index;applyTextSize();return true;}// applied only once saved
+bool homeWidgetChosen=false;// a Beside clock widget picked in Settings always shows; never picked: the live weather takes the box
 int homeWidget=mm::HomeWidgetDefault,homeWidgetFocus=mm::HomeWidgetDefault;// Settings > Home widgets > Beside clock, NVS "mmui"/"homewg"
 int homeMain=mm::MainWidgetDefault,homeMainFocus=mm::MainWidgetDefault,homeWidgetsRow=0;String noteInput;// Main area (NVS "mmui"/"homemn"), the Home widgets row, the note being edited
-void loadHomeWidget(){homeWidget=constrain(device::prefGetInt("mmui","homewg",mm::HomeWidgetDefault),0,mm::HomeWidgetCount-1);homeWidgetFocus=homeWidget;}
+void loadHomeWidget(){int saved=device::prefGetInt("mmui","homewg",-1);homeWidgetChosen=saved>=0;homeWidget=constrain(homeWidgetChosen?saved:mm::HomeWidgetDefault,0,mm::HomeWidgetCount-1);homeWidgetFocus=homeWidget;}
 void loadHomeMain();bool setHomeMain(int index);
-bool setHomeWidget(int index){index=constrain(index,0,mm::HomeWidgetCount-1);if(!device::prefPutInt("mmui","homewg",index))return false;homeWidget=index;return true;}// applied only once saved
+bool setHomeWidget(int index){index=constrain(index,0,mm::HomeWidgetCount-1);if(!device::prefPutInt("mmui","homewg",index))return false;homeWidget=index;homeWidgetChosen=true;return true;}// applied only once saved
 int lockWallpaper=0,wallpaperFocus=0;// theme index (mm::theme), persisted in NVS "mmlock"
 void loadWallpaper(){lockWallpaper=constrain(device::prefGetInt("mmlock","wall",0),0,WALLPAPER_COUNT-1);wallpaperFocus=lockWallpaper;
  mm::setTheme(lockWallpaper);
@@ -660,7 +661,7 @@ v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequency=radio.config.freque
  if(!deviceLocked&&screen==Screen::Section&&section==9)mapCompose(v);
  if(!deviceLocked&&screen==Screen::Section&&mm::toolsSection(section))toolsCompose(v);
  if(!deviceLocked&&screen==Screen::Section&&section==10)weatherTabsCompose(v);
- v.homeWidget=homeWidget;v.homeWidgetFocus=homeWidgetFocus;v.homeMain=homeMain;v.homeMainFocus=homeMainFocus;v.homeWidgetsRow=homeWidgetsRow;// Settings shows the choices on its Home widgets row
+ v.homeWidget=homeWidget;v.homeWidgetFocus=homeWidgetFocus;v.homeWidgetChosen=homeWidgetChosen;v.homeMain=homeMain;v.homeMainFocus=homeMainFocus;v.homeWidgetsRow=homeWidgetsRow;// Settings shows the choices on its Home widgets row
  if(screen==Screen::Section&&section==mm::NoteSection)v.noteInput=noteInput.c_str();
  if(!deviceLocked&&(screen==Screen::Home||(screen==Screen::Section&&section==mm::MainAreaSection)))fillMainWidget(v);// Home widgets: its preview is a Home state
  if(!deviceLocked&&(screen==Screen::Home||(screen==Screen::Section&&section==mm::BesideClockSection)))fillHomeWidget(v);
@@ -1333,7 +1334,7 @@ void tap(int x,int y) {
  if(y<mm::StatusH){if(quickSettingsShown())back();else openSection(mm::QuickSettingsSection);return;}
  if(screen==Screen::Home){
   if(mm::MenuHomeClock.contains(x,y)){navigation.clear();screen=Screen::Launcher;render();return;}
-  if(homeWidget==mm::WidgetWifi&&mm::HomeWidgetBox.contains(x,y)&&!weatherLiveNow()){weatherWifiAction();return;}// the button shows while there is no live weather
+  if(homeWidget==mm::WidgetWifi&&mm::HomeWidgetBox.contains(x,y)&&(homeWidgetChosen||!weatherLiveNow())){weatherWifiAction();return;}// the button shows unless the live weather covers it
   // Main area widgets other than the chat cards: Timeline opens the tapped message's chat, the Note its editor,
   // the weather widgets Weather, the mesh ones Contacts, the GPS ones the GPS page.
   if(homeMain!=mm::MainChats&&mm::MainArea.contains(x,y)){

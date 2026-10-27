@@ -122,7 +122,7 @@ void Renderer::quickReply(const State &s){
  if(s.quickEmoji)emojiPopup(s);
 }
 static std::string widgetAge(uint32_t seconds,bool ago){if(seconds<60)return ago?"just now":"now";std::string n=seconds<3600?std::to_string(seconds/60)+" min":seconds<86400?std::to_string(seconds/3600)+" h":std::to_string(seconds/86400)+" d";return ago?n+" ago":n;}
-constexpr int WidgetLiveWeather=-1;// homeHeader: the live weather in the widget box
+constexpr int WidgetLiveWeather=-1;// homeHeader: the live weather in the widget box (only while no widget was picked)
 // Home widgets (Settings > Home widgets > Beside clock), drawn in the box right of the clock: most share the weather
 // header's shape, a mark on the left and a title over a muted detail line, centred in the box.
 void Renderer::homeWidget(const State &s,int id,int x,int top,int w){
@@ -186,7 +186,7 @@ void Renderer::homeHeader(const State &s,int dy,bool widgetOnly){
   const int top=HomeWidgetBox.y+dy;c.text(Margin,top,s.status.clock,Font::MenuClock);
   c.text(Margin+2,top+34,s.status.acquiringTime?"Acquiring time":s.menuDate,Font::ChatMeta,Muted,140);
   g.drawFastVLine(HomeWidgetBox.x-8,top+2,40,Line);
-  homeWidget(s,weatherLive(s)&&!widgetOnly?WidgetLiveWeather:s.page==Page::BesideClock?s.homeWidgetFocus:s.homeWidget,HomeWidgetBox.x,top,HomeWidgetBox.w);
+  homeWidget(s,weatherLive(s)&&!widgetOnly&&!s.homeWidgetChosen?WidgetLiveWeather:s.page==Page::BesideClock?s.homeWidgetFocus:s.homeWidget,HomeWidgetBox.x,top,HomeWidgetBox.w);
   // Ridge: two overlapping silhouettes in the mist colour under the header.
   const int base=MenuHomeRowY-3+dy;const int ridge[][2]={{150,0},{176,7},{214,3},{244,8},{276,2},{W,6}};// right of the date only
   for(unsigned i=0;i+1<sizeof(ridge)/sizeof(ridge[0]);i++){int x0=ridge[i][0],x1=ridge[i+1][0],y0=base-ridge[i][1],y1=base-ridge[i+1][1];g.fillTriangle(x0,base,x1,base,x0,y0,Mist);g.fillTriangle(x1,base,x0,y0,x1,y1,Mist);}
