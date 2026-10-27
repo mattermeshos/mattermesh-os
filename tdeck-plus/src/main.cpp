@@ -10,7 +10,7 @@
 #include <functional>
 // Chat/modals nest state construction and LCD rendering in the UI task.
 // Headroom for SD reads under loop->handle->render->uiState (16 KiB overflowed in 0.4.1.4 testing).
-constexpr size_t UI_TASK_STACK_BYTES=24*1024;
+constexpr size_t UI_TASK_STACK_BYTES=40*1024;// a tap that opens a page nests tap > openSection > render > renderSection > uiState: ~20 KB of frames (one mm::State is ~5 KB)
 SET_LOOP_TASK_STACK_SIZE(UI_TASK_STACK_BYTES);
 #include <SPI.h>
 #include <Wire.h>
@@ -819,6 +819,9 @@ void bannerAnimated(uint32_t ms){if(stormBannerUntil)stormBannerUntil+=ms;if(ota
 int topBannerClearTo(){
  if(screen==Screen::Home)return mm::MenuHomeRowY;if(screen!=Screen::Section)return mm::Top-1;
  if(section==1||section==2)return mm::LoRaTabY+mm::LoRaTabH;if(section==9)return mm::MapBackFloat.y+mm::MapBackFloat.h;if(section==mm::LinkSection)return mm::LinkArea.y;return mm::Top-1;}
+// The chat of the Timeline row at y (-1: none). Its own frame holds the ~5 KB mm::State, so tap() does not keep one
+// on the stack while it opens the chat (tap > openConversation > render nests deep: the loop stack overflowed).
+__attribute__((noinline)) static int timelineChatAt(int y){auto v=uiState();int row=mm::mainTimelineRow(y);return row>=0&&row<int(v.main.timeline.size())?v.main.timeline[row].chat:-1;}
 void render(bool partialHint,int batteryPreview) {
  if(renderHold){renderPending=true;return;}// touchScroll: one frame for all the rows of a gesture step
  {static int seenScreen=-1,seenSection=-1;if(int(screen)!=seenScreen||section!=seenSection){seenScreen=int(screen);seenSection=section;touchBrowse=false;}}// touch browsing ends with the page
@@ -1328,7 +1331,7 @@ void tap(int x,int y) {
   // Main area widgets other than the chat cards: Timeline opens the tapped message's chat, the Note its editor,
   // the weather widgets Weather, the mesh ones Contacts, the GPS ones the GPS page.
   if(homeMain!=mm::MainChats&&mm::MainArea.contains(x,y)){
-   if(homeMain==mm::MainTimeline){auto v=uiState();int row=mm::mainTimelineRow(y);if(row>=0&&row<int(v.main.timeline.size())&&v.main.timeline[row].chat>=0){chatsParent=Screen::Home;openConversation(v.main.timeline[row].chat,Screen::Home);}return;}
+   if(homeMain==mm::MainTimeline){int chat=timelineChatAt(y);if(chat>=0){chatsParent=Screen::Home;openConversation(chat,Screen::Home);}return;}
    if(mm::mainWidgetSection(homeMain)>=0)openSection(mm::mainWidgetSection(homeMain));return;}
   for(int row=0;row<mm::MenuHomeRows;row++)if(mm::menuHomeRowRect(row).contains(x,y)){auto list=conversationList();/* sorted by activity, as painted */int at=max(0,min(homeScroll,max(0,int(list.size())-mm::MenuHomeRows)))+row;/* rows follow homeScroll, as painted */if(at<int(list.size())){chatsParent=Screen::Home;openConversation(list[at].id,Screen::Home);}return;}
   for(int tab=0;tab<mm::MenuHomeTabCount;tab++)if(mm::menuHomeTabRect(tab).contains(x,y)){homeSelection=tab;int route=mm::HomeTabs[tab].section;if(route<0){navigation.clear();screen=Screen::Launcher;render();}else openSection(route);return;}return;
