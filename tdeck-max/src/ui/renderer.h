@@ -9,6 +9,10 @@ class Renderer {
 public:
  int chatComposerTop=ComposerY;// top of the composer card painted by chat(): ComposerY unless a draft expanded it
 private:
+ void homeHeader(const State &s,int dy,int id);// Home clock band (Classic, or a smaller clock and the widget box), moved down by dy (previews)
+ void homeWidget(const State &s,int id,int x,int top,int w);// one Home widget in the box right of the clock
+ void homeChats(const State &s,int dy);// Home chat cards, moved down by dy
+ void mainWidget(const State &s,int id,Rect r);// one Main area widget in r
  void shell(const State &s,const std::string &title,bool back=true,Icon right=Icon::Menu);
  Rect overlayPanel();// clears below the header and draws the card shared by the chat overlays
  void mapView(const State &s); // MapArea: tiles, route, pins, own position, status, scale
@@ -42,6 +46,6 @@ public:
  void welcome(const State &s);// first-boot setup
  void holdBanner(const std::string &label);// one-line notice card under the status bar
  void unlockTapBanner(int taps);
- void messageBanner(const std::string &sender,const std::string &preview);
+ void notificationBanner(Rect r,int clearTo,Icon icon,const std::string &title,const std::string &tag,const std::string &body);// card over the status bar and header, down to clearTo
 };
 }

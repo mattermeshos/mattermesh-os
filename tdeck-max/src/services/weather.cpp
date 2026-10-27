@@ -80,20 +80,24 @@ static void fetchWeather(Request &request){
 // Return from fetchWeather before deleting the task so TLS buffers and sockets are released.
 static void worker(void *argument){auto request=static_cast<Request*>(argument);fetchWeather(*request);delete request;xSemaphoreTake(mutex,portMAX_DELAY);state.busy=false;publish();xSemaphoreGive(mutex);vTaskDelete(nullptr);}
 static void startWorker(bool gps){
- auto location=locationState();auto request=new Request{generation.load(),gps,location.latitude,location.longitude,{},location.configured,location.latitude,location.longitude,preferences.getString("place_api","https://photon.komoot.io")};
+ auto location=locationState();if(location.injected)location=LocationState{};/* never the weather of a test position */auto request=new Request{generation.load(),gps,location.latitude,location.longitude,{},location.configured,location.latitude,location.longitude,preferences.getString("place_api","https://photon.komoot.io")};
  if(!gps)request->accessPoints=wifiAccessPoints();
  xSemaphoreTake(mutex,portMAX_DELAY);state.busy=true;state.phase=WeatherPhase::Fetching;state.message="Updating...";publish();xSemaphoreGive(mutex);
  if(xTaskCreate(worker,"matter-weather",8192,request,1,nullptr)!=pdPASS){delete request;xSemaphoreTake(mutex,portMAX_DELAY);state.busy=false;state.phase=WeatherPhase::Error;state.message="Weather worker unavailable";publish();xSemaphoreGive(mutex);}
 }
 void weatherBegin(){preferences.begin("mmweather",false);mutex=xSemaphoreCreateMutex();WeatherData cached;if(preferences.getBytesLength("cache")==sizeof(cached)&&preferences.getBytes("cache",&cached,sizeof(cached))==sizeof(cached)&&cached.magic==WeatherData().magic&&cached.valid){state.data=cached;state.cached=true;state.message="Cached";}if(preferences.getBytesLength("place")==sizeof(placeCache)){PlaceCache saved;if(preferences.getBytes("place",&saved,sizeof(saved))==sizeof(saved)&&saved.magic==placeCache.magic){saved.name[sizeof(saved.name)-1]=0;placeCache=saved;if(state.data.valid&&placeMatches(state.data.latitude,state.data.longitude))state.place=placeCache.name;}}}
-void weatherSetOpen(bool on){
+void weatherSetOpen(bool on,uint32_t freshMs){
  if(on==open)return;open=on;locating=false;
- if(on){pending=!state.data.valid||!lastSuccess||uint32_t(millis()-lastSuccess)>=WEATHER_REOPEN_FRESH_MS;if(!pending)lastAttempt=lastSuccess;xSemaphoreTake(mutex,portMAX_DELAY);state.open=true;publish();xSemaphoreGive(mutex);return;}
+ if(on){pending=!state.data.valid||!lastSuccess||uint32_t(millis()-lastSuccess)>=freshMs;if(!pending)lastAttempt=lastSuccess;xSemaphoreTake(mutex,portMAX_DELAY);state.open=true;publish();xSemaphoreGive(mutex);return;}
  generation++;pending=false;
  if(wifiByWeather&&connectivityStatus().wifi)wifiEnabled(false,false);wifiByWeather=false;
  xSemaphoreTake(mutex,portMAX_DELAY);state.open=false;state.phase=WeatherPhase::Closed;state.cached=state.data.valid;state.message=state.data.valid?"Cached":"";publish();xSemaphoreGive(mutex);
 }
 void weatherRefresh(){if(open)pending=true;}
+// A fetch already on its way (locating or the worker running) is enough: no second one right after it.
+void weatherRefreshIfOlder(uint32_t ms){if(!open||pending||locating)return;xSemaphoreTake(mutex,portMAX_DELAY);bool busy=state.busy;xSemaphoreGive(mutex);
+ if(!busy&&(!state.data.valid||!lastSuccess||uint32_t(millis()-lastSuccess)>=ms))pending=true;}
+bool weatherOwnsWifi(){return wifiByWeather;}
 void weatherEnableWifi(){if(!open||connectivityStatus().wifi)return;wifiEnabled(true,false);wifiByWeather=true;pending=true;}
 void weatherLoop(){
  static uint32_t lastLoop=0;if(!open||millis()-lastLoop<1000)return;lastLoop=millis();
@@ -106,7 +110,7 @@ void weatherLoop(){
  if(!connection.connected){locating=false;setPhase(connection.connecting||connection.remembered?WeatherPhase::Connecting:WeatherPhase::NoNetwork,connection.connecting||connection.remembered?"Connecting to Wi-Fi...":"No saved Wi-Fi network");return;}
  if(time(nullptr)<MM_EPOCH_MIN){setPhase(WeatherPhase::WaitingClock,"Waiting for clock sync");return;}
  // GPS is used only if the user already has it on and it has a fix; its state is never touched.
- auto location=locationState();bool gps=location.enabled&&location.fix;
+ auto location=locationState();if(location.injected)location=LocationState{};/* never the weather of a test position */bool gps=location.enabled&&location.fix;
  if(gps&&lastAttemptSource!=WeatherSourceGps&&uint32_t(millis()-lastAttempt)>=WEATHER_RETRY_MS)pending=true;
  if(lastAttempt&&uint32_t(millis()-lastAttempt)>=(lastOk?WEATHER_REFRESH_MS:WEATHER_RETRY_MS))pending=true;
  if(locating){if(wifiScanCount()!=scanBase||uint32_t(millis()-scanStarted)>=8000){locating=false;startWorker(false);}return;}

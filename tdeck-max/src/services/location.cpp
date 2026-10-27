@@ -1,4 +1,5 @@
 #include "location.h"
+#include "gps_position_policy.h"
 #include "time_sync.h"
 #include "gps_nmea.h"
 #include "gps_probe.h"
@@ -16,9 +17,13 @@ static GpsBackup backup;static LocationStore store;static uint32_t goodSince=0;/
 static uint32_t fixFirstAt=0,lastDumpAt=0,offDeadline=0,saves=0,saveFailures=0;static bool fixSeen=false,dumped=false,offPending=false;
 static void sendUbx(const uint8_t *data,size_t size){SerialGPS.write(data,size);}
 static uint32_t clockEpoch(){uint32_t t=uint32_t(time(nullptr));return t>=GPS_ASSIST_MIN_EPOCH&&t<GPS_ASSIST_MAX_EPOCH?t:0;}
-static bool dumpWanted(uint32_t now){return fixSeen&&store.save&&backup.idle()&&!probe.busy();}
+// Tests ("gps inject"): NMEA lines from USB stand in for the receiver, whose bytes are read and dropped; a position
+// from them is never saved to NVS, sets no clock, is not used for the weather, and no navigation database is dumped.
+static bool injecting=false;static struct {double latitude=0,longitude=0,altitude=0;bool configured=false,fixSeen=false;} beforeInject;
+static void endInjection();// the position, fix and first-fix flag from before the injection come back
+static bool dumpWanted(uint32_t now){return !injecting&&fixSeen&&store.save&&backup.idle()&&!probe.busy();}
 static void saveBackup(uint32_t now){auto data=backup.take();if(store.save&&store.save(data)){saves++;dumped=true;lastDumpAt=now;}else saveFailures++;state.revision++;}
-static bool applyEnabled(bool enabled){
+static bool applyEnabled(bool enabled){if(!enabled)endInjection();/* "gps inject" ends with the receiver */
  if(!expansion)return false;
  probe.cancel();
  if(!enabled)SerialGPS.end();
@@ -51,10 +56,10 @@ bool locationEnabled(bool enabled){
 }
 bool locationToggleUser(){return locationEnabled(!state.userEnabled);}
 int locationPowerLevel(){return expansion?expansion->digitalRead(BOARD_XL9555_02_GPS_EN):-1;}
-bool locationSet(double latitude,double longitude){if(!isfinite(latitude)||!isfinite(longitude)||latitude<-90||latitude>90||longitude<-180||longitude>180)return false;if(!state.fix){state.latitude=latitude;state.longitude=longitude;}state.configured=true;preferences.putDouble("latitude",latitude);preferences.putDouble("longitude",longitude);preferences.putBool("valid",true);state.revision++;return true;}
+bool locationSet(double latitude,double longitude){if(!gpsPositionValid(latitude,longitude))return false;if(!state.fix){state.latitude=latitude;state.longitude=longitude;}state.configured=true;preferences.putDouble("latitude",latitude);preferences.putDouble("longitude",longitude);preferences.putBool("valid",true);state.revision++;return true;}
 void locationLoop(){
  if(!state.enabled)return;uint32_t now=millis();int budget=1024;
- while(SerialGPS.available()&&budget--){int ch=SerialGPS.read();if(ch<0)break;if(!probe.feed(uint8_t(ch),now)){nmea.feed(char(ch),now);gps.encode(ch);}else if(probe.frameReady){probe.frameReady=false;backup.onFrame(probe.cls,probe.id,probe.payload,probe.length,now);}}
+ while(SerialGPS.available()&&budget--){int ch=SerialGPS.read();if(ch<0)break;if(injecting)continue;if(!probe.feed(uint8_t(ch),now)){nmea.feed(char(ch),now);gps.encode(ch);}else if(probe.frameReady){probe.frameReady=false;backup.onFrame(probe.cls,probe.id,probe.payload,probe.length,now);}}
  probe.tick(now,[](const uint8_t *data,size_t size){SerialGPS.write(data,size);});
  backup.tick(now,sendUbx);if(backup.ready)saveBackup(now);
  // Lease released: the GPS goes off once the database is saved or the deadline passes.
@@ -81,18 +86,24 @@ void locationLoop(){
   // NVS keeps the last position (map start, weather without a fix, GPS aiding): only a fix held for 30 s, rewritten
   // after ~100 m of movement (GPS jitter alone used to write it every minute).
   static double savedLat=NAN,savedLon=NAN;
-  if(uint32_t(now-goodSince)>=30000&&millis()-lastSave>60000&&!(fabs(lat-savedLat)<=0.001&&fabs(lon-savedLon)<=0.001)){lastSave=millis();savedLat=lat;savedLon=lon;preferences.putDouble("latitude",lat);preferences.putDouble("longitude",lon);if(!preferences.getBool("valid",false))preferences.putBool("valid",true);}
+  if(!injecting&&uint32_t(now-goodSince)>=30000&&millis()-lastSave>60000&&!(fabs(lat-savedLat)<=0.001&&fabs(lon-savedLon)<=0.001)){lastSave=millis();savedLat=lat;savedLon=lon;preferences.putDouble("latitude",lat);preferences.putDouble("longitude",lon);if(!preferences.getBool("valid",false))preferences.putBool("valid",true);}
  }
  // TinyGPS++ commits checksum-valid RMC time/date even when its position
  // validity flag is V. A fresh clock does not require a position fix.
  state.timeValid=false;
  if(gps.date.isValid()&&gps.time.isValid()&&gps.date.age()<2000&&gps.time.age()<2000&&state.nmeaFresh){
   uint32_t epoch=gpsUtcEpoch(gps.date.year(),gps.date.month(),gps.date.day(),gps.time.hour(),gps.time.minute(),gps.time.second());
-  state.timeValid=epoch!=0;if(state.timeValid)timeSyncGPS(epoch,true,true);
+  state.timeValid=epoch!=0;if(state.timeValid&&!injecting)timeSyncGPS(epoch,true,true);// a test sentence never sets the clock
  }
  if(oldData!=state.data||oldFresh!=state.nmeaFresh||oldTime!=state.timeValid||oldUsed!=state.satellitesUsed||oldVisible!=state.satellitesVisible)state.revision++;
 }
 
+static void endInjection(){if(!injecting)return;injecting=false;gps=TinyGPSPlus();nmea=GpsNmea{};state.fix=false;state.latitude=beforeInject.latitude;state.longitude=beforeInject.longitude;
+ state.altitude=beforeInject.altitude;state.configured=beforeInject.configured;fixSeen=beforeInject.fixSeen;state.revision++;}
+bool locationInject(bool on){if(!on){endInjection();return true;}if(!state.enabled)return false;
+ if(!injecting){beforeInject.latitude=state.latitude;beforeInject.longitude=state.longitude;beforeInject.altitude=state.altitude;beforeInject.configured=state.configured;beforeInject.fixSeen=fixSeen;}injecting=true;return true;}
+bool locationInjectLine(const char *line){if(!injecting||!state.enabled)return false;uint32_t now=millis();for(const char *p=line;*p;p++){nmea.feed(*p,now);gps.encode(*p);}nmea.feed('\r',now);gps.encode('\r');nmea.feed('\n',now);gps.encode('\n');return true;}
+int locationHdop(){return state.enabled?nmea.hdopHundredths:-1;}
 std::string locationNmeaDiagnostic(){std::string out="quality="+std::to_string(nmea.quality)+" hdop_x100="+std::to_string(nmea.hdopHundredths)+" nav_valid="+std::to_string(nmea.fixKnown&&nmea.positionTrusted(millis()));for(auto &v:nmea.views)if(v.valid){out+="\n"+std::string(v.talker)+": "+std::to_string(v.count)+" age_ms="+std::to_string(uint32_t(millis()-v.at))+" peak_cn0="+std::to_string(v.peakCno)+" tracked_entries="+std::to_string(v.trackedEntries);out+="\n"+std::string(v.raw);}return out;}
 bool locationUbxPoll(uint8_t cls,uint8_t id,const uint8_t *payload,uint16_t size){return state.enabled&&state.available&&probe.poll(cls,id,payload,size);}
 std::string locationUbxResult(){return probe.rawDiagnostic(millis());}
@@ -102,5 +113,5 @@ void locationStore(LocationStore s){store=s;}
 bool locationBackupNow(){if(!state.enabled||!state.available||!store.save||!backup.idle()||probe.busy())return false;return backup.startDump(millis(),clockEpoch(),sendUbx);}
 std::string locationBackupDiagnostic(){return "store="+std::to_string(store.save!=nullptr)+" "+backup.diagnostic()+" saves="+std::to_string(saves)+" save_failures="+std::to_string(saveFailures)+" saved_age_ms="+(dumped?std::to_string(uint32_t(millis()-lastDumpAt)):std::string("none"))+" fix_seen="+std::to_string(fixSeen)+" off_pending="+std::to_string(offPending);}
 bool gpsActive(){return state.enabled&&state.available;}
-LocationState locationState(){auto view=state;view.fixAgeMs=state.enabled&&state.available&&gps.location.isValid()?gps.location.age():UINT32_MAX;view.fix=view.fix&&view.fixAgeMs<15000&&nmea.positionTrusted(millis());return view;}
+LocationState locationState(){auto view=state;view.injected=injecting;view.fixAgeMs=state.enabled&&state.available&&gps.location.isValid()?gps.location.age():UINT32_MAX;view.fix=view.fix&&view.fixAgeMs<15000&&nmea.positionTrusted(millis());return view;}
 }

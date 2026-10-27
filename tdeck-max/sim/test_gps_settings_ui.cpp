@@ -4,7 +4,7 @@
 #include "ui/renderer.h"
 #include "ui/navigation_catalog.h"
 int main(){
- assert(mm::ApplicationCount==4&&mm::Applications[0].section==9&&mm::SettingsCount==18);for(auto app:mm::Applications)assert(app.section!=3);
+ assert(mm::ApplicationCount==4&&mm::Applications[0].section==9&&mm::SettingsCount==19);for(auto app:mm::Applications)assert(app.section!=3);
  assert(mm::SettingsItems[mm::SettingsGpsIndex].section==3);assert(mm::settingsRect(mm::SettingsGpsIndex,0).y+34<=mm::Bottom);
  assert(mm::GpsToggle.y>=mm::Top&&mm::GpsToggle.x+mm::GpsToggle.w<=mm::W-mm::Margin);
  GFXcanvas1 canvas(mm::W,mm::H);mm::Components c(canvas);mm::Renderer renderer(canvas);mm::State s;

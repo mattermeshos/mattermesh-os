@@ -13,19 +13,32 @@
 #include "services/dictation_policy.h"
 #include "services/channel_form.h"
 #include "os_logo_bitmap.h"
+#include "services/sky.h"
+#include "services/geo.h"
 #include "services/keyboard_layout.h"
 #include <cmath>
 #include <algorithm>
 namespace mm {
-void Renderer::messageBanner(const std::string &sender,const std::string &preview){
+// Unlocked notification (message, update, chat notice): a rounded card floating over the status bar and the page
+// header, the app icon white in a black disc, title and tag on the first row, the text below; a tap opens it.
+// E-ink: a double outline, no shadow, no greys.
+void Renderer::notificationBanner(Rect r,int clearTo,Icon icon,const std::string &title,const std::string &tag,const std::string &body){
  auto single=[](std::string text){for(char &ch:text)if(static_cast<unsigned char>(ch)<32)ch=' ';return text;};
- auto name=single(senderDisplayName(sender)),body=single(preview);const auto r=MessageBannerArea;int available=W-2*Margin;
- auto ellipsis=[&](const std::string &text,Font f){if(c.width(text,f)<=available)return text;std::string head;uint32_t cp;for(size_t at=0;at<text.size();){size_t next=utf8Next(text,at,cp);auto unit=text.substr(at,next-at);if(c.width(head+unit+"...",f)>available)break;head+=unit;at=next;}return head+"...";};
- g.fillRect(r.x,r.y,r.w,r.h,BG);g.drawFastHLine(0,r.y+r.h-1,W,FG);
- // Two lines in the header slot: sender, then the message preview.
- int top=r.y+(r.h-1-c.lineHeight(Font::Bold)-c.lineHeight(Font::ChatMeta))/2;
- c.text(Margin,top,ellipsis(name,Font::Bold),Font::Bold,FG,available);
- c.text(Margin,top+c.lineHeight(Font::Bold),ellipsis(body,Font::ChatMeta),Font::ChatMeta,FG,available);
+ auto ellipsis=[&](const std::string &text,Font f,int available,bool cut=false){if(!cut&&c.width(text,f)<=available)return text;std::string head;uint32_t cp;for(size_t at=0;at<text.size();){size_t next=utf8Next(text,at,cp);auto unit=text.substr(at,next-at);if(c.width(head+unit+"...",f)>available)break;head+=unit;at=next;}return head+"...";};
+ const int R=NotificationRadius,disc=NotificationDisc,cx=r.x+8+disc/2,cy=r.y+r.h/2,tx=r.x+8+disc+9,right=r.x+r.w-10;const bool tall=r.h==NotificationBannerHome.h;
+ // From just above the card down to clearTo the status bar and the page header go (the top of the status bar stays).
+ g.fillRect(0,r.y-2,W,clearTo-(r.y-2),BG);
+ g.fillRoundRect(r.x,r.y,r.w,r.h,R,BG);g.drawRoundRect(r.x,r.y,r.w,r.h,R,FG);g.drawRoundRect(r.x+1,r.y+1,r.w-2,r.h-2,R-1,FG);
+ g.fillCircle(cx,cy,disc/2,FG);c.icon(icon,cx-8,cy-8,16,BG);
+ auto label=tag.empty()?std::string():ellipsis(single(tag),Font::ChatMeta,NotificationTagW);int labelW=label.empty()?0:c.width(label,Font::ChatMeta)+8;
+ // The text below the title: one line, two when the card is tall (Home), the last one cut with "...".
+ std::vector<std::string> rows;if(!body.empty()){int room=tall?2:1;rows=c.lines(single(body),right-tx,Font::ChatMeta);bool cut=int(rows.size())>room;if(cut)rows.resize(room);for(size_t i=0;i<rows.size();i++)rows[i]=ellipsis(rows[i],Font::ChatMeta,right-tx,cut&&i+1==rows.size());}
+ // A notice with no text below (no tag either) wraps its title on two lines.
+ std::vector<std::string> titles={single(title)};if(rows.empty()&&!labelW){titles=c.lines(single(title),right-tx,Font::Bold);if(titles.size()>2){titles.resize(2);titles[1]=ellipsis(titles[1],Font::Bold,right-tx,true);}}
+ const int titleH=c.lineHeight(Font::Bold),bodyH=c.lineHeight(Font::ChatMeta),top=r.y+(r.h-int(titles.size())*titleH-int(rows.size())*bodyH)/2;
+ for(size_t i=0;i<titles.size();i++)c.text(tx,top+int(i)*titleH,ellipsis(titles[i],Font::Bold,right-tx-(i?0:labelW)),Font::Bold);
+ if(labelW)c.text(right-labelW+8,top+1,label,Font::ChatMeta);
+ for(size_t i=0;i<rows.size();i++)c.text(tx,top+titleH+int(i)*bodyH,rows[i],Font::ChatMeta);
 }
 Rect Renderer::overlayPanel(){g.fillRect(0,Top,W,H-Top,BG);Rect panel={Margin,Top+4,W-2*Margin,Bottom-Top-8};c.card(panel);return panel;}
 void Renderer::shell(const State &s,const std::string &title,bool back,Icon right){g.fillScreen(BG);c.statusBar(s.status);c.pageHeader(title,back,right);}
@@ -95,23 +108,93 @@ void Renderer::quickReply(const State &s){
  c.text(panel.x+8,QuickReplySend.y-16,s.quickError.empty()?"Enter: send / Back: cancel":s.quickError,Font::ChatMeta,FG,panel.w-16);
  c.button(QuickReplySend,"SEND",true);c.button(QuickReplyCancel,s.quickPending?"CLOSE":"CANCEL");
 }
-void Renderer::home(const State &s){
- g.fillScreen(BG);c.statusBar(s.status);
- // These header strings are ASCII. Some glyph boxes contain blank edge pixels;
- // use the font bitmap itself so dates and narrow digits center by visible ink.
- auto centeredInk=[&](Rect area,const std::string &text,Font face){
-  auto value=c.fit(text,area.w,face);auto f=Components::font(face);int pen=0,left=0,right=0,top=0,bottom=0;bool ink=false;
-  for(unsigned char ch:value){if(ch<f->first||ch>f->last)continue;const auto &glyph=f->glyph[ch-f->first];for(int y=0;y<glyph.height;y++)for(int x=0;x<glyph.width;x++){int bit=y*glyph.width+x;if(!(f->bitmap[glyph.bitmapOffset+(bit>>3)]&(128>>(bit&7))))continue;int px=pen+glyph.xOffset+x,py=glyph.yOffset+y;if(!ink){left=right=px;top=bottom=py;ink=true;}else{left=std::min(left,px);right=std::max(right,px);top=std::min(top,py);bottom=std::max(bottom,py);}}pen+=glyph.xAdvance;}
-  if(ink)c.text(area.x+(area.w-(right-left+1))/2-left,area.y+(area.h-(bottom-top+1))/2-top-Components::ascent(face),value,face);
- };
- centeredInk(MenuHomeClock,s.status.clock,Font::MenuClock);
- centeredInk(MenuHomeDate,s.menuDate,Font::ChatMeta);
- centeredInk(MenuHomeStatus,s.status.acquiringTime?"Acquiring time":std::to_string(s.nodeCount)+" contacts",Font::ChatMeta);
- g.drawFastHLine(6,73,W-12,FG);
+// Header strings are ASCII. Some glyph boxes contain blank edge pixels; use the font bitmap itself so dates and
+// narrow digits center by visible ink.
+static void centeredInk(Components &c,Rect area,const std::string &text,Font face){
+ auto value=c.fit(text,area.w,face);auto f=Components::font(face);int pen=0,left=0,right=0,top=0,bottom=0;bool ink=false;
+ for(unsigned char ch:value){if(ch<f->first||ch>f->last)continue;const auto &glyph=f->glyph[ch-f->first];for(int y=0;y<glyph.height;y++)for(int x=0;x<glyph.width;x++){int bit=y*glyph.width+x;if(!(f->bitmap[glyph.bitmapOffset+(bit>>3)]&(128>>(bit&7))))continue;int px=pen+glyph.xOffset+x,py=glyph.yOffset+y;if(!ink){left=right=px;top=bottom=py;ink=true;}else{left=std::min(left,px);right=std::max(right,px);top=std::min(top,py);bottom=std::max(bottom,py);}}pen+=glyph.xAdvance;}
+ if(ink)c.text(area.x+(area.w-(right-left+1))/2-left,area.y+(area.h-(bottom-top+1))/2-top-Components::ascent(face),value,face);
+}
+static Rect movedDown(Rect r,int dy){r.y+=dy;return r;}
+// "45.9213 N" / "7.6312 E": a coordinate as the widgets show it.
+static std::string coordinateText(double value,bool latitude){char t[16];std::snprintf(t,sizeof t,"%.4f %c",std::fabs(value),latitude?(value<0?'S':'N'):(value<0?'W':'E'));return t;}
+static std::string widgetAge(uint32_t seconds,bool ago){if(seconds<60)return ago?"just now":"now";std::string n=seconds<3600?std::to_string(seconds/60)+" min":seconds<86400?std::to_string(seconds/3600)+" h":std::to_string(seconds/86400)+" d";return ago?n+" ago":n;}
+// Home widgets (Settings > Home widgets > Beside clock), drawn in the box right of the clock: most show a mark on the
+// left and a title over a detail line, centred in the box.
+void Renderer::homeWidget(const State &s,int id,int x,int top,int w){
+ const auto &d=s.widget;
+ // Mark width, title (+ titleTail px kept free after it, then a small suffix), detail (from detailIndent px): draws
+ // the text and returns the mark's x.
+ auto pair=[&](int markW,const std::string &title,const std::string &suffix,const std::string &detail,int titleTail=0,int detailIndent=0){
+  int titleW=c.width(title,Font::ChatTitle)+titleTail+(suffix.empty()?0:5+c.width(suffix,Font::ChatMeta)),detailW=detailIndent+c.width(c.fit(detail,w-markW-HomeWidgetGap-detailIndent,Font::ChatMeta),Font::ChatMeta);
+  int mx=x+std::max(0,(w-markW-HomeWidgetGap-std::max(titleW,detailW))/2),tx=mx+markW+HomeWidgetGap,avail=x+w-tx,sx=tx+c.width(title,Font::ChatTitle)+titleTail+5;
+  c.text(tx,top+HomeWidgetTitleY,title,Font::ChatTitle,FG,avail);if(!suffix.empty())c.text(sx,top+HomeWidgetTitleY+6,suffix,Font::ChatMeta,FG,x+w-sx);
+  c.text(tx+detailIndent,top+HomeWidgetDetailY,detail,Font::ChatMeta,FG,avail-detailIndent);return mx;};
+ auto noSun=[&](const char *title){c.weatherIcon(0,pair(30,title,"",!d.clock?"Clock not set":d.sunPolar?(d.sunPolar>0?"Midnight sun":"Polar night"):"No position yet"),top+4,30);};
+ auto noFix=[&](Icon icon,int size){c.icon(icon,pair(size,d.gpsOn?"No fix yet":"GPS off","",d.gpsOn?std::to_string(d.inView)+" in view":"Settings > GPS"),top+(HomeWidgetBox.h-size)/2+2,size);};
+ switch(id){
+ case WidgetMeshLive:c.signalBars(pair(22,std::to_string(d.live)+" live","","heard in 15 min")+1,top+30,d.live?9.f:-20.f);break;
+ case WidgetUnread:{int unread=d.unread,chats=d.unreadChats,direct=d.unreadDirect;
+  int mx=pair(34,unread?"unread":"All read","",unread?std::to_string(chats)+(chats==1?" chat":" chats")+" / "+std::to_string(direct)+" DM":"nothing waiting");
+  if(unread)g.fillCircle(mx+17,top+21,17,FG);else g.drawCircle(mx+17,top+21,16,FG);c.centered(mx,top+14,34,unread>99?"99+":std::to_string(unread),Font::ChatTitle,unread?BG:FG);break;}
+ case WidgetRepeater:{if(!d.repeater){c.icon(Icon::Radio,pair(24,"No repeater","","none heard yet"),top+8,24);break;}
+  int mx=pair(24,d.repeaterName,"",std::to_string(int(std::lround(d.repeaterSnr)))+" dB / "+widgetAge(d.repeaterAgeS,false),0,24);// the bars before the detail
+  c.icon(Icon::Radio,mx,top+8,24);c.signalBars(mx+30,top+36,d.repeaterSnr);break;}
+ case WidgetDayArc:{if(!d.sun||d.sunPolar){noSun("Day arc");break;}
+  int x0=x+8,x1=x+w-8,base=top+28,height=18,px=x0,py=base;float cx=(x0+x1)/2.f,rx=(x1-x0)/2.f;bool day=d.dayPermille>=0&&d.dayPermille<=1000;
+  // Daylight: a solid arc; night: a dotted one.
+  for(int i=1;i<=40;i++){float a=float(M_PI)*(1-i/40.f);int ax=int(cx+rx*std::cos(a)),ay=int(base-height*std::sin(a));if(day)g.drawLine(px,py,ax,ay,FG);else if(i%2)g.drawPixel(ax,ay,FG);px=ax;py=ay;}
+  g.drawFastHLine(x0-4,base,x1-x0+8,FG);
+  if(day){float a=float(M_PI)*(1-d.dayPermille/1000.f);int sx=int(cx+rx*std::cos(a)),sy=int(base-height*std::sin(a));g.fillCircle(sx,sy,7,BG);g.fillCircle(sx,sy,5,FG);}
+  else{int sx=d.dayPermille<0?x0:x1;g.fillCircle(sx,base,4,BG);g.drawCircle(sx,base,4,FG);}// night: a hollow sun at the end it rose from / set at
+  c.text(x0-4,base+3,d.sunrise,Font::ChatMeta);c.text(x1+4-c.width(d.sunset,Font::ChatMeta),base+3,d.sunset,Font::ChatMeta);break;}
+ case WidgetSunset:{if(!d.sun||d.sunPolar){noSun("Sunset");break;}
+  c.weatherIcon(0,pair(30,d.nextSunTime,d.nextIsSunset?"sunset":"sunrise",d.nextIsSunset?"sunrise "+d.sunrise:"sunset "+d.sunset),top+4,30);break;}
+ case WidgetMoon:{if(!d.clock){int mx=pair(30,"Moon","","Clock not set");g.drawCircle(mx+15,top+20,13,FG);g.drawCircle(mx+15,top+20,14,FG);break;}
+  int mx=pair(30,d.moonName,"",std::to_string(d.moonIllumination)+"% / full "+d.moonFull),cx=mx+15,cy=top+20,r=13;
+  // E-ink: the dark side black, the lit part white row by row; waxing from the right edge, waning from the left.
+  double k=std::cos(2*M_PI*d.moonAge/mm_sky::SynodicDays);g.fillCircle(cx,cy,r,FG);g.drawCircle(cx,cy,r+1,FG);
+  for(int dy=-r;dy<=r;dy++){int half=int(std::sqrt(double(r*r-dy*dy))),edge=int(std::lround(half*k)),from=d.moonWaxing?edge:-half,to=d.moonWaxing?half:-edge;if(to>from)g.drawFastHLine(cx+from,cy+dy,to-from+1,BG);}// to>from: a new moon stays dark
+  break;}
+ case WidgetWeather:{if(!s.weatherValid){c.weatherIcon(2,pair(30,"No weather","","Wi-Fi gets it once"),top+4,30);break;}
+  // Icon, temperature with the degree mark after it (14 px) and the forecast's age, the place.
+  std::string temperature=std::to_string(int(std::lround(s.temperature))),place=s.weatherPlace.empty()?"Last weather":s.weatherPlace;
+  int mx=pair(30,temperature,d.weatherAgeS==UINT32_MAX?"saved":widgetAge(d.weatherAgeS,true),place,14),tx=mx+30+HomeWidgetGap,tw=c.width(temperature,Font::ChatTitle);
+  c.weatherIcon(s.weatherCode,mx,top+4,30);g.drawCircle(tx+tw+4,top+5,2,FG);c.text(tx+tw+7,top+2,"C",Font::ChatMeta);break;}
+ // Altitude: no satellite count beside it, that would repaint the e-ink.
+ case WidgetAltitude:if(!d.gpsFix){noFix(Icon::Mountain,32);break;}c.icon(Icon::Mountain,pair(32,std::to_string(d.altitude)+" m","","above sea level"),top+6,32);break;
+ case WidgetCoordinates:{if(!d.position){noFix(Icon::GPS,24);break;}
+  std::string lat=coordinateText(d.latitude,true),lon=coordinateText(d.longitude,false),age="fix "+widgetAge(d.fixAgeS,true);int lw=std::max({c.width(lat,Font::Bold),c.width(lon,Font::Bold),c.width(age,Font::ChatMeta)}),mx=x+std::max(0,(w-30-lw)/2),tx=mx+30;
+  c.icon(Icon::GPS,mx,top+8,24);c.text(tx,top,lat,Font::Bold);c.text(tx,top+14,lon,Font::Bold);c.text(tx,top+29,age,Font::ChatMeta,FG,x+w-tx);break;}
+ case WidgetCalendar:{if(!d.clock){c.icon(Icon::Clock,pair(24,"Calendar","","Clock not set"),top+8,24);break;}
+  int mx=pair(38,d.weekday,"","week "+std::to_string(d.week));g.fillRoundRect(mx,top+2,38,38,7,FG);c.centered(mx,top+4,38,d.month,Font::ChatMeta,BG);c.centered(mx,top+17,38,std::to_string(d.day),Font::ChatTitle,BG);break;}
+ default:{int mx=pair(32,std::to_string(s.nodeCount)+" contacts","",s.homeFact.empty()?"MatterMesh OS":s.homeFact);// MatterMesh: the mark, contacts and one rotating fact
+  g.fillRoundRect(mx,top+3,32,32,7,FG);g.drawBitmap(mx,top+3,mm_logo::logo32,mm_logo::size32,mm_logo::size32,BG);}
+ }
+}
+// Home band above the divider line: Classic is the big clock with the date and the contact count beside it; every
+// other widget gets a smaller clock with the date under it and the widget box on the right. dy moves it down (previews).
+static const HomeWidgetInfo &widgetInfo(int id){return HomeWidgets[std::max(0,std::min(HomeWidgetCount-1,id))];}
+void Renderer::homeHeader(const State &s,int dy,int id){
+ if(id==WidgetClassic){
+  centeredInk(c,movedDown(MenuHomeClock,dy),s.status.clock,Font::MenuClock);
+  centeredInk(c,movedDown(MenuHomeDate,dy),s.menuDate,Font::ChatMeta);
+  centeredInk(c,movedDown(MenuHomeStatus,dy),s.status.acquiringTime?"Acquiring time":std::to_string(s.nodeCount)+" contacts",Font::ChatMeta);return;}
+ // Font::Clock has digits only: hours and minutes with two square dots between them.
+ const int top=HomeWidgetBox.y+dy;auto colon=s.status.clock.find(':');
+ if(colon==std::string::npos)centeredInk(c,{HomeSmallClock.x,top-2,HomeSmallClock.w,30},s.status.clock,Font::MenuLabel);
+ else{std::string hours=s.status.clock.substr(0,colon),minutes=s.status.clock.substr(colon+1);int hw=c.width(hours,Font::Clock),total=hw+8+c.width(minutes,Font::Clock),x=HomeSmallClock.x+std::max(0,(HomeSmallClock.w-total)/2);
+  c.text(x,top-3,hours,Font::Clock);g.fillRect(x+hw+2,top+6,4,4,FG);g.fillRect(x+hw+2,top+17,4,4,FG);c.text(x+hw+8,top-3,minutes,Font::Clock);}
+ centeredInk(c,{HomeSmallClock.x,top+30,HomeSmallClock.w,14},s.status.acquiringTime?"Getting time":s.menuDate,Font::ChatMeta);// "Acquiring time" does not fit 74 px
+ g.drawFastVLine(HomeWidgetBox.x-5,top+2,38,FG);
+ homeWidget(s,id,HomeWidgetBox.x,top,HomeWidgetBox.w);
+}
+// Home chat cards (Main area "Chats"), moved down by dy for the Main area preview.
+void Renderer::homeChats(const State &s,int dy){
  auto conversations=s.conversations;std::stable_sort(conversations.begin(),conversations.end(),[](const Conversation &a,const Conversation &b){return a.activity>b.activity;});
  int first=std::max(0,std::min(s.scroll,std::max(0,int(conversations.size())-MenuHomeRows)));
  for(int row=0;row<MenuHomeRows&&first+row<int(conversations.size());row++){
-  auto &item=conversations[first+row];auto r=menuHomeRowRect(row);c.card(r,false,5);
+  auto &item=conversations[first+row];auto r=menuHomeRowRect(row);r.y+=dy;c.card(r,false,5);
   int textX=r.x+8;c.text(textX,r.y+7,item.name,Font::ChatBody,FG,r.w-50);
   auto age=item.age=="--"?item.time:item.age;c.text(r.x+r.w-36,r.y+7,age,Font::ChatMeta,FG,32);
   std::string preview=item.sender.empty()?item.preview:senderDisplayName(item.sender)+": "+item.preview;
@@ -119,8 +202,78 @@ void Renderer::home(const State &s){
   for(unsigned i=0;i<lines.size();i++)c.text(textX,r.y+26+i*13,lines[i],Font::ChatMeta);
   if(item.unread){int bx=r.x+r.w-13,by=r.y+r.h-14;g.fillCircle(bx,by,9,FG);c.centered(bx-9,by-4,18,item.unread>99?"99+":std::to_string(item.unread),Font::MenuLabel,BG);}
  }
- if(int(conversations.size())>MenuHomeRows){int height=menuHomeRowRect(MenuHomeRows-1).y+MenuHomeRowH-MenuHomeRowY,thumb=std::max(8,height*MenuHomeRows/int(conversations.size()));g.drawFastVLine(W-3,MenuHomeRowY,height,FG);g.fillRect(W-4,MenuHomeRowY+first*(height-thumb)/(int(conversations.size())-MenuHomeRows),3,thumb,FG);}
- if(conversations.empty())c.centered(6,MenuHomeRowY+40,W-12,"No conversations",Font::ChatBody);
+ if(int(conversations.size())>MenuHomeRows){int height=menuHomeRowRect(MenuHomeRows-1).y+MenuHomeRowH-MenuHomeRowY,thumb=std::max(8,height*MenuHomeRows/int(conversations.size()));g.drawFastVLine(W-3,MenuHomeRowY+dy,height,FG);g.fillRect(W-4,MenuHomeRowY+dy+first*(height-thumb)/(int(conversations.size())-MenuHomeRows),3,thumb,FG);}
+ if(conversations.empty())c.centered(6,MenuHomeRowY+dy+40,W-12,"No conversations",Font::ChatBody);
+}
+// Main area widgets (Settings > Home widgets > Main area) in r: an outlined card, a bold title row, the content.
+// E-ink: black and white only, grey areas as a 50 % dot pattern; the fonts are ASCII, so degrees are a small ring.
+void Renderer::mainWidget(const State &s,int id,Rect r){
+ if(id==MainChats){homeChats(s,r.y-MenuHomeRowY);return;}
+ const auto &m=s.main;const auto &d=s.widget;c.card(r,false,5);const int X=r.x,Y=r.y,AW=r.w,AH=r.h;
+ auto title=[&](const std::string &left,const std::string &right){c.text(X+10,Y+5,left,Font::Bold,FG,AW-24-c.width(right,Font::ChatMeta));if(!right.empty())c.text(X+AW-10-c.width(right,Font::ChatMeta),Y+7,right,Font::ChatMeta);};
+ auto empty=[&](const std::string &head,const std::string &why){c.centered(X,Y+AH/2-20,AW,head,Font::ChatTitle);int y=Y+AH/2+4;for(auto &line:c.lines(why,AW-24,Font::ChatMeta)){c.centered(X+12,y,AW-24,line,Font::ChatMeta);y+=13;}};
+ auto noFix=[&](const char *head){empty(head,d.gpsOn?"No GPS fix yet, "+std::to_string(d.inView)+" satellites in view":"GPS is off: Settings > GPS");};
+ auto tempText=[&](int x,int y,int value,Font f){std::string t=std::to_string(value);c.text(x,y,t,f);int w=c.width(t,f),ring=f==Font::Brand?3:2;g.drawCircle(x+w+ring+1,y+ring+2,ring,FG);return w+2*ring+3;};
+ auto dither=[&](int x,int y0,int y1){for(int y=y0;y<y1;y++)if((x+y)%2==0)g.drawPixel(x,y,FG);};
+ switch(id){
+ case MainTimeline:{if(m.timeline.empty()){empty("No messages yet","they show here from every channel");break;}
+  // One message per row: time and channel (a direct chat inverted), the text under them; unread with a dot.
+  for(int i=0;i<int(m.timeline.size())&&i<AH/TimelineRowH;i++){auto &row=m.timeline[i];int ry=Y+4+i*TimelineRowH;
+   if(row.unread)g.fillCircle(X+8,ry+6,3,FG);c.text(X+14,ry,row.time,Font::ChatMeta);int cx=X+52,cw=std::min(AW-62,c.width(row.channel,Font::ChatMeta)+8);
+   if(row.direct){g.fillRoundRect(cx,ry-1,cw,13,4,FG);c.text(cx+4,ry,row.channel,Font::ChatMeta,BG,cw-8);}else{g.drawRoundRect(cx,ry-1,cw,13,4,FG);c.text(cx+4,ry,row.channel,Font::ChatMeta,FG,cw-8);}
+   c.text(X+14,ry+16,row.text,row.unread?Font::Bold:Font::ChatMeta,FG,AW-24);if(i+1<int(m.timeline.size())&&i+1<AH/TimelineRowH)g.drawFastHLine(X+8,ry+TimelineRowH-4,AW-16,FG);}break;}
+ case MainRadar:{if(!m.here){noFix("Mesh radar");break;}if(m.nearby.empty()){empty("Nobody to place","no contact has sent a position");break;}
+  int far=0;for(auto &n:m.nearby)far=std::max(far,n.meters);int ring=500;for(int step:{500,1000,2000,5000,10000,20000,50000})if(far<=step*3){ring=step;break;}else ring=step;
+  int cx=X+60,cy=Y+60,R=52;for(int k=1;k<=3;k++)g.drawCircle(cx,cy,R*k/3,FG);for(int k=-R;k<=R;k+=3){g.drawPixel(cx+k,cy,FG);g.drawPixel(cx,cy+k,FG);}c.text(cx+4,cy-R-1,"N",Font::ChatMeta);
+  // Heard since boot: filled; only known from the cache: hollow.
+  for(auto &n:m.nearby){float dist=std::min(1.f,n.meters/float(ring*3)),a=n.bearing*float(M_PI)/180;int px=cx+int(R*dist*std::sin(a)),py=cy-int(R*dist*std::cos(a));if(n.live)g.fillCircle(px,py,4,FG);else{g.fillCircle(px,py,4,BG);g.drawCircle(px,py,4,FG);}}
+  g.fillRect(cx-3,cy-3,7,7,FG);
+  int tx=X+124;c.text(tx,Y+10,std::to_string(m.nearby.size())+" placed",Font::ChatTitle,FG,AW-128);c.text(tx,Y+36,"rings "+(ring<1000?std::to_string(ring)+" m":std::to_string(ring/1000)+" km"),Font::ChatMeta);// the ring steps are round
+  g.fillCircle(tx+4,Y+60,4,FG);c.text(tx+12,Y+55,"heard",Font::ChatMeta);g.drawCircle(tx+4,Y+78,4,FG);c.text(tx+12,Y+73,"saved",Font::ChatMeta);
+  g.drawFastHLine(X+8,Y+120,AW-16,FG);
+  for(int i=0;i<3&&i<int(m.nearby.size());i++){auto &n=m.nearby[i];const std::string &right=n.label;int rw=c.width(right,Font::ChatBody),ry=Y+126+i*19;c.text(X+10,ry,n.name,Font::ChatBody,FG,AW-26-rw);c.text(X+AW-10-rw,ry,right,Font::ChatBody);}break;}
+ case MainActivity:{std::string count=std::to_string(m.packetsHour);c.text(X+10,Y+6,count,Font::ChatTitle);c.text(X+16+c.width(count,Font::ChatTitle),Y+12,"packets / h",Font::ChatMeta);
+  c.text(X+10,Y+30,std::to_string(m.nodesHeard)+" nodes heard"+(m.snrKnown?" / best "+std::to_string(int(std::lround(m.bestSnr)))+" dB":""),Font::ChatMeta,FG,AW-20);
+  // A bar per quarter hour; the current one (still counting) as an outline.
+  constexpr int B=mm_home::PacketBuckets;int most=1;for(int v:m.packets)most=std::max(most,v);int bw=(AW-20)/B,bx=X+10+(AW-20-B*bw)/2,base=Y+AH-20,top=Y+52;g.drawFastHLine(X+8,base,AW-16,FG);
+  for(int i=0;i<B;i++){int h=m.packets[i]?std::max(2,m.packets[i]*(base-top)/most):0;if(!h)continue;if(i==B-1)g.drawRect(bx+i*bw+1,base-h,bw-2,h,FG);else g.fillRect(bx+i*bw+1,base-h,bw-2,h,FG);}
+  c.text(X+10,base+3,"6 h ago",Font::ChatMeta);c.text(X+AW-10-c.width("now",Font::ChatMeta),base+3,"now",Font::ChatMeta);break;}
+ case MainPosition:{if(!d.position){noFix("Position");break;}c.text(X+10,Y+6,coordinateText(d.latitude,true),Font::Brand);c.text(X+10,Y+30,coordinateText(d.longitude,false),Font::Brand);
+  // The altitude kept with the fix; satellites and HDOP only while the fix is live (they describe the receiver now).
+  std::string fix=std::to_string(d.altitude)+" m"+(d.gpsFix?" / "+std::to_string(d.satellites)+" sat"+(m.hdopHundredths>=0?" / HDOP "+std::to_string(m.hdopHundredths/100)+"."+std::to_string(m.hdopHundredths%100/10):""):"");c.text(X+10,Y+58,fix,Font::Bold,FG,AW-20);
+  g.drawFastHLine(X+8,Y+76,AW-16,FG);int y=Y+82;for(auto *spoken:{&m.spokenLat,&m.spokenLon})for(auto &line:c.lines(*spoken,AW-20,Font::ChatMeta)){c.text(X+10,y,line,Font::ChatMeta);y+=13;}
+  if(!m.utm.empty())c.text(X+10,Y+AH-34,"UTM "+m.utm,Font::Bold,FG,AW-20);c.text(X+10,Y+AH-17,d.gpsFix?std::string("live fix"):"last fix "+widgetAge(d.fixAgeS,true),Font::ChatMeta,FG,AW-20);break;}
+ case MainElevation:{if(m.elevation.size()<2){if(!d.gpsFix)noFix("Elevation");else empty("Elevation","the profile grows by a point every 10 min");break;}
+  std::string now=std::to_string(m.elevation.back())+" m";c.text(X+10,Y+6,now,Font::ChatTitle);c.text(X+16+c.width(now,Font::ChatTitle),Y+12,"+"+std::to_string(m.climb)+" m climbed",Font::ChatMeta,FG,AW-26-c.width(now,Font::ChatTitle));
+  int lo=m.elevation[0],hi=lo;for(int v:m.elevation){lo=std::min(lo,v);hi=std::max(hi,v);}if(hi-lo<50){int mid=(hi+lo)/2;lo=mid-25;hi=mid+25;}
+  c.text(X+AW-10-c.width(std::to_string(hi)+" m",Font::ChatMeta),Y+30,std::to_string(hi)+" m",Font::ChatMeta);
+  int px=X+10,pw=AW-20,py=Y+46,ph=AH-70,n=int(m.elevation.size()),lx=0,ly=0;g.drawFastHLine(px,py+ph,pw,FG);
+  // The ground under the profile dotted, the profile 2 px thick.
+  for(int i=0;i<n;i++){int x=px+i*pw/(n-1),y=py+ph-(m.elevation[i]-lo)*ph/(hi-lo);if(i){for(int xx=lx;xx<=x;xx++)dither(xx,ly+(y-ly)*(xx-lx)/std::max(1,x-lx)+2,py+ph);g.drawLine(lx,ly,x,y,FG);g.drawLine(lx,ly+1,x,y+1,FG);}lx=x;ly=y;}g.fillCircle(lx,ly,4,FG);
+  c.text(px,Y+AH-18,m.elevationFrom,Font::ChatMeta);c.text(px+pw-c.width("now",Font::ChatMeta),Y+AH-18,"now",Font::ChatMeta);break;}
+ case MainWeatherNow:{if(!s.weatherValid){empty("Weather now","Wi-Fi gets the weather once");break;}
+  c.weatherIcon(s.weatherCode,X+10,Y+10,48);int tw=tempText(X+68,Y+8,int(std::lround(s.temperature)),Font::Brand);c.text(X+72+tw,Y+14,"feels",Font::ChatMeta);tempText(X+72+tw+c.width("feels ",Font::ChatMeta),Y+14,int(std::lround(s.apparent)),Font::ChatMeta);
+  c.text(X+68,Y+36,s.weatherPlace,Font::Bold,FG,AW-78);c.text(X+10,Y+66,s.weatherText,Font::Bold,FG,AW-20);
+  c.text(X+10,Y+84,"wind "+std::to_string(int(std::lround(s.wind)))+" km/h / humidity "+std::to_string(int(std::lround(s.humidity)))+"%",Font::ChatMeta,FG,AW-20);
+  g.drawFastHLine(X+8,Y+104,AW-16,FG);int cw=(AW-20)/2;
+  c.text(X+10,Y+110,"high",Font::ChatMeta);tempText(X+10,Y+124,int(std::lround(s.high)),Font::Bold);c.text(X+10+cw,Y+110,"low",Font::ChatMeta);tempText(X+10+cw,Y+124,int(std::lround(s.low)),Font::Bold);
+  c.text(X+10,Y+144,"pressure",Font::ChatMeta);c.text(X+10,Y+158,std::to_string(int(std::lround(s.pressure)))+" hPa",Font::Bold);
+  c.text(X+10+cw,Y+144,"updated",Font::ChatMeta);c.text(X+10+cw,Y+158,s.weatherUpdated.size()>=16?s.weatherUpdated.substr(11,5):"--:--",Font::Bold);break;}
+ case MainHourly:{if(!s.weatherValid||s.weatherHours<=0){empty("Hourly weather","Wi-Fi gets the weather once");break;}title(s.weatherPlace.empty()?"Next hours":s.weatherPlace,"");
+  int n=std::min(4,s.weatherHours),cw=(AW-8)/n;for(int i=0;i<n;i++){int x=X+4+i*cw;c.centered(x,Y+36,cw,s.weatherHourTime[i],Font::ChatMeta);c.weatherIcon(s.weatherHourCode[i],x+(cw-40)/2,Y+56,40);
+   std::string t=std::to_string(int(std::lround(s.weatherHourTemp[i])));tempText(x+(cw-c.width(t,Font::Bold)-7)/2,Y+106,int(std::lround(s.weatherHourTemp[i])),Font::Bold);if(i)for(int y=Y+36;y<Y+124;y+=2)g.drawPixel(x,y,FG);}
+  g.drawFastHLine(X+8,Y+134,AW-16,FG);c.text(X+10,Y+142,"today",Font::ChatMeta);int hx=X+10+c.width("today ",Font::ChatMeta);hx+=tempText(hx,Y+142,int(std::lround(s.high)),Font::ChatMeta);c.text(hx+2,Y+142,"/",Font::ChatMeta);tempText(hx+10,Y+142,int(std::lround(s.low)),Font::ChatMeta);
+  c.text(X+10,Y+160,s.weatherText,Font::ChatMeta,FG,AW-20);break;}
+ case MainNote:{title("Note","tap to edit");if(m.note.empty()){c.text(X+10,Y+30,"Nothing written yet",Font::ChatBody);break;}
+  auto rows=c.lines(m.note,AW-20,Font::ChatBody);int fit=(AH-34)/15;if(int(rows.size())>fit){rows.resize(fit);rows.back()=c.fit(rows.back()+"..",AW-20,Font::ChatBody);}
+  for(int k=0;k<int(rows.size());k++)c.text(X+10,Y+28+k*15,rows[k],Font::ChatBody);break;}
+ }
+}
+void Renderer::home(const State &s){
+ g.fillScreen(BG);c.statusBar(s.status);
+ homeHeader(s,0,s.homeWidget);
+ g.drawFastHLine(6,73,W-12,FG);
+ mainWidget(s,s.homeMain,MainArea);
  for(int tab=0;tab<MenuHomeTabCount;tab++){auto r=menuHomeTabRect(tab);bool selected=(s.focus<0?0:s.focus)==tab;c.card(r,selected,3);auto ink=selected?BG:FG;c.packIcon(HomeTabs[tab].icon,r.x+(r.w-MenuHomeTabIcon)/2,r.y+3,MenuHomeTabIcon,ink);c.centered(r.x+1,r.y+MenuHomeTabLabelY,r.w-2,HomeTabs[tab].label,Font::NavLabel,ink);
   if(tab==0&&s.unread){int cx=r.x+r.w-9,cy=r.y+9;g.fillCircle(cx,cy,7,ink);c.centered(cx-7,cy-4,14,s.unread>99?"99+":std::to_string(s.unread),Font::MenuLabel,selected?FG:BG);}
  }
@@ -438,6 +591,7 @@ void Renderer::settings(const State &s){
    case 22:return std::string("Lock screen: ")+mm_wallpaper::list[s.wallpaper>=0&&s.wallpaper<mm_wallpaper::count?s.wallpaper:0].name;
    case KeyboardSection:{std::string codes;for(auto l:mm_kbd::Order)if(s.kbdMask&(1u<<int(l))){if(!codes.empty())codes+=" ";codes+=mm_kbd::info(l).code;}return mm_kbd::enabledCount(s.kbdMask)>1?codes+" (Alt + Space)":"Typing: "+std::string(mm_kbd::info(mm_kbd::Lang(s.kbdLang)).name);}
    case AccentKeySection:return s.accentMode==1?"Right Shift":s.accentMode==2?"Left Shift":"Off";
+   case HomeWidgetsSection:return "Beside clock: "+std::string(widgetInfo(s.homeWidget).name);
    case 21:return "Speaker / microphone";case 20:return "Light timers / auto lock";case 5:return s.status.battery<0?"--%":std::to_string(s.status.battery)+"%";
    case 16:return s.timeSource;case 24:return s.sd?"SD available":"No SD";case 11:return "USB diagnostics";case 17:return "Update your firmware";
    case SupportSection:return s.extraAppsUnlocked?"Support the project":"Support the project, Extra apps";default:return "Version "+s.version;}};
@@ -452,7 +606,7 @@ void Renderer::settings(const State &s){
 }
 void Renderer::section(const State &s){
  const char *title="MatterMesh OS";
- switch(s.page){case Page::Antenna:title="Antenna";break;case Page::Storage:title="Storage";break;case Page::Controls:title="Lights / vibration";break;case Page::Audio:title="Sound / dictation";break;case Page::Power:title="Power / timeouts";break;case Page::Wallpaper:title="Wallpaper";break;case Page::Keyboard:title="Keyboard languages";break;case Page::AccentKey:title="Accent key";break;case Page::Mesh:title="Contacts";break;case Page::Radio:title="LoRa";break;case Page::GPS:title="GPS";break;case Page::Maps:title="Maps";break;case Page::Weather:title="Weather";break;case Page::Info:title="About";break;case Page::Support:title=s.extraAppsUnlocked?"Donate":"Donate / Unlock";break;case Page::Files:title="Files";break;case Page::Wifi:title="Wi-Fi";break;case Page::Bluetooth:title="Bluetooth";break;case Page::Terminal:title="Diagnostics";break;case Page::DateTime:title="Date / time";break;case Page::Updates:title="OTA update";break;case Page::Battery:title="Battery";break;default:break;}
+ switch(s.page){case Page::Antenna:title="Antenna";break;case Page::HomeWidgets:title="Home widgets";break;case Page::BesideClock:title="Beside clock";break;case Page::MainArea:title="Main area";break;case Page::Note:title="Note";break;case Page::Storage:title="Storage";break;case Page::Controls:title="Lights / vibration";break;case Page::Audio:title="Sound / dictation";break;case Page::Power:title="Power / timeouts";break;case Page::Wallpaper:title="Wallpaper";break;case Page::Keyboard:title="Keyboard languages";break;case Page::AccentKey:title="Accent key";break;case Page::Mesh:title="Contacts";break;case Page::Radio:title="LoRa";break;case Page::GPS:title="GPS";break;case Page::Maps:title="Maps";break;case Page::Weather:title="Weather";break;case Page::Info:title="About";break;case Page::Support:title=s.extraAppsUnlocked?"Donate":"Donate / Unlock";break;case Page::Files:title="Files";break;case Page::Wifi:title="Wi-Fi";break;case Page::Bluetooth:title="Bluetooth";break;case Page::Terminal:title="Diagnostics";break;case Page::DateTime:title="Date / time";break;case Page::Updates:title="OTA update";break;case Page::Battery:title="Battery";break;default:break;}
  if(s.page==Page::Maps){g.fillScreen(BG);c.statusBar(s.status);}else{shell(s,title);g.fillRect(W-32,StatusH,32,HeaderH-1,BG);}// Maps: no header, the map takes the page
  auto valueCard=[&](Rect r,const std::string &label,const std::string &value){c.card(r);c.text(r.x+7,r.y+4,label,Font::ChatMeta);c.text(r.x+7,r.y+20,value,Font::Bold,FG,r.w-14);};
  auto gb=[](uint64_t bytes){char text[16];if(bytes<1073741824ull)snprintf(text,sizeof(text),"%u MB",unsigned(bytes/1048576));else snprintf(text,sizeof(text),"%.1f GB",bytes/1073741824.0);return std::string(text);};
@@ -653,6 +807,38 @@ void Renderer::section(const State &s){
   for(auto &line:c.lines(howto,W-2*Margin-4,Font::ChatMeta)){c.text(Margin+2,y,line,Font::ChatMeta);y+=13;}std::string help=rows.empty()?"":mm_kbd::accentHelp(mm_kbd::Lang(rows[focus]));
   if(!help.empty())help=s.accentMode==0?"The accent key is off (Settings > Accent key).":std::string(s.accentMode==1?"Right":"Left")+" Shift is the accent key. "+help;
   if(!help.empty())for(auto &line:c.lines(help,W-2*Margin-4,Font::ChatMeta)){if(y>Bottom-12)break;c.text(Margin+2,y,line,Font::ChatMeta);y+=13;}
+ }else if(s.page==Page::HomeWidgets||s.page==Page::BesideClock||s.page==Page::MainArea){
+  // Carousels: "i / n" and IN USE in the header, the < name > selector, the position dots (the one in use filled).
+  auto counter=[&](int i,int n,bool inUse){std::string count=std::to_string(i+1)+" / "+std::to_string(n);int countX=W-Margin-c.width(count,Font::ChatMeta);c.text(countX,StatusH+11,count,Font::ChatMeta);
+   if(inUse){int cw=c.width("IN USE",Font::ChatMeta)+12;g.fillRoundRect(countX-cw-5,StatusH+9,cw,15,7,FG);c.centered(countX-cw-5,StatusH+10,cw,"IN USE",Font::ChatMeta,BG);}};
+  auto selector=[&](Rect r,const char *name,Font f){c.card(r,false,8);c.icon(Icon::Back,r.x+6,r.y+(r.h-12)/2,12);c.icon(Icon::ChevronRight,r.x+r.w-18,r.y+(r.h-12)/2,12);c.centered(r.x,r.y+(r.h-c.lineHeight(f))/2+1,r.w,name,f);};
+  auto dots=[&](int y,int i,int n,int inUse){int dx=W/2-n*BesideDotPitch/2;for(int k=0;k<n;k++){int kx=dx+k*BesideDotPitch;if(k==i)g.fillRoundRect(kx-2,y-1,10,6,3,FG);else if(k==inUse)g.fillCircle(kx+3,y+2,2,FG);else g.drawCircle(kx+3,y+2,2,FG);}};
+  if(s.page==Page::HomeWidgets){// the whole Home at half size is copied into HomeHalfPreview by the firmware
+   c.menuRow(HomeWidgetsRow,Icon::Clock,"Beside clock",widgetInfo(s.homeWidget).name,s.homeWidgetsRow==0);
+   c.menuRow(HomeWidgetsMainRow,Icon::Messages,"Main area",MainWidgets[std::max(0,std::min(MainWidgetCount-1,s.homeMain))].name,s.homeWidgetsRow==1);
+   c.text(Margin,HomeHalfPreview.y+2,"HOME",Font::ChatMeta);g.drawRoundRect(HomeHalfPreview.x-2,HomeHalfPreview.y-2,HomeHalfPreview.w+4,HomeHalfPreview.h+4,4,FG);
+  }else if(s.page==Page::BesideClock){
+   int i=std::max(0,std::min(HomeWidgetCount-1,s.homeWidgetFocus));bool inUse=i==s.homeWidget;const auto &info=HomeWidgets[i];counter(i,HomeWidgetCount,inUse);
+   // The Home band drawn inside a rounded frame (doubled while in use), with the focused widget.
+   int y=BesidePreview.y+2;homeHeader(s,y-HomeBandY,i);g.fillRect(0,y,Margin-3,HomeBandH,BG);g.fillRect(W-Margin+3,y,Margin-3,HomeBandH,BG);
+   g.drawRoundRect(Margin-2,y-2,W-2*Margin+4,HomeBandH+4,8,FG);if(inUse)g.drawRoundRect(Margin-3,y-3,W-2*Margin+6,HomeBandH+6,9,FG);
+   selector(BesideSelector,info.name,Font::ChatTitle);
+   y=BesideTextY;for(auto &line:c.lines(info.description,W-2*Margin-4,Font::ChatBody)){c.text(Margin+2,y,line,Font::ChatBody);y+=15;}
+   if(*info.needs){y+=5;c.icon(Icon::Info,Margin+2,y+1,12);for(auto &line:c.lines(info.needs,W-2*Margin-20,Font::ChatMeta)){c.text(Margin+18,y,line,Font::ChatMeta);y+=13;}}
+   dots(BesideDotsY,i,HomeWidgetCount,s.homeWidget);
+   if(s.notice.empty())c.footer(inUse?"IN USE":"ENTER / TAP: USE","J K / SWIPE");
+  }else{// Main area: the widget at full size, the selector, what it needs (or shows)
+   int i=std::max(0,std::min(MainWidgetCount-1,s.homeMainFocus));bool inUse=i==s.homeMain;const auto &info=MainWidgets[i];counter(i,MainWidgetCount,inUse);
+   mainWidget(s,i,MainPreview);if(inUse)g.drawRoundRect(MainPreview.x-2,MainPreview.y-2,MainPreview.w+4,MainPreview.h+4,7,FG);
+   selector(MainSelector,info.name,Font::Bold);c.centered(Margin,MainInfoY,W-2*Margin,*info.needs?info.needs:info.description,Font::ChatMeta);
+   dots(MainDotsY,i,MainWidgetCount,s.homeMain);
+   if(s.notice.empty())c.footer(inUse?(i==MainNote?"ENTER: EDIT":"IN USE"):"ENTER / TAP: USE","J K / SWIPE");
+  }
+ }else if(s.page==Page::Note){// Home Main area note: the text with a caret, ENTER saves
+  c.card(NoteBox,false,8);g.drawRoundRect(NoteBox.x+1,NoteBox.y+1,NoteBox.w-2,NoteBox.h-2,7,FG);
+  auto rows=c.lines(s.noteInput+"_",NoteBox.w-20,Font::ChatBody);int fit=(NoteBox.h-16)/15,first=std::max(0,int(rows.size())-fit);
+  for(int k=first;k<int(rows.size());k++)c.text(NoteBox.x+10,NoteBox.y+8+(k-first)*15,rows[k],Font::ChatBody);
+  if(s.notice.empty())c.footer("ENTER: SAVE",std::to_string(s.noteInput.size())+" / "+std::to_string(NoteMaxBytes));
  }else if(s.page==Page::AccentKey){
   // One row per choice: the saved one has a filled dot, the focused one a double outline.
   const char *names[]={"Off","Right Shift","Left Shift"};

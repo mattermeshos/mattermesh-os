@@ -11,6 +11,6 @@ struct WeatherData {uint32_t magic=0x4d4d5732,updated=0;float temperature=0,appa
 struct WeatherState {WeatherData data;bool busy=false,cached=false,open=false;WeatherPhase phase=WeatherPhase::Closed;String message,place;uint32_t revision=0,nextRefresh=0;};
 constexpr uint32_t WEATHER_REFRESH_MS=900000UL,WEATHER_RETRY_MS=60000UL,WEATHER_REOPEN_FRESH_MS=120000UL;
 uint32_t weatherRevision();
-void weatherBegin();void weatherLoop();void weatherSetOpen(bool open);void weatherRefresh();void weatherEnableWifi();
+void weatherBegin();void weatherLoop();void weatherSetOpen(bool open,uint32_t freshMs=WEATHER_REOPEN_FRESH_MS);/* reopened: fetch when the data is older than freshMs */void weatherRefresh();void weatherRefreshIfOlder(uint32_t ms);/* open: fetch when the data is older than ms */void weatherEnableWifi();bool weatherOwnsWifi();/* Wi-Fi was turned on by the Weather page */
 WeatherState weatherState();const char *weatherDescription(int code);const char *weatherSourceLabel(uint8_t source);
 }

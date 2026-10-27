@@ -18,7 +18,7 @@ static bool appSetPin(uint32_t pin){if(!pin)pin=100000+esp_random()%900000;if(!d
 static bool appSetBleName(String name){name.trim();if(name.length()>device::BLE_NAME_MAX_BYTES)return false;for(unsigned i=0;i<name.length();i++)if(name[i]<32||name[i]>126)return false;
  if(!device::prefPutString("mmble","name",name))return false;
  appBleCustomName=name;device::bleCompanionCustomName(name);return true;}
-static void appLocation(int32_t &lat,int32_t &lon){auto g=device::locationState();if(g.configured){lat=int32_t(lround(g.latitude*1e6));lon=int32_t(lround(g.longitude*1e6));}}
+static void appLocation(int32_t &lat,int32_t &lon){auto g=device::locationState();if(g.configured&&!g.injected){/* never a "gps inject" test position */lat=int32_t(lround(g.latitude*1e6));lon=int32_t(lround(g.longitude*1e6));}}
 // App CMD_SET_CHANNEL. Our channel slots follow the conversation list (direct chats take slots too), so the app's
 // index edits a channel conversation in place, anything else appends one (scope "*") like Messages > New channel.
 // A channel already known by name or key is left as it is; deleting (empty name or zero key) is not supported.
@@ -57,6 +57,9 @@ void appWifiToggle(){appWifiEnabled=!appWifiEnabled;device::prefPutInt("mmble","
 // USB: called by the serial reader for the bytes after a '<' at the start of a line.
 static uint8_t appUsbBuf[matter::COMPANION_FRAME_MAX];static int appUsbState=0;static uint16_t appUsbLen=0,appUsbGot=0;
 bool appUsbByte(uint8_t c){// true while a binary frame is being assembled (the byte is consumed)
+ // A frame cut short (app closed, cable pulled) is dropped after 2 s without bytes, as on TCP: the serial console
+ // would otherwise feed the next commands into it.
+ static uint32_t lastByte=0;uint32_t now=millis();if(appUsbState&&uint32_t(now-lastByte)>2000)appUsbState=0;lastByte=now;
  if(appUsbState==0){if(c!='<')return false;appUsbState=1;return true;}
  if(appUsbState==1){appUsbLen=c;appUsbState=2;return true;}
  if(appUsbState==2){appUsbLen|=uint16_t(c)<<8;appUsbGot=0;appUsbState=appUsbLen&&appUsbLen<=matter::COMPANION_FRAME_MAX?3:0;return true;}

@@ -4,9 +4,11 @@
 #include "mesh/power_limits.h"
 #include "mesh/discovery_limits.h"
 #include "mesh/message_limits.h"
+#include "home_widgets.h"
+#include "services/home_data.h"
 namespace mm {
 enum class WeatherPhaseView {Closed,WifiOff,Connecting,NoNetwork,WaitingClock,Locating,Fetching,Ready,Error};
-enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Antenna,Storage,QuickSettings,Cli,ContactPicker,Support,Keyboard,AccentKey };
+enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Antenna,Storage,QuickSettings,Cli,ContactPicker,Support,Keyboard,AccentKey,HomeWidgets,BesideClock,MainArea,Note };
 struct Conversation { std::string name,scope,preview,time="--:--",sender,age="--";bool direct=false;int id=0,unread=0,activity=0; };
 struct Message {std::string sender,time,body,meta;bool mine;std::string path,heard,scope;int hops=-1;uint32_t token=0;int repeaters=-1;Message(std::string s="",std::string t="",std::string b="",std::string m="",bool own=false):sender(std::move(s)),time(std::move(t)),body(std::move(b)),meta(std::move(m)),mine(own){} };
 struct ContactRow {std::string name,detail;};
@@ -21,11 +23,11 @@ struct State {
  std::string firstRepeater;
  int vibrationPercent=75;
  bool displayLightEnabled=true,keyboardLightEnabled=true;
- bool audioTranscribing=false,offlineEngineCompiled=false;int audioSeconds=0;bool audioReady=false,audioNotifications=true,audioRecording=false,audioWarming=false,dictationConfigured=false;int audioVolume=20;std::string audioMessage;
+ bool audioTranscribing=false,offlineEngineCompiled=false;int audioSeconds=0;bool audioReady=false,audioNotifications=true,audioRecording=false,audioWarming=false;int audioVolume=20;std::string audioMessage;
  Page page=Page::Home;Status status;
  // MeshCore app link: BLE name / PIN, Wi-Fi (TCP 5000) switch and address, which links are in use.
  std::string appBleName,appPin,appWifiDetail,appBleInput;bool appBleEditing=false,appWifi=false,appBleLinked=false,appUsbLinked=false,appWifiLinked=false;
- bool wifiEnabled=true,wifiConnected=false,wifiConnecting=false,wifiScanning=false,wifiEditing=false,bleEnabled=true,bleReady=false,bleClient=false;
+ bool wifiEnabled=true,wifiConnected=false,wifiConnecting=false,wifiScanning=false,wifiEditing=false,bleEnabled=true,bleReady=false;
  bool wifiHidden=false,wifiShowPassword=false;int wifiEditField=1;
  // First-boot welcome: step 0 intro, 1 Wi-Fi and clock, 2 band, 3 preset, 4 name, 5 path bytes, 6 summary.
  int welcomeWifiChoice=0,welcomeStep=0,welcomeBand=868,welcomeFocus=0,welcomeScroll=0,welcomeBytes=2;std::string welcomeName,welcomePreset,welcomeArchive;std::vector<std::pair<std::string,std::string>> welcomePresets;
@@ -34,12 +36,29 @@ struct State {
  bool gpsEnabled=true,gpsAvailable=false,gpsData=false,gpsNmeaFresh=false,gpsTimeValid=false,gpsTemporary=false;unsigned gpsUsed=0,gpsVisible=0,gpsBaud=0;
  float temperature=0,humidity=0,pressure=0,wind=0,high=0,low=0;int weatherCode=2;double latitude=0,longitude=0,altitude=0;int satellites=0;
  std::string weatherText="No weather data",weatherUpdated,weatherMessage,weatherPlace,weatherSource;
- WeatherPhaseView weatherPhase=WeatherPhaseView::Closed;int weatherNext=0,weatherHours=0;float apparent=0,precipitation=0;int weatherHourCode[4]={};float weatherHourTemp[4]={};std::string weatherHourTime[4];
+ WeatherPhaseView weatherPhase=WeatherPhaseView::Closed;int weatherNext=0,weatherHours=0;float apparent=0;int weatherHourCode[4]={};float weatherHourTemp[4]={};std::string weatherHourTime[4];
  uint32_t displayTimeout=30,keyboardTimeout=30;int powerField=0;int wallpaper=0,wallpaperFocus=0;std::string kbdQuery;bool kbdSearching=false;int kbdFocus=0,kbdLang=0;uint32_t kbdMask=1;int accentMode=2,accentFocus=2,accentTaps=0;// lock-screen wallpaper (mm_wallpaper::list index) and the focused card on its page
 bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
 
  std::string meshCoreVersion=MM_MESHCORE_VERSION;
  std::string messageTone="Classic",mentionTone="Rising",messageVibration="Single",mentionVibration="Double";
+ // Home widget beside the clock (Settings > Home widgets): the chosen one, the carousel focus and what the widgets show.
+ // Times are local "HH:MM"; empty strings and false flags mean the data is not there yet.
+ struct HomeWidgetData {bool sun=false;int sunPolar=0;std::string sunrise,sunset,nextSunTime;bool nextIsSunset=true;int dayPermille=-1;/* -1 before sunrise, 1001 after sunset */
+  bool moonWaxing=true;int moonIllumination=0;double moonAge=0;std::string moonName,moonFull;
+  bool gpsOn=false,gpsFix=false,position=false;/* gpsFix: live fix; position: a fix within the hour (Coordinates) */int altitude=0,satellites=0,inView=0;/* satellites: used in the fix; inView: tracked */double latitude=0,longitude=0;uint32_t fixAgeS=0;
+  int unread=0,unreadChats=0,unreadDirect=0;/* Unread */int live=0;bool repeater=false;std::string repeaterName;float repeaterSnr=0;uint32_t repeaterAgeS=0;
+  bool clock=false;std::string month,weekday;int day=0,week=0;uint32_t weatherAgeS=UINT32_MAX;};/* clock: the time is set (Moon, Calendar, the sun); weatherAgeS: UINT32_MAX unknown */
+ int homeWidget=HomeWidgetDefault,homeWidgetFocus=HomeWidgetDefault;HomeWidgetData widget;
+ // Main area (Settings > Home widgets > Main area): the big widget under the clock band; its GPS widgets also read `widget`.
+ struct TimelineRow {std::string time,channel,text;bool direct=false,unread=false;int chat=-1;};
+ struct NearbyNode {std::string name,label;/* label: "820 m NE" */int meters=0,bearing=0;bool live=false;};
+ struct MainWidgetData {std::vector<TimelineRow> timeline;std::vector<NearbyNode> nearby;bool here=false;/* here: own position known (radar) */
+  int packets[mm_home::PacketBuckets]={};int packetsHour=0,nodesHeard=0;float bestSnr=0;bool snrKnown=false;
+  std::string utm,spokenLat,spokenLon;int hdopHundredths=-1;
+  std::vector<int> elevation;int climb=0;std::string elevationFrom;std::string note;};
+ int homeMain=MainWidgetDefault,homeMainFocus=MainWidgetDefault,homeWidgetsRow=0;/* homeWidgetsRow: focused row on Home widgets */MainWidgetData main;std::string noteInput;
+ std::string homeFact;// MatterMesh widget: one rotating line under the contact count (nodes heard, uptime, a tip)
  std::string menuDate="Date not set",date="DATE NOT SET",notice,version="",build="",commit="local",input;
  bool antennaConfirm=false,shutdownConfirm=false,usbPower=false,powerSourceKnown=false;
  // Updates page (section 17): texts from device::otaState(); otaProgress -1 = no download bar.

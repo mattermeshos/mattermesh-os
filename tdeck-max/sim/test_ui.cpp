@@ -95,7 +95,10 @@ int main(){
  for(auto page:{mm::Page::Weather,mm::Page::Files,mm::Page::Mesh,mm::Page::Settings}){s.page=page;r.draw(s);assert(!canvas.getPixel(0,mm::FooterY));}
  s.lockHasMessage=true;s.receivedName="Ridge_L1 🇮🇹";r.lock(s);std::vector<uint8_t> lockPixels(canvas.getBuffer(),canvas.getBuffer()+((mm::W+7)/8)*mm::H);assert(s.receivedName=="Ridge_L1 🇮🇹");s.receivedName="Ridge_L1";r.lock(s);assert(!memcmp(lockPixels.data(),canvas.getBuffer(),lockPixels.size()));
  for(auto clock:{"22:51","11:11","00:00"})for(auto date:{"Wed, Oct 14","Mon, Apr 28","Sat, Sep 30"})for(bool acquiring:{false,true}){
-  s.status.clock=clock;s.menuDate=date;s.status.acquiringTime=acquiring;s.nodeCount=303;r.home(s);
+  s.status.clock=clock;s.menuDate=date;s.status.acquiringTime=acquiring;s.nodeCount=303;
+  // Widget layout: the smaller clock and its date stay left of the divider (HomeWidgetBox.x-5), clear of it.
+  s.homeWidget=mm::WidgetSunset;r.home(s);for(int y=mm::HomeWidgetBox.y-4;y<72;y++)for(int x=mm::HomeWidgetBox.x-8;x<mm::HomeWidgetBox.x-5;x++)assert(!canvas.getPixel(x,y));
+  s.homeWidget=mm::WidgetClassic;r.home(s);
   for(auto area:{mm::MenuHomeClock,mm::MenuHomeDate,mm::MenuHomeStatus}){int left=area.x+area.w,right=-1,top=area.y+area.h,bottom=-1;for(int y=area.y;y<area.y+area.h;y++)for(int x=area.x;x<area.x+area.w;x++)if(canvas.getPixel(x,y)){left=std::min(left,x);right=std::max(right,x);top=std::min(top,y);bottom=std::max(bottom,y);}assert(right>=left&&bottom>=top);assert(std::abs(left+right+1-2*area.x-area.w)<=1&&std::abs(top+bottom+1-2*area.y-area.h)<=1);}
  }
 
@@ -113,9 +116,13 @@ int main(){
  for(int t=0;t<mm_emoji_picker::categoryCount;t++)assert(mm_emoji_picker::categories[t].count<=mm::EmojiPageSize&&mm_emoji_picker::categories[t].first+mm_emoji_picker::categories[t].count<=mm_emoji_picker::count);
  for(auto code:mm::DefaultRecentEmoji)assert(mm::emojiIndex(code)>=0);
  r.chat(s);std::vector<uint8_t> beforeBanner(canvas.getBuffer(),canvas.getBuffer()+mm::W/8*mm::H);
- r.messageBanner("River\nname",std::string(300,'W')+"\nmore");bool bannerChanged=false;
- for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++){bool old=beforeBanner[y*(mm::W/8)+x/8]&(128>>(x%8));if(old!=bool(canvas.getPixel(x,y))){assert(mm::MessageBannerArea.contains(x,y));bannerChanged=true;}}
+ // Notification card: long, multi-line text stays inside the card and the page above Top-1 it clears (Home: the clock band).
+ r.notificationBanner(mm::NotificationBanner,mm::Top-1,mm::Icon::Messages,"River\nname",std::string(300,'W')+"\nmore",std::string(300,'W')+"\nmore");bool bannerChanged=false;
+ for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++){bool old=beforeBanner[y*(mm::W/8)+x/8]&(128>>(x%8));if(old!=bool(canvas.getPixel(x,y))){assert(y<mm::Top-1);bannerChanged=true;}}
  assert(bannerChanged);
+ r.home(s);std::vector<uint8_t> beforeHome(canvas.getBuffer(),canvas.getBuffer()+mm::W/8*mm::H);
+ r.notificationBanner(mm::NotificationBannerHome,mm::MenuHomeRowY-2,mm::Icon::Messages,"River","Direct",std::string(300,'W'));
+ for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++){bool old=beforeHome[y*(mm::W/8)+x/8]&(128>>(x%8));if(old!=bool(canvas.getPixel(x,y)))assert(y<mm::MenuHomeRowY-2);}
  for(int i=0;i<mm::ReceivedMessageActions;i++){auto box=mm::messageActionRect(i);assert(box.y+box.h<=mm::Bottom);}
  s=mm::State{};s.quickReply=true;s.quickReplyEditable=true;s.quickInput="@[River] ";r.lock(s);int caret=mm::QuickReplyComposer.x+7+c.width("@[River] ",mm::Font::ChatBody);assert(canvas.getPixel(caret,mm::QuickReplyComposer.y+9));
  s=mm::State{};s.quickReply=true;s.quickReplyEditable=true;s.quickInput="@[River] Copy";r.lock(s);std::vector<uint8_t> beforeConfirmation(canvas.getBuffer(),canvas.getBuffer()+mm::W/8*mm::H);s.quickSent=true;s.quickReplyEditable=false;r.lock(s);bool confirmationInk=false;for(int y=0;y<mm::H;y++)for(int x=0;x<mm::W;x++){bool old=beforeConfirmation[y*(mm::W/8)+x/8]&(128>>(x%8));if(old!=bool(canvas.getPixel(x,y))){assert(mm::QuickReplyPanel.contains(x,y));confirmationInk=true;}}assert(confirmationInk);bool messageInk=false;for(int y=mm::QuickReplyComposer.y+4;y<mm::QuickReplyComposer.y+mm::QuickReplyComposer.h-4;y++)for(int x=mm::QuickReplyComposer.x+4;x<mm::QuickReplyComposer.x+mm::QuickReplyComposer.w-4;x++)messageInk=messageInk||canvas.getPixel(x,y);assert(messageInk);

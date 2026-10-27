@@ -29,7 +29,7 @@ int main(int argc,char **argv){
  // Offline dictation in progress.
  s.firstRepeater="";s.audioRecording=true;s.audioSeconds=3;renderer.draw(s);save("06-dictation");s.audioRecording=false;
  // Notification for another chat while reading this one.
- renderer.draw(s);renderer.messageBanner("Paolo","Repeater on the ridge is back up");save("07-notification");
+ renderer.draw(s);renderer.notificationBanner(mm::NotificationBanner,mm::Top-1,mm::Icon::Messages,"Paolo","Public","Repeater on the ridge is back up");save("07-notification");
  // Quick settings.
  mm::State q=s;q.page=mm::Page::QuickSettings;q.displayLight=96;q.displayLightEnabled=true;q.audioVolume=60;q.audioNotifications=true;q.wifiEnabled=false;q.bleEnabled=false;q.gpsEnabled=true;q.powerSourceKnown=true;
  renderer.draw(q);save("08-quick-settings");

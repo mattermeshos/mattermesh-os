@@ -1,5 +1,6 @@
 {
   "version": "0.6.0",
   "channel": "BETA",
-  "build": 3
+  "build": 4,
+  "scale": 100
 }

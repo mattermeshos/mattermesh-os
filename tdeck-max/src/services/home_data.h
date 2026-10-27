@@ -1,0 +1,52 @@
+#pragma once
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <string>
+// Home Main area widgets: data kept in RAM since boot (altitude profile, packets per quarter hour) and position
+// formats (UTM, a coordinate read out digit by digit). Pure code, host tested (sim/test_home_data.cpp).
+namespace mm_home {
+// Elevation: one GPS altitude every AltitudeStepMs, the last AltitudeSamples (12 h); climb sums the rises of 10 m or
+// more from the last low within those samples, so it matches the profile drawn.
+constexpr uint32_t AltitudeStepMs=600000UL;constexpr int AltitudeSamples=72;
+struct AltitudeTrack {
+ int16_t meters[AltitudeSamples]={};uint32_t epoch[AltitudeSamples]={};int count=0,head=0;uint32_t lastAt=0;int climb=0,low=0;bool started=false;
+ // A sample at most every AltitudeStepMs (the first at once); epoch: the clock (0 when not set) for the axis labels.
+ bool add(uint32_t now,int altitude,uint32_t clock){
+  if(started&&uint32_t(now-lastAt)<AltitudeStepMs)return false;
+  started=true;lastAt=now;meters[head]=int16_t(altitude);epoch[head]=clock;head=(head+1)%AltitudeSamples;if(count<AltitudeSamples)count++;
+  climb=0;low=at(0);for(int i=1;i<count;i++){int v=at(i);if(v<low)low=v;else if(v-low>=10){climb+=v-low;low=v;}}return true;}
+ int at(int i)const{return meters[(head-count+i+AltitudeSamples)%AltitudeSamples];}// i: 0 oldest .. count-1 newest
+ uint32_t epochAt(int i)const{return epoch[(head-count+i+AltitudeSamples)%AltitudeSamples];}
+};
+// Mesh activity: packets received per quarter hour, the last 24 (6 h); fed with the radio's running total.
+constexpr uint32_t PacketBucketMs=900000UL;constexpr int PacketBuckets=24;
+struct PacketHistory {
+ uint16_t count[PacketBuckets]={};uint32_t bucket=0,total=0;bool started=false;
+ void update(uint32_t now,uint32_t received){uint32_t b=now/PacketBucketMs;
+  if(!started){started=true;bucket=b;total=received;return;}
+  if(b!=bucket){uint32_t steps=b-bucket;if(steps>PacketBuckets)steps=PacketBuckets;for(uint32_t i=0;i<steps;i++){for(int k=0;k<PacketBuckets-1;k++)count[k]=count[k+1];count[PacketBuckets-1]=0;}bucket=b;}
+  uint32_t add=received>=total?received-total:received;/* a radio restart counts from 0 again */count[PacketBuckets-1]=uint16_t(count[PacketBuckets-1]+add>65535?65535:count[PacketBuckets-1]+add);total=received;}
+ int at(int i)const{return count[i];}// 0 oldest .. PacketBuckets-1 the current quarter
+ int lastHour()const{int n=0;for(int i=PacketBuckets-4;i<PacketBuckets;i++)n+=count[i];return n;}
+};
+// UTM (WGS84) "32T 393407 5086512"; empty outside 80 S .. 84 N. Norway / Svalbard zone exceptions are left out.
+inline std::string utm(double lat,double lon){
+ if(!std::isfinite(lat)||!std::isfinite(lon)||lat<-80||lat>84||lon<-180||lon>180)return "";
+ int zone=std::min(60,int((lon+180)/6)+1);const char *bands="CDEFGHJKLMNPQRSTUVWX";char band=bands[std::min(19,int((lat+80)/8))];
+ const double a=6378137.0,f=1/298.257223563,k0=0.9996,e2=f*(2-f),ep2=e2/(1-e2),rad=M_PI/180;
+ double phi=lat*rad,lambda=(lon-(zone*6-183))*rad,n=a/std::sqrt(1-e2*std::sin(phi)*std::sin(phi)),t=std::tan(phi)*std::tan(phi),c=ep2*std::cos(phi)*std::cos(phi),A=std::cos(phi)*lambda;
+ double m=a*((1-e2/4-3*e2*e2/64-5*e2*e2*e2/256)*phi-(3*e2/8+3*e2*e2/32+45*e2*e2*e2/1024)*std::sin(2*phi)+(15*e2*e2/256+45*e2*e2*e2/1024)*std::sin(4*phi)-(35*e2*e2*e2/3072)*std::sin(6*phi));
+ double east=k0*n*(A+(1-t+c)*A*A*A/6+(5-18*t+t*t+72*c-58*ep2)*A*A*A*A*A/120)+500000;
+ double north=k0*(m+n*std::tan(phi)*(A*A/2+(5-t+9*c+4*c*c)*A*A*A*A/24+(61-58*t+t*t+600*c-330*ep2)*A*A*A*A*A*A/720));if(lat<0)north+=10000000;
+ char text[32];std::snprintf(text,sizeof text,"%d%c %ld %ld",zone,band,long(std::lround(east)),long(std::lround(north)));return text;
+}
+// "45.9213 N" read out: "four five point nine two one three north" (degrees, 4 decimals, hemisphere).
+inline std::string spoken(double value,bool latitude){
+ static const char *digits[]={"zero","one","two","three","four","five","six","seven","eight","nine"};
+ char text[16];std::snprintf(text,sizeof text,"%.4f",std::fabs(value));std::string out;
+ for(const char *p=text;*p;p++){if(!out.empty())out+=' ';out+=*p=='.'?"point":digits[*p-'0'];}
+ return out+(latitude?(value<0?" south":" north"):(value<0?" west":" east"));
+}
+}

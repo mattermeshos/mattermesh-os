@@ -9,7 +9,7 @@ namespace mm {
 #ifndef MM_HEIGHT
 #define MM_HEIGHT 320
 #endif
-constexpr int W=MM_WIDTH,H=MM_HEIGHT,MaxSection=31;
+constexpr int W=MM_WIDTH,H=MM_HEIGHT,MaxSection=35;
 constexpr uint16_t BG=0,FG=1; // GFXcanvas1 ink semantics; white=0, black=1.
 constexpr int Margin=8,Gap=6,Radius=5,StatusH=18,HeaderH=32,FooterH=18;
 constexpr int Top=StatusH+HeaderH,Bottom=H-Margin,FooterY=H-FooterH;
@@ -44,12 +44,15 @@ inline Rect appRect(int index){return {6+(index%3)*(AppW+AppGap),Top+4+(index/3)
 // New-channel form: 0 name, 1 secret key (two lines) or hashtag note, 2 region scope.
 inline Rect formRect(int field){return {Margin,field==0?FormNameY:field==1?FormKeyY:FormScopeY,W-2*Margin,field==1?FormKeyH:30};}
 constexpr Rect ComposerEmoji={W-Margin-32,ComposerY+2,30,30};
-constexpr Rect MessageBannerArea={0,StatusH,W,HeaderH};// covers the page header (title + menu)
+// Notification card (message, update, chat notice): floats over the status bar and the page header; on Home a taller
+// one covers the clock band too (two text lines). Its shadow ends above Top-1.
+// 8 px down: the top of the status bar shows above the card.
+constexpr Rect NotificationBanner={6,8,W-12,42},NotificationBannerHome={6,8,W-12,62};constexpr int NotificationRadius=10,NotificationDisc=30,NotificationTagW=70;
 constexpr Rect EmojiPopup={Margin,ComposerY-198,W-2*Margin,196};
 constexpr Rect emojiTabRect(int index){return {EmojiPopup.x+4+index*36,EmojiPopup.y+4,34,26};}
 constexpr Rect emojiChoiceRect(int index){return {EmojiPopup.x+4+(index%6)*36,EmojiPopup.y+34+(index/6)*36,34,34};}
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
-constexpr int SettingsCount=18,SettingsRowH=36,SettingsDeviceFirst=5,SettingsSystemFirst=12;
+constexpr int SettingsCount=19,SettingsRowH=36,SettingsDeviceFirst=5,SettingsSystemFirst=13;// Home widgets after Wallpaper
 constexpr int SettingsGpsIndex=4;
 // Settings scroll by whole rows: scroll = first visible row, its group label above it
 // when it opens a group. Rows outside the viewport get a y off screen and are not drawn.
@@ -189,6 +192,27 @@ constexpr Rect MenuHomeClock={Margin,22,112,46};
 constexpr int MenuHomeInfoX=MenuHomeClock.x+MenuHomeClock.w+Gap,MenuHomeInfoW=W-Margin-MenuHomeInfoX;
 constexpr Rect MenuHomeDate={MenuHomeInfoX,MenuHomeClock.y,MenuHomeInfoW,MenuHomeClock.h/2};
 constexpr Rect MenuHomeStatus={MenuHomeInfoX,MenuHomeClock.y+MenuHomeClock.h/2,MenuHomeInfoW,MenuHomeClock.h/2};
+// Home widgets: Classic keeps MenuHomeClock with the date and the contact count beside it; every other widget sits in
+// HomeWidgetBox right of a smaller clock with the date under it (HomeSmallClock, also the tap zone that opens App).
+constexpr Rect HomeSmallClock={Margin,22,74,46},HomeWidgetBox={92,24,W-Margin-92,40};
+constexpr int HomeWidgetGap=6,HomeWidgetTitleY=2,HomeWidgetDetailY=23;// mark to text, title and detail rows from the box top
+constexpr int HomeBandY=StatusH+2,HomeBandH=72-HomeBandY;// clock band above the Home divider line (y 73)
+// Settings > Home widgets (32): the Beside clock row and a preview of the Home band. Beside clock (33): a carousel,
+// the Home band with the focused widget, the < name > selector, what it shows, and the position dots.
+constexpr int HomeWidgetsSection=32,BesideClockSection=33;
+constexpr Rect HomeWidgetsRow={Margin,Top+6,W-2*Margin,SettingsCardH};
+constexpr Rect HomeWidgetsMainRow={Margin,HomeWidgetsRow.y+HomeWidgetsRow.h+4,W-2*Margin,SettingsCardH};
+constexpr Rect HomeHalfPreview={W/4,HomeWidgetsMainRow.y+HomeWidgetsMainRow.h+10,W/2,H/2};// Home widgets: the whole Home at half size
+// Home Main area (the chat cards' place) and its Settings carousel (34): the widget at full size, the selector, a line.
+constexpr Rect MainArea={6,MenuHomeRowY,W-12,MenuHomeTabY-6-MenuHomeRowY};
+constexpr int MainAreaSection=34,NoteSection=35,TimelineRowH=36;// Timeline: 5 messages, time / channel over the text
+constexpr Rect MainPreview={MainArea.x,Top+4,MainArea.w,MainArea.h};
+constexpr Rect MainSelector={Margin,MainPreview.y+MainPreview.h+6,W-2*Margin,24};
+constexpr int MainInfoY=MainSelector.y+MainSelector.h+3,MainDotsY=MainInfoY+16;
+constexpr Rect NoteBox={Margin,Top+6,W-2*Margin,FooterY-Top-12};
+constexpr Rect BesidePreview={Margin-2,Top+4,W-2*Margin+4,HomeBandH+4};
+constexpr Rect BesideSelector={Margin,BesidePreview.y+BesidePreview.h+8,W-2*Margin,28};
+constexpr int BesideTextY=BesideSelector.y+BesideSelector.h+8,BesideDotsY=H-34,BesideDotPitch=10,BesideArrowW=56;// arrow zones: each end of the selector
 constexpr Rect menuHomeRowRect(int row){return {6,MenuHomeRowY+row*(MenuHomeRowH+MenuHomeRowGap),W-12,MenuHomeRowH};}
 constexpr Rect menuHomeTabRect(int tab){return {Margin+tab*(MenuHomeTabW+MenuHomeTabGap),MenuHomeTabY,MenuHomeTabW,MenuHomeTabH};}
 }
