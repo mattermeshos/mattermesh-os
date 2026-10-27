@@ -38,6 +38,5 @@ void batteryLoop(){if(!initialized){loadCalibration();int g=calibration.getInt("
  next.estimated=true;state=next;}
 BatteryTrace batteryTrace(){trace.filteredMv=gauge.restMv>0?int(gauge.restMv+0.5f):-1;trace.shownPercent=state.percent;trace.source=int(source);return trace;}
 PowerSource batteryPowerSource(){if(source==PowerSource::Unknown){int v=plus::batteryMillivolts();return v>=4400?PowerSource::USB:v>=2500?PowerSource::Battery:PowerSource::Unknown;}return source;}
-bool batteryShutdown(){return false;}
 bool batteryCalibrateFull(){return false;}
 }

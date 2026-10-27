@@ -38,7 +38,7 @@ template<class N> static std::string contactLine(const N &n){if(!n.live)return "
 struct ConversationOrder{std::vector<const Conversation*> p;const Conversation &operator[](size_t i)const{return *p[i];}size_t size()const{return p.size();}bool empty()const{return p.empty();}};
 static ConversationOrder byActivity(const std::vector<Conversation> &list){ConversationOrder o;o.p.reserve(list.size());for(auto &c:list)o.p.push_back(&c);std::stable_sort(o.p.begin(),o.p.end(),[](const Conversation *a,const Conversation *b){return a->activity>b->activity;});return o;}
 // Full-height dialog card under the header; clear: wipe the page below the header first.
-Rect Renderer::dialogPanel(bool clear){if(clear)g.fillRect(0,Top,W,H-Top,BG);Rect panel={Margin,Top+4,W-2*Margin,Bottom-Top-8};c.card(panel);return panel;}
+Rect Renderer::dialogPanel(bool clear){if(clear){g.fillRect(0,Top,W,H-Top,BG);touchableBlock({0,Top,W,H-Top});}Rect panel={Margin,Top+4,W-2*Margin,Bottom-Top-8};c.card(panel);return panel;}
 // Unlocked notification (message, update, storm alert, chat notice): a rounded card floating over the status bar and
 // the page header, the app icon in an accent disc, title and tag on the first row, the text below; a tap opens it.
 void Renderer::notificationBanner(Rect r,int clearTo,Icon icon,const std::string &title,const std::string &tag,const std::string &body){
@@ -46,8 +46,8 @@ void Renderer::notificationBanner(Rect r,int clearTo,Icon icon,const std::string
  auto ellipsis=[&](const std::string &text,Font f,int available,bool cut=false){if(!cut&&c.width(text,f)<=available)return text;std::string head;uint32_t cp;for(size_t at=0;at<text.size();){size_t next=utf8Next(text,at,cp);auto unit=text.substr(at,next-at);if(c.width(head+unit+"...",f)>available)break;head+=unit;at=next;}return head+"...";};
  const int R=NotificationRadius,disc=NotificationDisc,cx=r.x+8+disc/2,cy=r.y+r.h/2,tx=r.x+8+disc+9,right=r.x+r.w-12;const bool tall=r.h==NotificationBannerHome.h&&r.y==NotificationBannerHome.y;
  // The page header under the card goes, down to clearTo (its line usually stays): nothing of it peeks out around the card.
- g.fillRect(0,StatusH,W,clearTo-StatusH,BG);
- c.fillRound(r.x,r.y+2,r.w,r.h,R,Line);c.fillRound(r.x,r.y,r.w,r.h,R,Surface);g.drawRoundRect(r.x,r.y,r.w,r.h,R,Line);
+ g.fillRect(0,StatusH,W,clearTo-StatusH,BG);touchableBlock({0,StatusH,W,clearTo-StatusH});
+ c.fillRound(r.x,r.y+2,r.w,r.h,R,Line);c.fillRound(r.x,r.y,r.w,r.h,R,Surface);g.drawRoundRect(r.x,r.y,r.w,r.h,R,Line);touchableAdd(r,R);// over the header buttons it hides
  g.fillCircle(cx,cy,disc/2,Accent);c.icon(icon,cx-8,cy-8,16,OnAccent);
  auto label=tag.empty()?std::string():ellipsis(single(tag),Font::ChatMeta,NotificationTagW);int labelW=label.empty()?0:c.width(label,Font::ChatMeta)+8;
  // The text below the title: one line, two when the card is tall (Home), the last one cut with "...".
@@ -57,7 +57,8 @@ void Renderer::notificationBanner(Rect r,int clearTo,Icon icon,const std::string
  if(labelW)c.text(right-labelW+8,top+1,label,Font::ChatMeta,Muted);
  for(size_t i=0;i<rows.size();i++)c.text(tx,top+titleH+int(i)*bodyH,rows[i],Font::ChatMeta,FG);
 }
-void Renderer::shell(const State &s,const std::string &title,bool back,Icon right){g.fillScreen(BG);c.statusBar(s.status);c.pageHeader(title,back,right);}
+void Renderer::shell(const State &s,const std::string &title,bool back,Icon right){g.fillScreen(BG);touchablesClear();/* a full page (or an overlay drawn as one): nothing under it stays pressable */c.statusBar(s.status);c.pageHeader(title,back,right);}
+void Renderer::hideHeaderAction(){g.fillRect(ComposeButton.x,StatusH,ComposeButton.w,HeaderH-1,BG);touchableBlock(ComposeButton);}
 // Theme illustrations (raw deflate, ui/packed.h): the lock draws the active one, the Themes page 80x60 thumbnails
 // (every 4th pixel of every 4th row) kept in PSRAM, 9.6 KB each.
 static const uint16_t *lockPhoto(int theme){
@@ -195,7 +196,7 @@ void Renderer::homeChats(const State &s,int dy){
   auto conversations=byActivity(s.conversations);
   int first=std::max(0,std::min(s.scroll,std::max(0,int(conversations.size())-MenuHomeRows)));
   for(int row=0;row<MenuHomeRows&&first+row<int(conversations.size());row++){
-   auto &item=conversations[first+row];auto r=menuHomeRowRect(row);r.y+=dy;c.fillRound(r.x,r.y,r.w,r.h,10,item.direct?SurfaceAlt:Surface);
+   auto &item=conversations[first+row];auto r=menuHomeRowRect(row);r.y+=dy;touchableAdd(r,10);c.fillRound(r.x,r.y,r.w,r.h,10,item.direct?SurfaceAlt:Surface);
    if(item.direct)c.fillRound(r.x,r.y+10,4,r.h-20,2,Accent);// direct chats: a thin accent bar instead of a badge
    int textX=r.x+14,textW=r.x+r.w-textX-40;auto age=item.age=="--"?item.time:item.age;
    c.text(textX,r.y+9,item.name,Font::ChatTitle,FG,textW);c.text(r.x+r.w-8-c.width(age,Font::ChatMeta),r.y+11,age,Font::ChatMeta,Muted);
@@ -269,14 +270,14 @@ void Renderer::home(const State &s){
   homeHeader(s,0,false);
   mainWidget(s,s.homeMain,MainArea);
   for(int tab=0;tab<MenuHomeTabCount;tab++){auto r=menuHomeTabRect(tab);bool selected=(s.focus<0?0:s.focus)==tab;auto ink=selected?OnAccent:FG;
-   if(selected)c.fillRound(r.x,r.y,r.w,r.h,9,Accent);else{c.fillRound(r.x,r.y,r.w,r.h,9,BG);g.drawRoundRect(r.x,r.y,r.w,r.h,9,Line);}
+   touchableAdd(r,9);if(selected)c.fillRound(r.x,r.y,r.w,r.h,9,Accent);else{c.fillRound(r.x,r.y,r.w,r.h,9,BG);g.drawRoundRect(r.x,r.y,r.w,r.h,9,Line);}
    c.packIcon(HomeTabs[tab].icon,r.x+(r.w-24)/2,r.y+1,24,ink);c.centered(r.x+1,r.y+r.h-14,r.w-2,HomeTabs[tab].label,Font::NavLabel,ink);
    if(tab==0&&s.unread){int cx=r.x+r.w-10,cy=r.y+10;c.badge(cx,cy,7,s.unread,selected?OnAccent:Accent,selected?Accent:OnAccent);}
   }
   return;
  }}
 void Renderer::launcher(const State &s){
- shell(s,"App",true);g.fillRect(ComposeButton.x,StatusH,ComposeButton.w,HeaderH-1,BG);
+ shell(s,"App",true);hideHeaderAction();
  for(int i=0;i<ApplicationCount;i++){auto r=appRect(i);bool focused=s.focus==i;auto ink=focused?BG:FG;c.card(r,focused,5);auto label=c.lines(Applications[i].label,r.w-6,Font::ChatMeta);if(label.size()>2)label.resize(2);int icon=32,top=((r.h-(icon+6+int(label.size())*13))/2),labelY=(icon+6);c.packIcon(Applications[i].icon,r.x+(r.w-icon)/2,r.y+top,icon,ink);for(unsigned l=0;l<label.size();l++)c.centered(r.x+2,r.y+top+labelY+l*(13),r.w-4,label[l],Font::ChatMeta,ink);}
 
 }
@@ -311,10 +312,10 @@ void Renderer::messages(const State &s){
   }
   if(s.conversations.empty()){int mid=(Top+ChatsSearch.y)/2;c.centered(Margin,mid-14,W-2*Margin,s.searching&&!s.input.empty()?"No chat matches":"No conversations yet",Font::ChatBody,FG);c.centered(Margin,mid+4,W-2*Margin,s.searching?"Try another name":"Tap New to start one",Font::ChatMeta,Muted);}
   // Bottom bar: search field (tap or '/') and New (direct chat, private or hashtag channel).
-  {Rect f=ChatsSearch;c.fillRound(f.x,f.y,f.w,f.h,13,Surface);if(s.searching)g.drawRoundRect(f.x,f.y,f.w,f.h,13,Accent);c.icon(Icon::Search,f.x+8,f.y+5,16,s.searching?Accent:Muted);
+  {Rect f=ChatsSearch;touchableAdd(f,13);c.fillRound(f.x,f.y,f.w,f.h,13,Surface);if(s.searching)g.drawRoundRect(f.x,f.y,f.w,f.h,13,Accent);c.icon(Icon::Search,f.x+8,f.y+5,16,s.searching?Accent:Muted);
    int tx=f.x+30,tw=f.w-40;if(s.searching&&!s.input.empty()){auto tail=c.inputTail(s.input,tw-4,Font::ChatBody);c.text(tx,f.y+5,tail,Font::ChatBody,FG);g.fillRect(tx+c.width(tail,Font::ChatBody)+1,f.y+5,2,16,Accent);}
    else{c.text(tx,f.y+5,s.searching?"Type a name...":"Search chats",Font::ChatBody,Muted,tw);if(s.searching)g.fillRect(tx-2,f.y+5,2,16,Accent);}}
-  {Rect n=ChatsNew;c.fillRound(n.x,n.y,n.w,n.h,13,Accent);int w=16+4+c.width("New",Font::Bold),x=n.x+(n.w-w)/2;c.icon(Icon::Plus,x,n.y+5,16,OnAccent);c.text(x+20,n.y+7,"New",Font::Bold,OnAccent);}
+  {Rect n=ChatsNew;touchableAdd(n,13);c.fillRound(n.x,n.y,n.w,n.h,13,Accent);int w=16+4+c.width("New",Font::Bold),x=n.x+(n.w-w)/2;c.icon(Icon::Plus,x,n.y+5,16,OnAccent);c.text(x+20,n.y+7,"New",Font::Bold,OnAccent);}
  }
  if(s.messageMenu){g.fillRect(MessagesPopup.x,MessagesPopup.y,MessagesPopup.w,MessagesPopup.h,BG);c.card(MessagesPopup);
   const char *titles[]={"New direct chat","Create private channel","Join private channel","Join hashtag channel"},*details[]={"Message a saved contact","Random secret key to share","Name + 32-char secret key","Public, key from the #name"};
@@ -451,7 +452,7 @@ void Renderer::chat(const State &s){
   int offset=std::max(0,std::min(s.scopeOffset,std::max(0,int(s.regionScopes.size())-1)));
   for(int i=0;i<ScopeRows&&offset+i<int(s.regionScopes.size());i++){auto row=scopeRowRect(i);bool selected=offset+i==s.scopeFocus;c.button(row,s.regionScopes[offset+i]=="*"?"Global (*)":s.regionScopes[offset+i],selected);}
   c.button(ScopeAdd,"+ ADD");c.button(ScopeApply,"APPLY");c.button(ScopeCancel,"CANCEL");
-  if(s.scopeEditing){g.fillRect(0,Top,W,H-Top,BG);c.card(panel);c.text(Margin+8,Top+12,"Add region scope",Font::ChatTitle);c.text(Margin+8,Top+46,"Example: it-lig",Font::ChatMeta);c.text(Margin+8,Top+62,s.notice.empty()?"Letters, numbers and hyphens":s.notice,Font::ChatMeta,s.notice.empty()?FG:Accent,panel.w-16);/* a rejected name replaces the hint, inside the panel */c.card(ScopeInput);c.text(ScopeInput.x+7,ScopeInput.y+10,s.scopeInput.empty()?"Type a region...":s.scopeInput,Font::ChatText,FG,ScopeInput.w-14);c.button(ScopeSave,"SAVE");c.button(ScopeEditCancel,"CANCEL");}
+  if(s.scopeEditing){g.fillRect(0,Top,W,H-Top,BG);touchableBlock({0,Top,W,H-Top});c.card(panel);c.text(Margin+8,Top+12,"Add region scope",Font::ChatTitle);c.text(Margin+8,Top+46,"Example: it-lig",Font::ChatMeta);c.text(Margin+8,Top+62,s.notice.empty()?"Letters, numbers and hyphens":s.notice,Font::ChatMeta,s.notice.empty()?FG:Accent,panel.w-16);/* a rejected name replaces the hint, inside the panel */c.card(ScopeInput);c.text(ScopeInput.x+7,ScopeInput.y+10,s.scopeInput.empty()?"Type a region...":s.scopeInput,Font::ChatText,FG,ScopeInput.w-14);c.button(ScopeSave,"SAVE");c.button(ScopeEditCancel,"CANCEL");}
  }
  if(s.clearChatConfirm){Rect panel=dialogPanel();c.text(Margin+8,Top+15,"Clear all messages?",Font::ChatTitle,FG,panel.w-16);c.text(Margin+8,Top+56,"Channel and scope are kept.",Font::ChatMeta,FG,panel.w-16);c.button(ChatClearYes,"CLEAR CHAT");c.button(ChatClearNo,"CANCEL");if(!s.notice.empty())c.text(Margin+8,Top+215,s.notice,Font::ChatMeta,FG,panel.w-16);}
 
@@ -486,7 +487,7 @@ void Renderer::chat(const State &s){
  if(s.messagePath&&s.messageRouteView){
   // Static packet route: low-detail map, numbered hops, legend in a band across the top of the map (its bottom edge
   // carries the scale and the OSM credit). No controls. Up to three legend lines.
-  g.fillRect(0,Top,W,H-Top,BG);mapView(s);
+  g.fillRect(0,Top,W,H-Top,BG);mapView(s);touchableBlock(MapArea);touchableAdd(BackButton,8);// no controls on the map; the hidden Back still works
   struct Placed {const std::string *text;int x,line;};std::vector<Placed> placed;int x=Margin,line=0;
   for(auto &entry:s.mapLegend){int w=c.width(entry,Font::Tiny);if(x>Margin&&x+w>W-Margin){if(++line>=3)break;x=Margin;}placed.push_back({&entry,x,line});x+=w+10;}
   if(!placed.empty()){int lines=placed.back().line+1,y=MapArea.y;g.fillRect(0,y,W,lines*12+5,BG);g.drawFastHLine(0,y+lines*12+5,W,FG);
@@ -549,7 +550,7 @@ void Renderer::linkView(const State &s){
  if(s.linkScrollTotal>LinkRows){int track=A.h-6,thumb=std::max(10,track*LinkRows/s.linkScrollTotal),max=s.linkScrollTotal-LinkRows;c.fillRound(W-4,A.y+3+std::min(s.linkScrollTop,max)*(track-thumb)/max,3,thumb,1,Muted);}
 }
 void Renderer::channelOptions(const State &s){
- shell(s,s.channelOptionName,true,Icon::Menu);g.fillRect(ComposeButton.x,StatusH,ComposeButton.w,HeaderH-1,BG);
+ shell(s,s.channelOptionName,true,Icon::Menu);hideHeaderAction();
  if(s.channelKeyView){channelKey(s);return;}
  Rect panel=dialogPanel(false);
  c.text(Margin+8,Top+15,s.channelOptionDirect?"Chat options":"Channel options",Font::ChatTitle,FG,panel.w-16);
@@ -672,7 +673,7 @@ void Renderer::contactPicker(const State &s){
 }
 void Renderer::form(const State &s){
  const auto mode=ChannelForm(s.newForm);const bool hashtag=mode==ChannelForm::JoinHashtag,create=mode==ChannelForm::CreatePrivate;
- shell(s,create?"New private channel":hashtag?"Join hashtag channel":"Join private channel");g.fillRect(W-32,StatusH,32,HeaderH-1,BG);
+ shell(s,create?"New private channel":hashtag?"Join hashtag channel":"Join private channel");hideHeaderAction();
  auto name=formRect(0);c.text(name.x,name.y-16,hashtag?"HASHTAG CHANNEL":"CHANNEL NAME",Font::ChatMeta);c.card(name,s.field==0);auto ink=s.field==0?BG:FG;
  if(hashtag){c.text(name.x+8,name.y+8,"#",Font::Body,ink);c.text(name.x+20,name.y+8,s.newName.empty()?"channel-name":s.newName,Font::Body,ink,name.w-28);}
  else c.text(name.x+8,name.y+8,s.newName.empty()?"Write with keyboard...":s.newName,Font::Body,ink,name.w-18);
@@ -706,8 +707,8 @@ void Renderer::section(const State &s){
  if(s.page==Page::Link){linkView(s);return;}
  const char *title="MatterMesh OS";
  switch(s.page){case Page::Storage:title="Storage";break;case Page::Keyboard:title="Keyboard languages";break;case Page::Controls:title="Lights";break;case Page::Audio:title="Sound";break;case Page::Power:title="Power / timeouts";break;case Page::Wallpaper:title="Themes";break;case Page::Mesh:title="Contacts";break;case Page::Radio:title="LoRa";break;case Page::GPS:title="GPS";break;case Page::Maps:title="Maps";break;case Page::Weather:title="Weather";break;case Page::Info:title="About";break;case Page::Support:title="Donate / Unlock";break;case Page::Files:title="Files";break;case Page::Wifi:title="Wi-Fi";break;case Page::Bluetooth:title="Bluetooth";break;case Page::Terminal:title="Diagnostics";break;case Page::DateTime:title="Date / time";break;case Page::Updates:title="OTA update";break;case Page::Battery:title="Battery";break;case Page::AccentKey:title="Accent key";break;case Page::TextSize:title="Text size";break;case Page::HomeWidgets:title="Home widgets";break;case Page::BesideClock:title="Beside clock";break;case Page::MainArea:title="Main area";break;case Page::Note:title="Note";break;default:break;}
- if(s.page==Page::Maps){g.fillScreen(BG);c.statusBar(s.status);}else{shell(s,title);g.fillRect(W-32,StatusH,32,HeaderH-1,BG);}// Plus Maps: no header, the map takes the page
- auto valueCard=[&](Rect r,const std::string &label,const std::string &value){c.card(r);c.text(r.x+7,r.y+4,label,Font::ChatMeta);c.text(r.x+7,r.y+20,value,Font::Bold,FG,r.w-14);};
+ if(s.page==Page::Maps){g.fillScreen(BG);c.statusBar(s.status);}else{shell(s,title);hideHeaderAction();}// Plus Maps: no header, the map takes the page
+ auto valueCard=[&](Rect r,const std::string &label,const std::string &value){c.card(r);touchableBlock(r);/* information only: no press ring */c.text(r.x+7,r.y+4,label,Font::ChatMeta);c.text(r.x+7,r.y+20,value,Font::Bold,FG,r.w-14);};
  auto gb=[](uint64_t bytes){char text[16];if(bytes<1073741824ull)snprintf(text,sizeof(text),"%u MB",unsigned(bytes/1048576));else snprintf(text,sizeof(text),"%.1f GB",bytes/1073741824.0);return std::string(text);};
  if(s.page==Page::Controls){
   const char *names[]={"Display light","Keyboard light"};

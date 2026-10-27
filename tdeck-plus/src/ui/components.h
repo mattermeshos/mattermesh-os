@@ -11,6 +11,11 @@ enum class Icon { Messages,Mesh,Weather,Radio,Files,Terminal,Notes,Tools,Setting
 enum class PackIcon { Chat,Contacts,Settings,Apps,Map,Files,Weather,Signal,Tools,List,Radio,Keyboard };
 struct Status { std::string clock="--:--";int battery=-1,unread=0;bool mesh=false,wifi=false,bt=false,gps=false,acquiringTime=false,charging=false;std::string keyboard;/* keyboard language code, only with 2+ languages on */ };
 struct StatusLayout {std::string percent;int percentX,percentWidth,batteryX,iconsRight;};
+// Touchables: what the components draw that a finger can press (cards, buttons, icon buttons, tabs, the Home cards
+// and tabs), recorded during a render; render() shows a press ring on the one under a resting finger.
+void touchablesClear();void touchableAdd(Rect r,int radius);
+void touchableBlock(Rect r);// something painted over a registered element (a blanked header button): no ring there
+bool touchableAt(int x,int y,Rect &r,int &radius);// the last drawn (topmost) one under x,y; a blocker or a panel over half the screen stops the search
 class Components {
  Adafruit_GFX &g;
  FastCanvas16 *fast=nullptr;// the LCD frame: anti-aliased icons and colour emoji; null for 1-bit scratch canvases
@@ -49,6 +54,7 @@ public:
  void slider(Rect r,int percent);
  void signalBars(int x,int bottom,float snr,uint16_t ink=FG,int scale=1); // four bars from SNR, 19*scale px wide
  void button(Rect r,const std::string &label,bool selected=false);
+ void pressRing(Rect r,int radius,uint16_t ink);// 2 px ring on a pressed element
  void iconButton(Rect r,Icon id,bool selected=false);
  void statusBar(const Status &status);
  StatusLayout statusLayout(const Status &status);

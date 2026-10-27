@@ -83,8 +83,8 @@ int main(int argc,char **argv){
  state=mm::State{};state.chatName="Italia";state.scope="it";state.firstRepeater="Received via: Mongioie";state.status.clock="10:24";
  for(int i=0;i<10;i++)state.messages.push_back({"River","10:18","Hello","5 hop | it",false});
  renderer.chat(state);save("v9-chat-four");renderer.notificationBanner(mm::NotificationBanner,mm::Top-1,mm::Icon::Messages,"Scout","Public","New message on Public, bringing the radio kit");save("v9-notification");
- {mm::State q;q.page=mm::Page::QuickSettings;q.status.clock="10:24";q.status.battery=82;q.status.unread=3;q.status.mesh=true;q.displayLight=80;q.displayLightEnabled=true;q.audioVolume=50;q.audioNotifications=true;q.wifiEnabled=false;q.bleEnabled=true;q.gpsEnabled=true;q.powerSourceKnown=true;
-  renderer.draw(q);save("quick-settings");q.audioNotifications=false;q.shutdownConfirm=true;renderer.draw(q);save("quick-settings-poweroff");}
+ {mm::State q;q.page=mm::Page::QuickSettings;q.status.clock="10:24";q.status.battery=82;q.status.unread=3;q.status.mesh=true;q.displayLight=80;q.displayLightEnabled=true;q.audioVolume=50;q.audioNotifications=true;q.wifiEnabled=false;q.bleEnabled=true;q.gpsEnabled=true;
+  renderer.draw(q);save("quick-settings");}
  state=mm::State{};state.quickReply=true;state.quickSent=true;state.quickSender="River";state.quickChannel="Italia";state.quickPreview="Can you hear me?";renderer.lock(state);save("v9-quick-sent");
  // CLI (sample session).
  {mm::State t;t.status.clock="15:39";t.status.battery=61;t.status.mesh=true;

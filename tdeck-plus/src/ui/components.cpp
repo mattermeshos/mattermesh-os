@@ -185,6 +185,17 @@ std::vector<std::string> Components::lines(const std::string &s,int maxW,Font f)
  uint32_t cp;for(size_t at=0;at<value.size();){size_t next=utf8Next(value,at,cp);if(cp==' '||cp=='\n'){add();if(cp=='\n')emit();}else word.append(value,at,next-at);at=next;}add();if(!line.empty())emit();if(out.empty())out.push_back("");return out;
 }
 void Components::badge(int cx,int cy,int r,int count,uint16_t fill,uint16_t ink){g.fillCircle(cx,cy,r,fill);centered(cx-r,cy-4,2*r,count>99?"99+":std::to_string(count),Font::MenuLabel,ink);}
+namespace {struct Touchable{int16_t x,y,w,h,radius;};Touchable touchables[160];int touchableCount=0;// radius -1: blocker
+ void record(Rect r,int radius){int x0=std::max(0,r.x),y0=std::max(0,r.y),x1=std::min(W,r.x+r.w),y1=std::min(H,r.y+r.h);// clipped to the screen
+  if(x1-x0<16||y1-y0<14||touchableCount>=int(sizeof(touchables)/sizeof(touchables[0])))return;touchables[touchableCount++]={int16_t(x0),int16_t(y0),int16_t(x1-x0),int16_t(y1-y0),int16_t(radius)};}}
+void touchablesClear(){touchableCount=0;}
+void touchableAdd(Rect r,int radius){record(r,std::max(0,radius));}
+void touchableBlock(Rect r){record(r,-1);}
+bool touchableAt(int x,int y,Rect &r,int &radius){
+ for(int i=touchableCount-1;i>=0;i--){const auto &t=touchables[i];if(x<t.x||y<t.y||x>=t.x+t.w||y>=t.y+t.h)continue;
+  if(t.radius<0||t.w*t.h>W*H/2)return false;r={t.x,t.y,t.w,t.h};radius=t.radius;return true;}
+ return false;}
+void Components::pressRing(Rect r,int radius,uint16_t ink){g.drawRoundRect(r.x,r.y,r.w,r.h,radius,ink);g.drawRoundRect(r.x+1,r.y+1,r.w-2,r.h-2,std::max(0,radius-1),ink);}
 void Components::tab(Rect r,const std::string &label,bool selected,bool open){{tabChip(r,label,selected);return;}}
 std::vector<std::string> Components::clampLines(const std::string &s,int w,Font f,int maxRows,const char *ellipsis){auto out=lines(s,w,f);if(maxRows>0&&int(out.size())>maxRows){out.resize(maxRows);out.back()=fit(out.back()+ellipsis,w,f);}return out;}
 // Anti-aliased Material Design Icons (ui/aa_icons.h) at 12, 16, 24 and 32 px, drawn on the LCD frame only.
@@ -197,13 +208,13 @@ void Components::weatherIcon(int code,int x,int y,int size){
  if(fast){if(auto bits=mm_aa_icons::weather(size,int(weatherGlyph(code)))){fast->drawAlpha(x,y,bits,size,size,FG);return;}}
  drawWeatherGlyph(g,weatherGlyph(code),x,y,size,FG);}
 // Filled cards: accent when selected, soft surface otherwise.
-void Components::card(Rect r,bool selected,int radius){{fillRound(r.x,r.y,r.w,r.h,std::max(radius,6),selected?Accent:Surface);return;}}
+void Components::card(Rect r,bool selected,int radius){{touchableAdd(r,std::max(radius,6));fillRound(r.x,r.y,r.w,r.h,std::max(radius,6),selected?Accent:Surface);return;}}
 void Components::slider(Rect r,int percent){percent=std::max(0,std::min(100,percent));
  {int x=r.x+10,w=r.w-20,y=r.y+r.h/2-3,fill=w*percent/100;fillRound(x,y,w,6,3,Line);if(fill)fillRound(x,y,fill,6,3,Accent);g.fillCircle(x+fill,y+3,7,Accent);g.fillCircle(x+fill,y+3,3,OnAccent);return;}}
 // Four-bar link quality from SNR (SF8 decodes down to about -10 dB).
 void Components::signalBars(int x,int bottom,float snr,uint16_t ink,int scale){int level=snr>=5?4:snr>=0?3:snr>=-5?2:snr>=-10?1:0;for(int i=0;i<4;i++){int h=(5+i*4)*scale,w=4*scale,bx=x+i*(w+scale);if(i<level)g.fillRect(bx,bottom-h,w,h,ink);else g.drawRect(bx,bottom-h,w,h,ink);}}
-void Components::button(Rect r,const std::string &label,bool selected){{if(selected)fillRound(r.x,r.y,r.w,r.h,8,Accent);else{fillRound(r.x,r.y,r.w,r.h,8,BG);g.drawRoundRect(r.x,r.y,r.w,r.h,8,Line);}}centered(r.x,r.y+(r.h-13)/2,r.w,label,Font::Bold,selected?OnAccent:FG);}
-void Components::iconButton(Rect r,Icon id,bool selected){if(selected)card(r,true);icon(id,r.x+(r.w-16)/2,r.y+(r.h-16)/2,16,selected?OnAccent:FG);}
+void Components::button(Rect r,const std::string &label,bool selected){touchableAdd(r,8);{if(selected)fillRound(r.x,r.y,r.w,r.h,8,Accent);else{fillRound(r.x,r.y,r.w,r.h,8,BG);g.drawRoundRect(r.x,r.y,r.w,r.h,8,Line);}}centered(r.x,r.y+(r.h-13)/2,r.w,label,Font::Bold,selected?OnAccent:FG);}
+void Components::iconButton(Rect r,Icon id,bool selected){if(selected)card(r,true);else touchableAdd(r,8);icon(id,r.x+(r.w-16)/2,r.y+(r.h-16)/2,16,selected?OnAccent:FG);}
 StatusLayout Components::statusLayout(const Status &s){
  StatusLayout layout;layout.percent=s.battery<0?"--%":std::to_string(std::min(100,s.battery))+"%";
  layout.percentWidth=width(layout.percent,Font::ChatBody);layout.percentX=W-StatusRightMargin-layout.percentWidth;
@@ -236,7 +247,7 @@ void Components::toggleRow(Rect r,Icon id,const std::string &label,const std::st
  card(r);icon(id,r.x+6,r.y+(r.h-24)/2,24);auto state=pill.empty()?std::string(on?"ON":"OFF"):pill;int pw=std::max(44,width(state,Font::Bold)+16),px=r.x+r.w-pw-6,py=r.y+(r.h-22)/2;
  text(r.x+36,r.y+5,label,Font::ChatBody,FG,px-r.x-40);text(r.x+36,r.y+22,detail,Font::ChatMeta,FG,px-r.x-40);
  if(on)fillRound(px,py,pw,22,11,Accent);else g.drawRoundRect(px,py,pw,22,11,Muted);centered(px,py+5,pw,state,Font::Bold,on?OnAccent:FG);}
-void Components::tabChip(Rect r,const std::string &label,bool selected){fillRound(r.x,r.y,r.w,r.h,5,selected?Accent:Surface);centered(r.x,r.y+(r.h-13)/2,r.w,label,selected?Font::Bold:Font::Body,selected?OnAccent:FG);}
+void Components::tabChip(Rect r,const std::string &label,bool selected){touchableAdd(r,5);fillRound(r.x,r.y,r.w,r.h,5,selected?Accent:Surface);centered(r.x,r.y+(r.h-13)/2,r.w,label,selected?Font::Bold:Font::Body,selected?OnAccent:FG);}
 void Components::image(int x,int y,const uint16_t *pixels,int w,int h){
  if(fast){fast->blit(x,y,pixels,w,h);return;}
  g.drawRGBBitmap(x,y,pixels,w,h);}

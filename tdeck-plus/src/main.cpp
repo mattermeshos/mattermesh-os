@@ -224,7 +224,7 @@ unsigned long lastEdit=0;
 static inline void repaintNow(){dirty=true;lastEdit=millis()-UI_INPUT_SETTLE_MS;}
 static inline void repaintSettled(){dirty=true;lastEdit=millis();}
 String newName,newScope="*",newKey,notice,searchQuery;
-bool searching=false,messagesMenu=false,chatDetails=false,emojiPicker=false;int emojiFocus=0,emojiTab=0;std::vector<int> emojiRecent;static std::vector<int> emojiItems();bool shutdownConfirm=false;
+bool searching=false,messagesMenu=false,chatDetails=false,emojiPicker=false;int emojiFocus=0,emojiTab=0;std::vector<int> emojiRecent;static std::vector<int> emojiItems();
 std::vector<mm::MessageHit> renderedChatMessages,paintedChatMessages;int paintedChatConversation=-1;uint32_t chatRowsRevision=0;
 int chatOffset=0,chatPixel=0;// chatPixel (Plus): continuous scroll inside the messages (see Renderer::chat)
 bool scopePicker=false,scopeEditing=false,clearChatConfirm=false;int chatMenuFocus=0,scopeFocus=0;String scopeInput;std::vector<std::string> regionScopes={"*"};
@@ -585,12 +585,14 @@ void otaAction(){
  if(phase==P::Available){if(!otaConfirm){otaConfirm=true;render();return;}otaConfirm=false;notice=device::otaInstall()?"":"Install could not start";render();return;}
  if(phase!=P::Checking&&phase!=P::Downloading&&phase!=P::Verifying&&phase!=P::Restarting){otaConfirm=false;device::otaCheck();render();}// otaCheck() refuses while busy too
 }
+static bool quickSettingsShown(){return !deviceLocked&&screen==Screen::Section&&section==mm::QuickSettingsSection;}
+static int quickPressedTile();static uint64_t wantedRing(mm::Rect &r,int &radius);// press feedback (below pollTouch)
 static void fillHomeWidget(mm::State &v);static void fillMainWidget(mm::State &v);
 mm::State uiStateBuild();
 mm::State uiState(){uint32_t t=micros();auto v=uiStateBuild();uiStateUs+=micros()-t;uiStateCalls++;return v;}
 mm::State uiStateBuild(){
  auto audio=device::audioState();
- mm::State v;if(screen==Screen::Section&&section==mm::SupportSection){static String code=device::otaUnlockCode();v.unlockCode=code.c_str();v.supportTab=supportTab;}if(screen==Screen::Section&&section==17)fillOta(v);if(!deviceLocked&&screen==Screen::Section&&section==mm::LinkSection)linkFill(v);if(screen==Screen::Section&&section==14)appLinkFill(v);v.quickPending=quickReply.pending;v.quickSent=quickReply.sent;v.shutdownConfirm=shutdownConfirm;auto timeState=device::timeSyncState();v.timeSource=timeState.acquiring?timeState.message:timeState.source==device::TimeSource::WiFi?"Wi-Fi / NTP":timeState.source==device::TimeSource::GPS?"GPS":timeState.source==device::TimeSource::Manual?"Set by hand":timeState.message;if(screen==Screen::Section&&section==mm::QuickSettingsSection){auto source=device::batteryPowerSource();v.usbPower=source==device::PowerSource::USB;v.powerSourceKnown=source!=device::PowerSource::Unknown;}if(screen==Screen::Section&&section==24&&sdReady){v.storageTotal=SD.totalBytes();v.storageUsed=SD.usedBytes();}v.emojiPicker=emojiPicker;v.quickEmoji=quickEmojiPicker&&quickReply.active;v.emojiFocus=emojiFocus;v.emojiTab=emojiTab;if(emojiPicker||quickEmojiPicker){if(emojiRecent.empty())emojiItems();v.emojiRecent=emojiRecent;}v.audioReady=audio.ready;v.audioNotifications=audio.notifications;v.audioVolume=audio.volume;v.messageTone=device::RINGTONES[device::ringtoneIndex(audio.messageTone)].name;v.mentionTone=device::RINGTONES[device::ringtoneIndex(audio.mentionTone)].name;v.audioMessage=audio.message.c_str();v.unlockTapCount=max(int(unlockTaps.taps),trackballUnlockTaps);v.scopePicker=scopePicker;v.scopeEditing=scopeEditing;v.clearChatConfirm=clearChatConfirm;v.chatMenuFocus=chatMenuFocus;v.scopeFocus=scopeFocus;v.scopeOffset=scopeFocus/mm::ScopeRows*mm::ScopeRows;v.scopeInput=scopeInput.c_str();if(scopePicker&&!deviceLocked)v.regionScopes=regionScopes;v.receivedName=lastReceivedSender.c_str();v.receivedPreview=lastReceivedBody.c_str();v.receivedTime=lastReceivedTime.c_str();v.lockHasMessage=lastReceivedToken!=0;v.lockHint=lockHintUntil&&int32_t(lockHintUntil-millis())>0;v.unlockCounting=unlockCountdownAt!=0;v.quickCountdown=quickCountdownDots();
+ mm::State v;v.quickPressed=quickPressedTile();if(screen==Screen::Section&&section==mm::SupportSection){static String code=device::otaUnlockCode();v.unlockCode=code.c_str();v.supportTab=supportTab;}if(screen==Screen::Section&&section==17)fillOta(v);if(!deviceLocked&&screen==Screen::Section&&section==mm::LinkSection)linkFill(v);if(screen==Screen::Section&&section==14)appLinkFill(v);v.quickPending=quickReply.pending;v.quickSent=quickReply.sent;auto timeState=device::timeSyncState();v.timeSource=timeState.acquiring?timeState.message:timeState.source==device::TimeSource::WiFi?"Wi-Fi / NTP":timeState.source==device::TimeSource::GPS?"GPS":timeState.source==device::TimeSource::Manual?"Set by hand":timeState.message;if(screen==Screen::Section&&section==24&&sdReady){v.storageTotal=SD.totalBytes();v.storageUsed=SD.usedBytes();}v.emojiPicker=emojiPicker;v.quickEmoji=quickEmojiPicker&&quickReply.active;v.emojiFocus=emojiFocus;v.emojiTab=emojiTab;if(emojiPicker||quickEmojiPicker){if(emojiRecent.empty())emojiItems();v.emojiRecent=emojiRecent;}v.audioReady=audio.ready;v.audioNotifications=audio.notifications;v.audioVolume=audio.volume;v.messageTone=device::RINGTONES[device::ringtoneIndex(audio.messageTone)].name;v.mentionTone=device::RINGTONES[device::ringtoneIndex(audio.mentionTone)].name;v.audioMessage=audio.message.c_str();v.unlockTapCount=max(int(unlockTaps.taps),trackballUnlockTaps);v.scopePicker=scopePicker;v.scopeEditing=scopeEditing;v.clearChatConfirm=clearChatConfirm;v.chatMenuFocus=chatMenuFocus;v.scopeFocus=scopeFocus;v.scopeOffset=scopeFocus/mm::ScopeRows*mm::ScopeRows;v.scopeInput=scopeInput.c_str();if(scopePicker&&!deviceLocked)v.regionScopes=regionScopes;v.receivedName=lastReceivedSender.c_str();v.receivedPreview=lastReceivedBody.c_str();v.receivedTime=lastReceivedTime.c_str();v.lockHasMessage=lastReceivedToken!=0;v.lockHint=lockHintUntil&&int32_t(lockHintUntil-millis())>0;v.unlockCounting=unlockCountdownAt!=0;v.quickCountdown=quickCountdownDots();
  std::string lockRxHash;if(deviceLocked){v.lockHasMessage=false;matter::Record r;if(loadedRecord(lockMessages.current,r)&&!r.mine){v.lockHasMessage=true;v.receivedName=r.sender.c_str();v.receivedPreview=r.body.c_str();v.receivedTime=messageTime(r.timestamp).c_str();lockRxHash=device::incomingRepeater(r.path.c_str());}}
  auto repeaterLabel=[&](const std::string &hash){int matches=0;String name=matter::nodeNameForPrefix(hash.c_str(),matches,2);return matches==1&&!name.isEmpty()?mm::senderDisplayName(name.c_str()):"["+hash+"]";};auto incomingLabel=[&](){return repeaterLabel(receivedRepeater.hash);};
  if(deviceLocked&&!lockRxHash.empty()&&uint32_t(millis()-lockMessageShownAt)<device::LOCK_RX_REPEATER_MS)v.lockRepeater="Received via: "+repeaterLabel(lockRxHash);for(auto n:unreadMessages)v.unread+=n;v.status.unread=v.unread;v.cpuMHz=getCpuFrequencyMhz();v.stackFree=uxTaskGetStackHighWaterMark(nullptr);v.rasterMs=lastRasterMs;v.paintMs=lastPaintMs;v.heapKB=ESP.getFreeHeap()/1024;v.flashMB=ESP.getFlashChipSize()/1048576;v.sd=sdReady;v.touch=touchBackend;v.keyboard=keyboardReady;
@@ -770,16 +772,9 @@ void renderSection(){
  if(preview){uint16_t *px=frame.getBuffer();auto r=mm::HomeHalfPreview;for(int y=0;y<r.h&&y<mm::H/2;y++)memcpy(px+(r.y+y)*mm::W+r.x,&half[y*(mm::W/2)],r.w*sizeof(uint16_t));}
 }
 
-void confirmShutdown(){
- if(!shutdownConfirm)return;auto source=device::batteryPowerSource();if(source!=device::PowerSource::Battery){notice=source==device::PowerSource::USB?"Unplug USB to power off":"Power controller unavailable";render();return;}
- device::audioCancel();device::powerLocked(true);setTouchEnabled(false);frame.fillScreen(mm::BG);mm::Components c(frame);c.centered(8,145,224,"POWER OFF",mm::Font::ChatTitle);
- lcd.present(frame.getBuffer());
-
- if(!device::batteryShutdown()){device::powerLocked(false);setTouchEnabled(true);notice="Power off failed";render();return;}delay(200);device::powerLocked(false);setTouchEnabled(true);notice="Power cut not completed";render();
-}
 void loadRadioDraft(bool keepSelection);
 // Confirmations and pickers of the current page, closed before another page opens.
-static void closePageDialogs(){shutdownConfirm=otaConfirm=false;emojiPicker=false;scopePicker=scopeEditing=clearChatConfirm=channelOptions=deleteChannelConfirm=positionShare=false;}
+static void closePageDialogs(){otaConfirm=false;emojiPicker=false;scopePicker=scopeEditing=clearChatConfirm=channelOptions=deleteChannelConfirm=positionShare=false;}
 void openSection(int id,bool paint){
  
  if(id==mm::SupportSection)supportTab=0;// Settings > Donate / Unlock opens on Donate
@@ -811,9 +806,9 @@ TopBanner topBanner(){
 }
 mm::Rect topBannerRect(){return screen==Screen::Home?mm::NotificationBannerHome:mm::NotificationBanner;}
 // The card comes in and goes out animated (plus_display.h presentCardTransition); paintedBanner is what the panel shows.
-// A card's time on screen starts once it is fully in: the animation's length is added to whichever timer is running.
+// A card's time on screen starts once it is fully in: the animation's length is added to the timer of the card shown.
 TopBanner paintedBanner=TopBanner::None;
-void bannerAnimated(uint32_t ms){if(stormBannerUntil)stormBannerUntil+=ms;if(otaBannerUntil)otaBannerUntil+=ms;if(chatErrorUntil)chatErrorUntil+=ms;if(incomingBanner.active)incomingBanner.since+=ms;}
+void bannerAnimated(TopBanner shownCard,uint32_t ms){switch(shownCard){case TopBanner::Storm:stormBannerUntil+=ms;break;case TopBanner::Update:otaBannerUntil+=ms;break;case TopBanner::ChatNotice:chatErrorUntil+=ms;break;case TopBanner::Message:incomingBanner.since+=ms;break;case TopBanner::None:break;}}
 // Where the page header ends under the card: Home's clock band, the LoRa / Contacts tabs over the rule, the map's
 // floating back button, the link viewer's thinner bar; else the header rule stays.
 int topBannerClearTo(){
@@ -822,12 +817,19 @@ int topBannerClearTo(){
 // The chat of the Timeline row at y (-1: none). Its own frame holds the ~5 KB mm::State, so tap() does not keep one
 // on the stack while it opens the chat (tap > openConversation > render nests deep: the loop stack overflowed).
 __attribute__((noinline)) static int timelineChatAt(int y){auto v=uiState();int row=mm::mainTimelineRow(y);return row>=0&&row<int(v.main.timeline.size())?v.main.timeline[row].chat:-1;}
+uint32_t lastKeyEventAt=0;// the last key press or release: no card / pane animation while typing (it blocks the loop ~200 ms)
+// pressPainted: the press feedback on the panel (0 none, pressRingKey / quickRingKey); ringRender: a repaint for it only
+// (no UI_READY line).
+uint64_t pressPainted=0;bool ringRender=false;
+static uint64_t pressRingKey(const mm::Rect &r){return 1+(uint64_t(r.x&1023)|uint64_t(r.y&1023)<<10|uint64_t(r.w&1023)<<20|uint64_t(r.h&1023)<<30);}
+static uint64_t quickRingKey(int tile){return (uint64_t(1)<<41)+uint64_t(tile);}
 void render(bool partialHint,int batteryPreview) {
  if(renderHold){renderPending=true;return;}// touchScroll: one frame for all the rows of a gesture step
  {static int seenScreen=-1,seenSection=-1;if(int(screen)!=seenScreen||section!=seenSection){seenScreen=int(screen);seenSection=section;touchBrowse=false;}}// touch browsing ends with the page
  if(!deviceLocked&&screen==Screen::Chat&&sdReady)archivePager.ensure(radioJournal,activeChat,chatOffset);
  if(screen!=Screen::Chat&&input.length())chatDrafts.leave(activeChat,input);if(!input.length())composerExpanded=false;
  if(batchingInput){repaintNow();return;}
+ mm::touchablesClear();// refilled by the components this frame draws
  // Notification feedback (keyboard flash) keeps running from the display busy callback, so the frame is painted together with it.
  if(!deviceLocked&&getCpuFrequencyMhz()<device::NORMAL_CPU_FREQUENCY)setCpuFrequencyMhz(device::NORMAL_CPU_FREQUENCY); // raster at full clock
  uint32_t frameScene=touchScene();int frameChat=screen==Screen::Chat&&!deviceLocked?activeChat:-1;renderedChatMessages.clear();bool frameConfirmation=deviceLocked&&quickReply.active&&quickReply.sent;uint32_t frameLockToken=deviceLocked?lockMessages.current:0;uint32_t renderStarted=millis();renderCalls++;paintedReadChat=-1;renderedChannels.clear();
@@ -845,7 +847,7 @@ void render(bool partialHint,int batteryPreview) {
  if(!deviceLocked&&channelOptions){mm::Renderer renderer(frame);renderer.channelOptions(uiState());}
  TopBanner frameBanner=TopBanner::None;
  if(!deviceLocked){mm::Renderer renderer(frame);
-  if(lockKey.progress)renderer.holdBanner("Lock device",lockKey.progress);
+  if(lockKey.progress){renderer.holdBanner("Lock device",lockKey.progress);frameBanner=paintedBanner;/* the card under the hold banner keeps its state: no fade out / in around the hold */}
   else switch(frameBanner=topBanner()){
    case TopBanner::Storm:renderer.notificationBanner(topBannerRect(),topBannerClearTo(),mm::Icon::Weather,"Storm alert","Weather",stormBanner.c_str());break;
    case TopBanner::Update:renderer.notificationBanner(topBannerRect(),topBannerClearTo(),mm::Icon::Settings,"Update available","OTA update",otaBannerText);break;
@@ -854,6 +856,10 @@ void render(bool partialHint,int batteryPreview) {
    case TopBanner::None:break;
   }
  }
+ {mm::Rect r;int radius=0;uint64_t ring=wantedRing(r,radius);// press feedback: what this frame shows (pressFeedbackTick compares with it)
+  if(ring&&ring<quickRingKey(0)){uint16_t *buf=frame.getBuffer();mm::Components components(frame);
+   components.pressRing(r,radius,buf[(r.y+r.h/2)*mm::W+r.x+std::min(4,r.w-1)]==mm::Accent?mm::FG:mm::Accent);/* a ring that shows on accent cards too */}
+  pressPainted=ring;}
  // USB-only single-frame preview: never changes battery state or calibration.
  if(batteryPreview>=-1&&batteryPreview<=100){auto status=uiState().status;status.battery=batteryPreview;mm::Components components(frame);components.statusBar(status);}
  if(deviceLocked||screen!=Screen::Chat)firstRepeaterPainted=false;
@@ -863,13 +869,16 @@ void render(bool partialHint,int batteryPreview) {
  struct {bool full=false,changed=false;} plan;plan.full=paintedScreen<0||forceFullRefresh;forceFullRefresh=false;composerUrgent=false;
  panelPainting=true;touchTransition=frameScene!=visibleTouchScene;
  const bool samePage=!plan.full&&!deviceLocked&&paintedScreen==paintPage&&paintedSection==section,cardIn=frameBanner!=TopBanner::None&&paintedBanner==TopBanner::None,cardOut=frameBanner==TopBanner::None&&paintedBanner!=TopBanner::None;
- if(samePage&&(cardIn||cardOut)){mm::Rect card=topBannerRect();uint32_t started=millis();plan.changed=lcd.presentCardTransition(frame.getBuffer(),card.y-2,card.y+card.h+6,cardIn);if(cardIn)bannerAnimated(millis()-started);}/* the card comes down fading in, or goes up fading out */
+ // No animation while typing or touching: it blocks the loop (~200 ms) and a key or a short tap in it would be lost.
+ const bool typing=uint32_t(millis()-lastKeyEventAt)<1000||touchPipeline.contactActive(),quickNow=quickSettingsShown(),quickWas=paintedScreen==int(Screen::Section)&&paintedSection==mm::QuickSettingsSection;
+ if(!plan.full&&!deviceLocked&&paintedScreen>=0&&!typing&&quickNow!=quickWas&&frameBanner==TopBanner::None&&paintedBanner==TopBanner::None)plan.changed=lcd.presentCardTransition(frame.getBuffer(),mm::StatusH,mm::H,quickNow);/* Quick settings comes down fading in, goes up fading out */
+ else if(samePage&&!typing&&(cardIn||cardOut)){mm::Rect card=topBannerRect();uint32_t started=millis();plan.changed=lcd.presentCardTransition(frame.getBuffer(),card.y-2,card.y+card.h+6,cardIn);if(cardIn)bannerAnimated(frameBanner,millis()-started);}/* the card comes down fading in, or goes up fading out */
  else plan.changed=samePage&&screen!=Screen::Chat?lcd.presentScrolling(frame.getBuffer()):lcd.present(frame.getBuffer(),plan.full);/* the chat scrolls pixel by pixel: no eased frames *//* same page: a vertical move is animated */
  paintedBanner=frameBanner;panelPainting=false;if(plan.changed)lastPhysicalPaint=millis();
  paintedChatMessages.swap(renderedChatMessages);paintedChatConversation=frameChat;
  if(frameConfirmation)quickReply.didPaint(millis());
  if(deviceLocked&&!quickReply.active)paintedLockToken=frameLockToken;if(!deviceLocked)commitReadFrame();lastPaintMs=millis()-renderStarted;if(deviceLocked){renderedUnlockTaps=unlockTaps.taps;lockHintPainted=lockHintUntil&&int32_t(lockHintUntil-millis())>0;}paintedScreen=paintPage;paintedSection=section;dirty=false;lastPaint=millis();visibleTouchScene=frameScene;if(!touchDisplayReady)touchPipeline.waitForRelease();touchDisplayReady=true;touchTransition=false;paintedChannels.swap(renderedChannels);
- if(!appUsbLinked()&&Serial.availableForWrite()>=64)Serial.printf("UI_READY screen=%d active=%d redraw=%d full=%d\n",int(screen),activeChat,plan.changed,plan.full);
+ if(!ringRender&&!appUsbLinked()&&Serial.availableForWrite()>=64)Serial.printf("UI_READY screen=%d active=%d redraw=%d full=%d\n",int(screen),activeChat,plan.changed,plan.full);
 
 }
 // Fresh 16-byte channel secret from the hardware RNG (same source MeshCore uses for identities).
@@ -964,7 +973,6 @@ void back() {
  if(screen==Screen::Chat&&positionShare){positionShare=false;notice="";render();return;}
  if(screen==Screen::Chat&&scopeEditing){scopeEditing=false;scopeInput="";notice="";render();return;}
  if(screen==Screen::Chat&&(scopePicker||clearChatConfirm)){scopePicker=clearChatConfirm=false;notice="";render();return;}
- if(shutdownConfirm){shutdownConfirm=false;notice="";render();return;}
  if(screen==Screen::Section&&section==4&&wifiEditing){wifiEditing=false;wifiShowPassword=false;wifiPassword="";notice="";render();return;}
  if(screen==Screen::Section&&section==14&&bleNameEditing){bleNameEditing=false;bleNameInput="";notice="";render();return;}
  if(screen==Screen::Chat&&emojiPicker){emojiPicker=false;render();return;}
@@ -1282,23 +1290,21 @@ void initTouch() {
  Serial.printf("PLUS_TOUCH ready=%d\n",touchBackend==2);
 }
 // Quick settings: sliders write the same stored levels as the Lights and Audio
-// pages; tiles reuse the existing toggles; Power Off asks before shutting down.
+// pages; tiles reuse the existing toggles (a tile held 1 s opens its Settings page: pollTouch, Hold).
 void quickSettingsTap(int x,int y){
- if(shutdownConfirm){if(mm::QuickConfirmPowerOff.contains(x,y))confirmShutdown();else if(mm::QuickConfirmCancel.contains(x,y)){shutdownConfirm=false;notice="";render();}return;}
  for(int row=0;row<2;row++)if(mm::quickSliderRect(row).contains(x,y)){
   int step=mm::quickStepAt(mm::quickSliderRect(row),x);
   if(row==0){displayBrightness=(step*255+mm::QuickSteps/2)/mm::QuickSteps;if(!device::powerState().displayEnabled)device::lightEnabled(false,true);saveLights();device::brightness(displayBrightness,keyboardBrightness);}
   else{device::audioVolume((step*100+mm::QuickSteps/2)/mm::QuickSteps);if(step&&!device::audioState().notifications)device::audioNotifications(true);}
   render();return;
  }
- for(int i=0;i<mm::QuickTileCount;i++)if(mm::quickTileRect(i).contains(x,y)){
-  switch(i){
+ int tile=mm::quickTileAt(x,y);
+ if(tile>=0){
+  switch(tile){
    case mm::QuickWifi:device::wifiEnabled(!device::connectivityStatus().wifi);break;
    case mm::QuickBluetooth:device::bleEnabled(!device::connectivityStatus().ble);break;
    case mm::QuickGps:notice=device::locationToggleUser()?"":"GPS switch failed";break;
    case mm::QuickSound:device::audioNotifications(!device::audioState().notifications);break;
-   case mm::QuickPowerOff:shutdownConfirm=true;break;
-   default:return;// reserved slot: inactive
   }
   render();return;
  }
@@ -1324,7 +1330,7 @@ void tap(int x,int y) {
  Serial.printf("TOUCH_TAP x=%d y=%d screen=%d\n",x,y,int(screen));
  if(bannerTap(x,y))return;
  // Status bar: opens Quick settings from any screen; tapping it there closes the panel.
- if(y<mm::StatusH){if(screen==Screen::Section&&section==mm::QuickSettingsSection)back();else openSection(mm::QuickSettingsSection);return;}
+ if(y<mm::StatusH){if(quickSettingsShown())back();else openSection(mm::QuickSettingsSection);return;}
  if(screen==Screen::Home){
   if(mm::MenuHomeClock.contains(x,y)){navigation.clear();screen=Screen::Launcher;render();return;}
   if(homeWidget==mm::WidgetWifi&&mm::HomeWidgetBox.contains(x,y)&&!weatherLiveNow()){weatherWifiAction();return;}// the button shows while there is no live weather
@@ -1343,7 +1349,6 @@ void tap(int x,int y) {
  }
  if(screen==Screen::Section){
   if(mm::toolsSection(section)&&toolsTap(x,y))return;
-  if(section==mm::QuickSettingsSection&&shutdownConfirm){quickSettingsTap(x,y);return;}
   if(section==mm::LinkSection){linkTap(x,y);return;}// its own bar: back disc, PICTURE / PAGE switch
   if(mm::BackButton.contains(x,y)){back();return;}
   if(section==mm::QuickSettingsSection){quickSettingsTap(x,y);return;}
@@ -1616,7 +1621,7 @@ void keyboardEvent(int event,uint32_t capturedAt=0,bool hardwareDebounced=false)
  if(event&128)device::activity();
  if(ch)key(ch);
 }
-void captureKeyEvent(int event,uint32_t now){keyboardQueue.push(event,now,true);}
+void captureKeyEvent(int event,uint32_t now){lastKeyEventAt=now;keyboardQueue.push(event,now,true);}
 void captureKeyboard(){
  if(!keyboardReady)return;
  uint8_t status=keyboard.readRegister(TCA8418_REG_INT_STAT);
@@ -1642,15 +1647,16 @@ bool gpsStoreSave(const std::vector<uint8_t> &data){if(!sdReady||data.empty())re
 int channelAtPoint(int x,int y){if(deviceLocked||channelOptions)return -1;for(auto &hit:paintedChannels)if(hit.area.contains(x,y))return hit.id;return -1;}
 
 void longPressChannel(int x,int y){int id=channelAtPoint(x,y);if(id>=0){device::activity();openChannelOptions(id);}}
-uint32_t touchScene(){uint32_t hash=2166136261u;auto add=[&](uint32_t value){hash=(hash^value)*16777619u;};add(int(screen));add(section);add(activeChat);if(screen==Screen::Chat&&!deviceLocked)add(chatRowsRevision);add(channelOptions);add(channelKeyView);add(deleteChannelConfirm);add(positionShare);add(chatDetails);add(scopePicker);add(scopeEditing);add(clearChatConfirm);add(messageActions);add(messagePath);add(messageBodyView);add(emojiPicker);add(searching);add(messagesMenu);add(contactSearching);add(discoverFilter);add(shutdownConfirm);add(radioPowerEditing);add(radioDevicePage);add(wifiEditing);add(chatOffset);add(nodeScroll);add(settingsScroll);add(filesScroll);add(wifiOffset);if(screen==Screen::Chats)add(selected);add(deviceLocked);add(quickReply.active);add(quickReply.pending);add(quickReply.sent);add(int(topBanner()));return hash;}
+uint32_t touchScene(){uint32_t hash=2166136261u;auto add=[&](uint32_t value){hash=(hash^value)*16777619u;};add(int(screen));add(section);add(activeChat);if(screen==Screen::Chat&&!deviceLocked)add(chatRowsRevision);add(channelOptions);add(channelKeyView);add(deleteChannelConfirm);add(positionShare);add(chatDetails);add(scopePicker);add(scopeEditing);add(clearChatConfirm);add(messageActions);add(messagePath);add(messageBodyView);add(emojiPicker);add(searching);add(messagesMenu);add(contactSearching);add(discoverFilter);add(radioPowerEditing);add(radioDevicePage);add(wifiEditing);add(chatOffset);add(nodeScroll);add(settingsScroll);add(filesScroll);add(wifiOffset);if(screen==Screen::Chats)add(selected);add(deviceLocked);add(quickReply.active);add(quickReply.pending);add(quickReply.sent);add(int(topBanner()));return hash;}
 struct UiReplay {int kind=0,step=0;uint32_t started=0;bool released=false;};UiReplay uiReplay;uint32_t injectedTouchUntil=0;int injectedTouchX=0,injectedTouchY=0;
 // "touch drag x y0 y1 ms": a finger sliding at constant speed, sampled like the real panel (test of drag and fling).
 struct InjectedDrag{bool on=false,ended=false;int x=0,y0=0,y1=0;uint32_t start=0,ms=1;} injectedDrag;
 void feedTouch(bool down,int x,int y,uint32_t now){
- bool allowed=!(panelPainting&&touchTransition);int target=-1;std::string key;
+ bool allowed=!(panelPainting&&touchTransition);int target=-1;std::string key;uint32_t holdMs=device::CHANNEL_HOLD_MS;
  if(down){device::activity();touchEvents++;}
- if(touchPipeline.needsTarget(down,allowed)){target=channelAtPoint(x,y);}
- touchPipeline.feed(down,x,y,now,touchScene(),target,key,allowed);
+ if(touchPipeline.needsTarget(down,allowed)){target=channelAtPoint(x,y);
+  if(quickSettingsShown()){int tile=mm::quickTileAt(x,y);if(tile>=0){target=mm::QuickHoldTarget+tile;holdMs=mm::QuickHoldMs;}}}
+ touchPipeline.feed(down,x,y,now,touchScene(),target,key,allowed,holdMs);
 }
 void captureTouch(bool force){
  if((deviceLocked&&!quickReply.active)||!touchBackend||!touchDisplayReady||uiReplay.kind==1)return;static uint32_t polled=0;uint32_t now=millis();if(!force&&uint32_t(now-polled)<device::TOUCH_POLL_MS)return;polled=now;
@@ -1661,13 +1667,26 @@ void captureTouch(bool force){
  feedTouch(down,x,y,now);
 }
 void serviceReplay(){if(!uiReplay.kind)return;uint32_t now=millis();if(!uiReplay.started)uiReplay.started=now;uint32_t age=now-uiReplay.started;if(uiReplay.kind==1){if(age>=100&&age<160)feedTouch(true,mm::ComposerEmoji.x+15,mm::ComposerEmoji.y+15,now);else if(age>=160){feedTouch(false,0,0,now);if(age>=200)uiReplay.kind=0;}}else if(uiReplay.kind==3){const uint32_t times[]={100,160,220,220};const int edges[]={33,161,33,33};while(uiReplay.step<4&&age>=times[uiReplay.step])captureKeyEvent(edges[uiReplay.step++],now);if(uiReplay.step==4)uiReplay.kind=0;}else if(age>=100){captureKeyEvent(device::MICROPHONE_KEYCODE,now);uiReplay.released=true;uiReplay.kind=0;}}
+// Press feedback: Quick settings tiles (their own look), elsewhere a ring on the touchable under a finger resting
+// PressRingMs or more. Repaints only when what should show differs from what render() painted (pressPainted); a
+// ring left by a lifted or moving finger goes with the tap / scroll repaint, or once the contact ends.
+constexpr uint32_t PressRingMs=60;
+static bool pressRingPoint(int &x,int &y){uint32_t since;if(deviceLocked||quickSettingsShown()||!touchPipeline.resting(x,y,since,touchScene()))return false;return uint32_t(millis()-since)>=PressRingMs;}
+// The Quick settings tile under a resting finger (-1: none).
+static int quickPressedTile(){int x,y;uint32_t since;if(!quickSettingsShown()||!touchPipeline.resting(x,y,since,touchScene())||uint32_t(millis()-since)<PressRingMs)return -1;
+ int t=touchPipeline.pressed();return t>=mm::QuickHoldTarget?t-mm::QuickHoldTarget:-1;}
+// The press feedback that should show now: its key (0 none) and, for a ring, the element and its corner radius.
+static uint64_t wantedRing(mm::Rect &r,int &radius){int tile=quickPressedTile();if(tile>=0)return quickRingKey(tile);int x,y;return pressRingPoint(x,y)&&mm::touchableAt(x,y,r,radius)?pressRingKey(r):0;}
+void pressFeedbackTick(){if(deviceLocked||dirty)return;/* a pending repaint draws the feedback anyway */mm::Rect r;int radius;uint64_t want=wantedRing(r,radius);
+ if(want==pressPainted||(!want&&touchPipeline.contactActive()))return;
+ static uint32_t tried=0;if(uint32_t(millis()-tried)<30)return;tried=millis();ringRender=true;render();ringRender=false;}
 void pollTouch(){
  captureTouch();device::TouchAction event;if(!touchPipeline.pop(event))return;
  const bool relative=event.kind==device::TouchActionKind::Move||event.kind==device::TouchActionKind::Fling;// gestures, not hits on content: never stale
  if((deviceLocked&&!quickReply.active)||(!relative&&event.scene!=touchScene())){touchStale++;return;}
  lastTouchDispatchMs=millis()-event.releasedAt;maxTouchDispatchMs=max(maxTouchDispatchMs,lastTouchDispatchMs);touchDispatched++;
  if(flingCaught&&event.kind!=device::TouchActionKind::Move&&event.kind!=device::TouchActionKind::Fling){flingCaught=false;if(event.kind==device::TouchActionKind::Tap)return;}else if(event.kind==device::TouchActionKind::Move)flingCaught=false;
- if(event.kind==device::TouchActionKind::Hold){if(event.target>=0&&event.target<chatCount){openChannelOptions(event.target);}}
+ if(event.kind==device::TouchActionKind::Hold){if(event.target>=mm::QuickHoldTarget){if(quickSettingsShown())openSection(mm::quickTileSection(event.target-mm::QuickHoldTarget));}/* a Quick settings tile held 1 s */else if(event.target>=0&&event.target<chatCount){openChannelOptions(event.target);}}
  else if(event.kind==device::TouchActionKind::Move){moveEvents++;movePx+=event.dy;if(screen==Screen::Section&&section==9)mapPan(-event.dx,-event.dy);else if(screen==Screen::Section&&section==mm::LinkSection)linkDrag(event.dx,event.dy);else touchScroll(event.dy);}
  else if(event.kind==device::TouchActionKind::Fling){if(!(screen==Screen::Section&&(section==9||section==mm::LinkSection)))flingStart(event.dy);}
  else if(screen==Screen::Section&&section==9&&(event.kind==device::TouchActionKind::Swipe||event.kind==device::TouchActionKind::Drag))mapPan(-event.dx,-event.dy);
@@ -1900,12 +1919,12 @@ void handle(const String &s) {
    Serial.printf("BENCH_MEM strip_internal=%d fill6=%lu text10=%lu rects10=%lu | c8_psram=%d fill=%lu text10=%lu rects10=%lu heap=%u\n",esp_ptr_internal(strip.getBuffer()),(unsigned long)sf,(unsigned long)st,(unsigned long)sr,!esp_ptr_internal(c8.getBuffer()),(unsigned long)f8,(unsigned long)t8,(unsigned long)r8,unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));}
   dirty=true;return;}
  if(s=="ui stats"){Serial.printf("UI_STATS render=%lu raster=%lu paint=%lu busy=%lu queued=%d drop=%lu stack=%u state_us=%lu state_calls=%lu\n",renderCalls,lastRasterMs,lastPaintMs,busyServiceCalls,keyboardQueue.size(),keyboardQueue.dropped,unsigned(uxTaskGetStackHighWaterMark(nullptr)),(unsigned long)uiStateUs,(unsigned long)uiStateCalls);uiStateUs=uiStateCalls=0;
-  Serial.printf("UI_PRESENT us=%lu bytes=%lu pushes=%lu cpu=%lu scrolls=%lu shift=%d asleep=%d sleeps=%lu\n",(unsigned long)lcd.lastPresentUs,(unsigned long)lcd.presentBytes,(unsigned long)lcd.pushes,(unsigned long)getCpuFrequencyMhz(),(unsigned long)lcd.scrollAnimations,lcd.lastScrollShift,int(lcd.asleep),(unsigned long)lcd.sleeps);
+  Serial.printf("UI_PRESENT us=%lu bytes=%lu pushes=%lu cpu=%lu scrolls=%lu shift=%d asleep=%d sleeps=%lu cards=%lu\n",(unsigned long)lcd.lastPresentUs,(unsigned long)lcd.presentBytes,(unsigned long)lcd.pushes,(unsigned long)getCpuFrequencyMhz(),(unsigned long)lcd.scrollAnimations,lcd.lastScrollShift,int(lcd.asleep),(unsigned long)lcd.sleeps,(unsigned long)lcd.cardAnimations);
   return;}
  if(s=="weather status"){auto w=device::weatherState();auto c=device::connectivityStatus();Serial.printf("WEATHER_STATUS valid=%d busy=%d cached=%d open=%d phase=%d source=%d hours=%d next=%lu wifi_on=%d connected=%d place=%s message=%s\n",w.data.valid,w.busy,w.cached,w.open,int(w.phase),w.data.source,w.data.hours,(unsigned long)w.nextRefresh,c.wifi,c.connected,w.place.c_str(),w.message.c_str());return;}
  if(s=="emoji status"){loadEmojiCounts();auto top=mm::frequentEmoji(emojiCounts);unsigned used=0;for(auto n:emojiCounts)used+=n>0;Serial.printf("EMOJI_STATUS used=%u first=%lu first_count=%u\n",used,(unsigned long)mm_emoji_picker::glyphs[top[0]].code,emojiCounts[top[0]]);return;}
  if(s=="emoji reset"){loadEmojiCounts();for(auto &n:emojiCounts)n=0;saveEmojiCounts();Serial.println("EMOJI_RESET ok=1");return;}
- if(s=="ui state"){Serial.printf("UI_STATE screen=%d section=%d emoji=%d confirm_off=%d bytes=%u channel=%d own_menu=%d path=%d launcher_focus=%d settings_focus=%d home_focus=%d scope_picker=%d scope_edit=%d scope_focus=%d clear_confirm=%d options=%d settings_scroll=%d\n",int(screen),section,emojiPicker,shutdownConfirm,input.length(),activeChat,messageActions&&contextMessage.mine,messagePath,launcherSelection,settingsFocus,homeSelection,scopePicker,scopeEditing,scopeFocus,clearChatConfirm,chatDetails,settingsScroll);return;}
+ if(s=="ui state"){Serial.printf("UI_STATE screen=%d section=%d emoji=%d bytes=%u channel=%d own_menu=%d path=%d launcher_focus=%d settings_focus=%d home_focus=%d scope_picker=%d scope_edit=%d scope_focus=%d clear_confirm=%d options=%d settings_scroll=%d\n",int(screen),section,emojiPicker,input.length(),activeChat,messageActions&&contextMessage.mine,messagePath,launcherSelection,settingsFocus,homeSelection,scopePicker,scopeEditing,scopeFocus,clearChatConfirm,chatDetails,settingsScroll);return;}
  if(s=="input state"){auto field=editableField();Serial.printf("INPUT_STATE editing=%d bytes=%u screen=%d section=%d repeat=%d depth=%u\n",field!=nullptr,field?field->length():0,int(screen),section,deleteHeld,unsigned(navigation.size()));return;}
  if(s=="battery calibrate"){bool ok=device::batteryCalibrateFull();Serial.printf("BATTERY_CALIBRATED ok=%d full_mv=%d\n",ok,device::batteryFullMillivolts());render();return;}
  if(s.startsWith("battery gain ")){int mv=s.substring(13).toInt();bool ok=device::batterySetTrueMillivolts(mv);Serial.printf("BATTERY_GAIN ok=%d gain_x1000=%d\n",ok,device::batteryGainX1000());return;}// multimeter mV at the cell
@@ -2173,7 +2192,7 @@ void loop(){
  static uint32_t nodesRevision=0,nodesPaintedAt=0;auto nodesNow=matter::nodesRevision();if(nodesNow!=nodesRevision&&screen==Screen::Section&&section==1&&uint32_t(millis()-nodesPaintedAt)>=2000){nodesRevision=nodesNow;nodesPaintedAt=millis();markRadioDirty();}
  static uint32_t linkRev=0;if(device::linkRevision()!=linkRev){linkRev=device::linkRevision();if(screen==Screen::Section&&section==mm::LinkSection&&!deviceLocked){device::activity();markRadioDirty();}}// a page arriving restarts the auto-lock timer
  static uint32_t mapRevision=0;if(device::mapTilesRevision()!=mapRevision){mapRevision=device::mapTilesRevision();if((screen==Screen::Section&&section==9)||(screen==Screen::Chat&&messagePath&&messageRouteView&&routeLoading())){markRadioDirty();}}
- pollTouch();flingTick();static uint32_t radioFirstPending=0;if(radioDirty&&!radioFirstPending)radioFirstPending=millis();
+ pollTouch();pressFeedbackTick();flingTick();static uint32_t radioFirstPending=0;if(radioDirty&&!radioFirstPending)radioFirstPending=millis();
  if(radioDirty&&(uint32_t(millis()-radioChangedAt)>=250||uint32_t(millis()-radioFirstPending)>=1000)&&!matter::busy()&&!touchPipeline.contactActive()){radioDirty=false;radioFirstPending=0;render(true);}if(!radioDirty)radioFirstPending=0;
  pollKeyboard();
  pollTrackball();

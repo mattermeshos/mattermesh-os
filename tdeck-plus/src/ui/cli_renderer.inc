@@ -9,7 +9,7 @@ void toolArrow(Adafruit_GFX &g,int cx,int cy,int dir,uint16_t ink){
 }
 void Renderer::cliApp(const State &s){
  // CLI: scrolling output, prompt pinned above the toolbar.
- shell(s,"CLI",true,Icon::Menu);g.fillRect(ComposeButton.x,StatusH,ComposeButton.w,HeaderH-1,BG);
+ shell(s,"CLI",true,Icon::Menu);hideHeaderAction();
  std::vector<std::pair<std::string,int>> wrapped;for(int i=0;i<int(s.cliLines.size());i++)for(auto &part:c.lines(s.cliLines[i],CliOutput.w-6,Font::ChatMeta))wrapped.push_back({part,i});
  int visible=(CliOutput.h-CliLineH)/CliLineH,maxScroll=std::max(0,int(wrapped.size())-visible),scroll=std::min(s.cliScroll,maxScroll),first=std::max(0,int(wrapped.size())-visible-scroll);
  for(int i=0;i<visible&&first+i<int(wrapped.size());i++)c.text(CliOutput.x,CliOutput.y+i*CliLineH,wrapped[first+i].first,Font::ChatMeta,FG,CliOutput.w-6);

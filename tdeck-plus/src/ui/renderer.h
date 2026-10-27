@@ -16,6 +16,7 @@ public:
  int chatComposerTop=ComposerY;// top of the composer card painted by chat(): ComposerY unless a draft expanded it
 private:
  void shell(const State &s,const std::string &title,bool back=true,Icon right=Icon::Menu);
+ void hideHeaderAction();// blanks the header's right button (pages without one) and keeps the press ring off it
  void mapView(const State &s); // MapArea: tiles, route, pins, own position, status, scale
  void linkView(const State &s); // link viewer: bar, page rows or picture (section 33)
  void homeHeader(const State &s,int dy,bool widgetOnly);// Home clock, date and the box beside it, moved down by dy (Beside clock preview)
@@ -46,7 +47,7 @@ public:
  void section(const State &s);
  void quickSettings(const State &s);
  void quickSlider(int row,bool sun,const std::string &label,int step,bool off);
- void quickTile(int index,const std::string &label,bool on,int glyph);
+ void quickTile(int index,const std::string &label,bool on,bool pressed=false);
  void draw(const State &s);
  void welcome(const State &s);// first-boot setup (Plus)
  void holdBanner(const std::string &label,int progress);

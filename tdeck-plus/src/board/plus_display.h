@@ -32,15 +32,16 @@ public:
   send(0x21,{});send(0x29,{});
   end();
  }
- // Colour frames: RGB565 canvas in native byte order. present() compares with the frame on the panel and
+ // Colour frames: RGB565 canvas in panel byte order (theme.h rgb()). present() compares with the frame on the panel and
  // sends only the changed rows, each run of rows clipped to its changed columns, so a clock tick or a typed letter
  // costs a few kB on the bus instead of the 150 kB of a full frame.
  uint16_t *shown=nullptr;bool shownValid=false;uint32_t presentBytes=0,lastPresentUs=0;
+ // Opens a RAMWR into the window x,y,w,h (caller writes the pixels, then end()).
+ void window(int x,int y,int w,int h){begin();send(0x2A,{uint8_t(x>>8),uint8_t(x),uint8_t((x+w-1)>>8),uint8_t(x+w-1)});send(0x2B,{uint8_t(y>>8),uint8_t(y),uint8_t((y+h-1)>>8),uint8_t(y+h-1)});command(0x2C);}
+ // The panel holds an intermediate frame on rows y0..y1: mark them changed so the next present() resends them.
+ void dirtyRows(const uint16_t *frame,int y0,int y1){for(int y=y0;y<y1;y++){shown[y*Width]=uint16_t(~frame[y*Width]);shown[y*Width+Width-1]=uint16_t(~frame[y*Width+Width-1]);}}
  void push16(const uint16_t *frame,int x,int y,int w,int h){
-  begin();
-  send(0x2A,{uint8_t(x>>8),uint8_t(x),uint8_t((x+w-1)>>8),uint8_t(x+w-1)});
-  send(0x2B,{uint8_t(y>>8),uint8_t(y),uint8_t((y+h-1)>>8),uint8_t(y+h-1)});
-  command(0x2C);
+  window(x,y,w,h);
   // Frame pixels are already in panel byte order: whole-width runs go out in one transfer.
   if(x==0&&w==Width)SPI.writeBytes(reinterpret_cast<const uint8_t*>(frame+y*Width),size_t(Width)*h*2);
   else for(int row=y;row<y+h;row++)SPI.writeBytes(reinterpret_cast<const uint8_t*>(frame+row*Width+x),size_t(w)*2);
@@ -89,16 +90,17 @@ public:
   if(bestCount<std::max(12,h/3))return present(frame);
   // Eased intermediate frames: row y shows the content moved by s (taken from the new frame where it exists).
   for(int k=1;k<frames;k++){float t=float(k)/frames;int sft=int(best*(1-(1-t)*(1-t)*(1-t)));
-   begin();send(0x2A,{0,0,uint8_t((Width-1)>>8),uint8_t(Width-1)});send(0x2B,{uint8_t(y0>>8),uint8_t(y0),uint8_t((y1-1)>>8),uint8_t(y1-1)});command(0x2C);
+   window(0,y0,Width,y1-y0);
    for(int y=y0;y<y1;y++){int fromNew=y-sft+best,fromOld=y-sft;const uint16_t *row=fromNew>=y0&&fromNew<y1?frame+fromNew*Width:fromOld>=y0&&fromOld<y1?shown+fromOld*Width:frame+y*Width;SPI.writeBytes(reinterpret_cast<const uint8_t*>(row),Width*2);}
    end();}
-  for(int y=y0;y<y1;y++){shown[y*Width]=uint16_t(~frame[y*Width]);shown[y*Width+Width-1]=uint16_t(~frame[y*Width+Width-1]);}// the panel holds an intermediate frame: resend the whole band
+  dirtyRows(frame,y0,y1);
   scrollAnimations++;lastScrollShift=best;return present(frame);
  }
- // Notification card: when it appears, the band y0..y1 plays eased frames where the card (taken from the new frame)
- // comes down by `slide` px while it fades in over what the panel shows; when it leaves, the reverse (the old card
- // fades out going up over the new frame). Frames are paced to frameMs, so the whole move lasts about
- // (frames-1)*frameMs. Pixels are RGB565 in panel byte order, blended per channel.
+ // Notification card / Quick settings pane: when it appears, the band y0..y1 plays eased frames where the new content
+ // comes down by `slide` px while it fades in over what the panel shows; when it leaves, the reverse (the old one fades
+ // out going up over the new frame). Rows changed outside the band are sent plain first; more than a third of the
+ // screen changed there (a scroll, a popup) falls back to present(). Frames are paced to frameMs: the card band takes ~170 ms, the full-height pane ~250 ms
+ // (SPI ~14 ms a frame plus the blend). Pixels are RGB565 in panel byte order, blended per channel.
  uint32_t cardAnimations=0;
  static uint16_t blend565(uint16_t under,uint16_t over,int alpha){// alpha 0..256 of `over`
   under=uint16_t((under<<8)|(under>>8));over=uint16_t((over<<8)|(over>>8));const int keep=256-alpha;
@@ -107,17 +109,22 @@ public:
  bool presentCardTransition(const uint16_t *frame,int y0,int y1,bool in,int frames=8,int slide=24,uint32_t frameMs=24){
   if(asleep)return false;
   if(!shown||!shownValid)return present(frame,true);
-  y0=std::max(0,y0);y1=std::min(Height,y1);const int h=y1-y0;if(h<=0||h>Height/2)return present(frame);
-  static uint16_t *band=nullptr;if(!band)band=(uint16_t*)heap_caps_malloc(Width*(Height/2)*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!band)return present(frame);
+  y0=std::max(0,y0);y1=std::min(Height,y1);const int h=y1-y0;if(h<=0)return present(frame);
+  // Rows that changed outside the band (an unread badge, a list row) go out first, plain; many of them (a scroll, a
+  // new page) skip the animation.
+  int outside=0;for(int y=0;y<Height;y++)if((y<y0||y>=y1)&&memcmp(frame+y*Width,shown+y*Width,Width*2))outside++;
+  if(outside>Height/3)return present(frame);
+  for(int y=0;y<Height&&outside;y++)if((y<y0||y>=y1)&&memcmp(frame+y*Width,shown+y*Width,Width*2)){push16(frame,0,y,Width,1);memcpy(shown+y*Width,frame+y*Width,Width*2);outside--;}
+  static uint16_t *band=nullptr;if(!band)band=(uint16_t*)heap_caps_malloc(Width*Height*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!band)return present(frame);
   const uint16_t *under=in?shown:frame,*card=in?frame:shown;
   for(int k=1;k<frames;k++){uint32_t started=millis();float t=float(k)/frames,e=1-(1-t)*(1-t)*(1-t);int alpha=int(256*(in?e:1-e)),shift=int(slide*(in?1-e:e));
    for(int y=y0;y<y1;y++){uint16_t *out=band+(y-y0)*Width;const uint16_t *u=under+y*Width;int from=y+shift;
     if(from>=y0&&from<y1){const uint16_t *c=card+from*Width;for(int x=0;x<Width;x++)out[x]=u[x]==c[x]?u[x]:blend565(u[x],c[x],alpha);}
     else memcpy(out,u,Width*2);}
-   begin();send(0x2A,{0,0,uint8_t((Width-1)>>8),uint8_t(Width-1)});send(0x2B,{uint8_t(y0>>8),uint8_t(y0),uint8_t((y1-1)>>8),uint8_t(y1-1)});command(0x2C);
+   window(0,y0,Width,y1-y0);
    SPI.writeBytes(reinterpret_cast<const uint8_t*>(band),size_t(Width)*h*2);end();
    uint32_t spent=millis()-started;if(spent<frameMs)delay(frameMs-spent);}
-  for(int y=y0;y<y1;y++){shown[y*Width]=uint16_t(~frame[y*Width]);shown[y*Width+Width-1]=uint16_t(~frame[y*Width+Width-1]);}// the panel holds an intermediate frame: resend the whole band
+  dirtyRows(frame,y0,y1);
   cardAnimations++;return present(frame);
  }
 };

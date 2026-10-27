@@ -21,28 +21,22 @@ void Renderer::quickSlider(int row,bool sun,const std::string &label,int step,bo
  c.text(W-Margin-c.width(value,Font::Bold),y,value,Font::Bold);
  c.slider(quickSliderRect(row),step*100/QuickSteps);
 }
-void Renderer::quickTile(int index,const std::string &label,bool on,int glyph){
- Rect r=quickTileRect(index);c.card(r,on,8);uint16_t ink=on?BG:FG;int ix=r.x+(r.w-24)/2,iy=r.y+4;
- if(glyph==0)c.icon(Icon::Wifi,ix,iy,24,ink);else if(glyph==1)c.icon(Icon::Bluetooth,ix,iy,24,ink);else if(glyph==2)c.icon(Icon::GPS,ix,iy,24,ink);
- else if(glyph==3)quickSpeaker(g,ix,iy,24,!on,ink);else c.icon(Icon::Power,ix,iy,24,ink);
+void Renderer::quickTile(int index,const std::string &label,bool on,bool pressed){
+ Rect r=quickTileRect(index);c.card(r,on,8);uint16_t ink=on?BG:FG;
+ // Pressed (finger resting on it): a 2 px ring and the icon 1 px lower.
+ if(pressed){c.pressRing(r,8,on?FG:Accent);r.y++;}int ix=r.x+(r.w-24)/2,iy=r.y+4;
+ if(index==QuickWifi)c.icon(Icon::Wifi,ix,iy,24,ink);else if(index==QuickBluetooth)c.icon(Icon::Bluetooth,ix,iy,24,ink);else if(index==QuickGps)c.icon(Icon::GPS,ix,iy,24,ink);
+ else quickSpeaker(g,ix,iy,24,!on,ink);
  c.centered(r.x,r.y+r.h-(15),r.w,label,Font::Bold,ink);
 }
 void Renderer::quickSettings(const State &s){
- shell(s,"Quick settings");g.fillRect(W-32,StatusH,32,HeaderH-1,BG);
+ shell(s,"Quick settings");hideHeaderAction();
  // Brightness = front light level; Off when the display light is switched off.
  quickSlider(0,true,"Brightness",(s.displayLight*QuickSteps+127)/255,!s.displayLightEnabled);
  quickSlider(1,false,"Volume",(s.audioVolume*QuickSteps+50)/100,!s.audioNotifications||s.audioVolume==0);
- quickTile(QuickWifi,"Wi-Fi",s.wifiEnabled,0);
- quickTile(QuickBluetooth,"Bluetooth",s.bleEnabled,1);
- quickTile(QuickGps,"GPS",s.gpsEnabled&&!s.gpsTemporary,2);
- quickTile(QuickSound,"Sound",s.audioNotifications,3);
- quickTile(QuickPowerOff,"Power Off",false,4);
- // the Plus leaves the sixth slot empty
- if(s.shutdownConfirm){
-  auto box=QuickConfirmBox;g.fillRoundRect(box.x-2,box.y-2,box.w+4,box.h+4,10,BG);g.drawRoundRect(box.x,box.y,box.w,box.h,8,FG);g.drawRoundRect(box.x+1,box.y+1,box.w-2,box.h-2,7,FG);
-  c.centered(box.x,box.y+14,box.w,"Turn off T-Deck?",Font::ChatTitle);
-  c.centered(box.x,box.y+44,box.w,"The device will power off.",Font::ChatMeta);
-  if(s.usbPower||!s.powerSourceKnown)c.centered(box.x,box.y+62,box.w,s.usbPower?"Unplug USB first.":"Power controller unavailable",Font::ChatMeta);
-  c.button(QuickConfirmCancel,"CANCEL");c.button(QuickConfirmPowerOff,"POWER OFF",true);
- }
+ auto press=[&](int tile){return s.quickPressed==tile;};
+ quickTile(QuickWifi,"Wi-Fi",s.wifiEnabled,press(QuickWifi));
+ quickTile(QuickBluetooth,"Bluetooth",s.bleEnabled,press(QuickBluetooth));
+ quickTile(QuickGps,"GPS",s.gpsEnabled&&!s.gpsTemporary,press(QuickGps));
+ quickTile(QuickSound,"Sound",s.audioNotifications,press(QuickSound));
 }

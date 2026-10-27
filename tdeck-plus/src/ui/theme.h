@@ -300,18 +300,19 @@ constexpr Rect MapArea=(Rect{0,StatusH,W,H-StatusH});
 constexpr Rect mapButtonRect(int index){return (Rect{W-Margin-30,H-Margin-30-(index==0?0:index==2?34:68),30,30});}
 constexpr Rect MapStyleButton={W-Margin-60,StatusH+6,60,24},MapBackFloat={6,StatusH+6,28,28};
 // Quick settings, opened by tapping the status bar: two 0..16 sliders with a
-// label line above each track, then a 2x3 tile grid (index = row*2+column).
-// Section 18 is unused.
-constexpr int QuickSettingsSection=18,QuickSteps=16,QuickTileCount=6;// a 3 x 2 grid: five tiles, the sixth place stays empty
-enum QuickTile {QuickWifi,QuickBluetooth,QuickGps,QuickSound,QuickPowerOff};
-// Landscape: shorter slider rows and the six tiles as 3 x 2.
-constexpr int QuickSliderStep=44,QuickTileColumns=3,QuickTileY=(Top+94),QuickTileH=42;
+// label line above each track, then a 2x2 tile grid (index = row*2+column).
+// Section 18 is Quick settings.
+constexpr int QuickSettingsSection=18,QuickSteps=16,QuickTileCount=4;
+enum QuickTile {QuickWifi,QuickBluetooth,QuickGps,QuickSound};
+// A tile held QuickHoldMs (1 s) opens its Settings page (touch Hold target QuickHoldTarget + tile; chat ids stay below it).
+constexpr int QuickHoldTarget=1000;constexpr uint32_t QuickHoldMs=1000;
+constexpr int quickTileSection(int tile){return tile==QuickWifi?4:tile==QuickBluetooth?14:tile==QuickGps?3:21;}
+// Landscape: shorter slider rows and the four tiles as 2 x 2.
+constexpr int QuickSliderStep=44,QuickTileColumns=2,QuickTileY=(Top+94),QuickTileH=42;
 constexpr Rect quickSliderRect(int row){return {Margin,Top+(20)+row*QuickSliderStep,W-2*Margin,24};}
 constexpr int quickSliderLabelY(int row){return Top+4+row*QuickSliderStep;}
 constexpr Rect quickTileRect(int index){return {Margin+(index%QuickTileColumns)*((W-2*Margin-Gap*(QuickTileColumns-1))/QuickTileColumns+Gap),QuickTileY+(index/QuickTileColumns)*(QuickTileH+(4)),(W-2*Margin-Gap*(QuickTileColumns-1))/QuickTileColumns,QuickTileH};}
+inline int quickTileAt(int x,int y){for(int i=0;i<QuickTileCount;i++)if(quickTileRect(i).contains(x,y))return i;return -1;}
 // Same inner track as Components::slider: step 0..QuickSteps under x.
 inline int quickStepAt(Rect r,int x){int track=r.w-16,at=x-(r.x+8);at=at<0?0:at>track?track:at;return (at*QuickSteps+track/2)/track;}
-constexpr Rect QuickConfirmBox={Margin+4,(Top+20),W-2*Margin-8,138};
-constexpr Rect QuickConfirmCancel={QuickConfirmBox.x+8,QuickConfirmBox.y+QuickConfirmBox.h-40,(QuickConfirmBox.w-24)/2,32};
-constexpr Rect QuickConfirmPowerOff={QuickConfirmCancel.x+QuickConfirmCancel.w+8,QuickConfirmCancel.y,QuickConfirmCancel.w,32};
 }

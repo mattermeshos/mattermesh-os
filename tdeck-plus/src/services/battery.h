@@ -4,7 +4,7 @@
 namespace device {
 struct BatteryState {int percent=-1,voltage=-1,soc=-1;bool gauge=false,charger=false,full=false,charging=false,estimated=false;};
 int batteryFullMillivolts();bool batteryCalibrateFull();
-enum class PowerSource {Unknown,Battery,USB};PowerSource batteryPowerSource();bool batteryShutdown();
+enum class PowerSource {Unknown,Battery,USB};PowerSource batteryPowerSource();
 void batteryLoop();BatteryState batteryState();
 // Plus: last raw reading, filtered voltage, percent from the curve and the shown percent (battery log).
 // Loads that sag the cell (set by the main loop each pass); multimeter calibration of the ADC gain.

@@ -60,7 +60,6 @@ bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
  std::string meshCoreVersion=MM_MESHCORE_VERSION;
  std::string messageTone="Classic",mentionTone="Rising";
  std::string menuDate="Date not set",date="DATE NOT SET",notice,version="0.4.2.9",build="",commit="local",input;
- bool shutdownConfirm=false,usbPower=false,powerSourceKnown=false;
  // First-boot welcome (Plus): step 0 intro, 1 Wi-Fi and clock, 2 band, 3 preset, 4 name, 5 path bytes, 6 summary.
  int dtField[5]={1,1,2026,0,0},dtFocus=0;
  std::string kbdQuery;bool kbdSearching=false;int kbdFocus=0,kbdLang=0;uint32_t kbdMask=1;// Settings > Keyboard languages
@@ -111,6 +110,7 @@ std::string lockRepeater;
  std::string newName,newScope="*",newKey;int newForm=0,messageMenuFocus=0;bool searching=false,messageMenu=false;
  std::vector<std::string> files;
  std::vector<Conversation> conversations;std::vector<Message> messages;
+ int quickPressed=-1;// Quick settings: the tile under a resting finger (-1 none)
 };
 // The Home weather header shows a forecast fetched over Wi-Fi; offline (Wi-Fi off, no network) the widget takes its place.
 inline bool weatherLive(const State &s){return s.weatherValid&&s.weatherPhase!=WeatherPhaseView::WifiOff&&s.weatherPhase!=WeatherPhaseView::NoNetwork;}

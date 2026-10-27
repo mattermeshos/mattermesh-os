@@ -39,5 +39,5 @@ int main(){
   for(auto page:{mm::Page::Wifi,mm::Page::Bluetooth,mm::Page::GPS,mm::Page::Controls,mm::Page::Audio,mm::Page::Power,mm::Page::Wallpaper,mm::Page::TextSize,mm::Page::AccentKey,mm::Page::Battery,mm::Page::DateTime,mm::Page::Storage,mm::Page::Terminal,mm::Page::Info}){p.page=page;renderer.draw(p);}
   p.page=mm::Page::Wifi;p.wifiEditing=true;renderer.draw(p);}
  s.page=mm::Page::Settings;s.settingsFocus=mm::SettingsGpsIndex;renderer.draw(s);s.settingsOffset=mm::settingsMaxScroll();renderer.draw(s);s.page=mm::Page::Launcher;renderer.draw(s);
- std::cout<<"PASS: two menu entries (Power off moved to Quick settings) without GPS, GPS Connectivity row, ON/OFF page/cache, all settings reachable, no Mesh triangle or stray slash in either state\n";
+ std::cout<<"PASS: two menu entries without GPS, GPS Connectivity row, ON/OFF page/cache, all settings reachable, no Mesh triangle or stray slash in either state\n";
 }
