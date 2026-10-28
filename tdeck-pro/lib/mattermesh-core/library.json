@@ -1,0 +1,17 @@
+{
+  "name": "MatterMeshCore",
+  "version": "1.18.0",
+  "build": {
+    "srcDir": "../../meshcore-base/src",
+    "includeDir": "../../meshcore-base/src",
+    "srcFilter": [
+      "+<*.cpp>",
+      "+<helpers/BaseChatMesh.cpp>",
+      "+<helpers/AdvertDataHelpers.cpp>",
+      "+<helpers/TxtDataHelpers.cpp>",
+      "+<helpers/StaticPoolPacketManager.cpp>",
+      "+<helpers/TransportKeyStore.cpp>",
+      "+<helpers/radiolib/RadioLibWrappers.cpp>"
+    ]
+  }
+}

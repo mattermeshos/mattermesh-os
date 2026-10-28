@@ -1,0 +1,11 @@
+{
+  "name": "MatterMeshEd25519",
+  "version": "1.0.0",
+  "build": {
+    "srcDir": "../../meshcore-base/lib/ed25519",
+    "includeDir": "../../meshcore-base/lib/ed25519",
+    "srcFilter": [
+      "+<*.c>"
+    ]
+  }
+}

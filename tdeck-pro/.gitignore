@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+; no trailing slash: fetch-deps.sh creates this as a symlink, not a directory, and a slash-terminated
+; pattern does not match a symlink even when it points at a directory
+meshcore-base
+src/ui/build_info.h
+*.log
