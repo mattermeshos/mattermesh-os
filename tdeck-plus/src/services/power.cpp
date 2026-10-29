@@ -3,7 +3,7 @@
 #include "../board/board.h"
 namespace device {
 static bool locked=false,unlockPreview=false;static int flashPhase=-1;static uint32_t flashAt=0,lastFlash=0;static bool flashed=false;
-static bool hold=false;static uint32_t holdUntil=0,wakeUntil=0;static bool wakeSet=false;constexpr uint32_t HOLD_TAIL_MS=1000;
+static uint32_t wakeUntil=0;static bool wakeSet=false;
 constexpr uint8_t NOTIFICATION_PWM=191;constexpr uint32_t FLASH_ON_MS=160,FLASH_OFF_MS=140;static Preferences preferences;static PowerState state;static uint8_t displayBrightness=100,keyboardBrightness=180;
 static void apply(){bool woken=wakeSet&&int32_t(wakeUntil-millis())>0;
  bool lockedLight=woken;// LCD: on the lock screen only the wake timers (SPACE 10 s, message 5 s) light the panel
@@ -24,10 +24,9 @@ bool timeout(bool keyboard,uint32_t seconds){if(!validTimeout(seconds))return fa
 bool lightEnabled(bool keyboard,bool enabled){if(preferences.putBool(keyboard?"keyboard_on":"display_on",enabled)!=1)return false;(keyboard?state.keyboardEnabled:state.displayEnabled)=enabled;apply();return true;}
 void flashKeyboardNotification(){uint32_t now=millis();if(flashPhase>=0||(flashed&&uint32_t(now-lastFlash)<2000))return;flashed=true;lastFlash=flashAt=now;flashPhase=0;state.notificationFlashes++;apply();}
 bool notificationFlashing(){return flashPhase>=0;}
-void powerHold(bool active){if(active){hold=true;}else if(hold){hold=false;holdUntil=millis()+HOLD_TAIL_MS;}}
 void powerLoop(){uint32_t now=millis();if(flashPhase>=0&&uint32_t(now-flashAt)>=(flashPhase%2==0?FLASH_ON_MS:FLASH_OFF_MS)){flashAt=now;if(++flashPhase>=4)flashPhase=-1;}
- if(hold||int32_t(now-holdUntil)<0){if(!locked)state.lastActivity=now;}   // dictation in progress (+1 s tail): lights keep their state, idle clock frozen
- else{state.displayAwake=!expired(now,state.lastActivity,state.displaySeconds);state.keyboardAwake=!expired(now,state.lastActivity,state.keyboardSeconds);}
+ // A sound playing (a message tone) is not user activity: it never holds off the screen-off and the lock.
+ state.displayAwake=!expired(now,state.lastActivity,state.displaySeconds);state.keyboardAwake=!expired(now,state.lastActivity,state.keyboardSeconds);
  apply();}
 PowerState powerState(){return state;}
 }

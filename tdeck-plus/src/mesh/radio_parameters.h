@@ -9,7 +9,7 @@ static constexpr float RADIO_BANDWIDTHS[]={7.8f,10.4f,15.6f,20.8f,31.25f,41.7f,6
 inline bool validRadioField(int field,float value){
  if(!std::isfinite(value))return false;
  switch(field){
- case Frequency:return (value>=863&&value<=870)||(value>=902&&value<=928);
+ case Frequency:return (value>=433.05f&&value<=434.79f)||(value>=863&&value<=870)||(value>=902&&value<=928);// 433: EU ISM band
  case Bandwidth:for(float bw:RADIO_BANDWIDTHS)if(value==bw)return true;return false;
  case SpreadFactor:return value==std::floor(value)&&value>=5&&value<=12;
  case CodingRate:return value==std::floor(value)&&value>=5&&value<=8;

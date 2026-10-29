@@ -3,7 +3,7 @@
 #include <algorithm>
 namespace mm {
 // T-Deck Plus ST7789 LCD, landscape 320x240, colour. No vibration motor and no on-device dictation.
-constexpr int W=320,H=240,MaxSection=39;
+constexpr int W=320,H=240,MaxSection=43;// 43: chat Path (dm_path_layout.h)
 
 constexpr bool Landscape=true;
 // T-Deck Plus colour LCD: the inks are runtime values so the themes (palette + illustrations) share every component.
@@ -72,7 +72,11 @@ constexpr Rect EmojiPopup=(Rect{Margin,ComposerY-162,W-2*Margin,160});
 
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
 // T-Deck Plus: no Antenna row (one LoRa antenna), Wallpaper becomes Themes.
-constexpr int SettingsCount=19,SettingsRowH=36,SettingsDeviceFirst=4,SettingsSystemFirst=13;// Plus: Home widgets, Text size, Accent key and Keyboard languages rows after Themes
+constexpr int SettingsCount=19,SettingsRowH=36;
+// Six groups, each label above its first row (navigation_catalog.h SettingsItems is in this order).
+constexpr int SettingsGroupCount=6;
+inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,1,4,9,12,15};
+inline constexpr const char *SettingsGroupNames[SettingsGroupCount]={"RADIO & MESH","CONNECTIONS","DISPLAY","KEYBOARD & SOUND","DEVICE","SYSTEM"};
 // First-boot welcome (Plus landscape): BACK / NEXT at the bottom, two or three choice cards, preset rows.
 constexpr Rect WelcomeBack={Margin,H-38,92,30},WelcomeNext={W-Margin-128,H-38,128,30};
 constexpr int WelcomeRows=4,WelcomeRowH=34,WelcomeRowY=60;
@@ -82,15 +86,23 @@ constexpr Rect WelcomeNameField={Margin,74,W-2*Margin,34};
 // OTA update page: the action button at the bottom (Plus landscape) or under the cards (Max).
 constexpr Rect UpdatesAction=(Rect{Margin,Bottom-34,W-2*Margin,32});
 constexpr int SettingsGpsIndex=3;
-// Settings scroll by whole rows: scroll = first visible row, its group label above it
-// when it opens a group. Rows outside the viewport get a y off screen and are not drawn.
-constexpr int SettingsHeaderH=18,SettingsCardH=34,SettingsListY=Top+4;
-inline bool settingsGroupFirst(int index){return index==0||index==SettingsDeviceFirst||index==SettingsSystemFirst;}
-inline int settingsContentY(int index){return SettingsHeaderH+index*SettingsRowH+(index>=SettingsDeviceFirst?SettingsHeaderH:0)+(index>=SettingsSystemFirst?SettingsHeaderH:0);}
-inline int settingsSnapY(int first){return settingsContentY(first)-(settingsGroupFirst(first)?SettingsHeaderH:0);}
-inline Rect settingsRect(int index,int scroll){return {Margin,SettingsListY+settingsContentY(index)-settingsSnapY(scroll),W-2*Margin,SettingsCardH};}
-inline bool settingsVisible(int index,int scroll){auto r=settingsRect(index,scroll);return index>=scroll&&r.y+r.h<=Bottom;}
-inline int settingsLastVisible(int scroll){int i=scroll;while(i+1<SettingsCount&&settingsVisible(i+1,scroll))i++;return i;}
+// Settings scroll by pixels like the chat: scroll = content pixels above the list top. Rows (and group labels)
+// partly out of the list are drawn and cut by the header, which is painted again on top.
+constexpr int SettingsHeaderH=18,SettingsCardH=34,SettingsListY=Top+4,SettingsViewH=Bottom-SettingsListY;
+inline bool settingsGroupFirst(int index){for(int f:SettingsGroupFirst)if(f==index)return true;return false;}
+inline int settingsContentY(int index){int groups=0;for(int f:SettingsGroupFirst)if(f<=index)groups++;return index*SettingsRowH+groups*SettingsHeaderH;}
+inline Rect settingsRect(int index,int scroll){return {Margin,SettingsListY+settingsContentY(index)-scroll,W-2*Margin,SettingsCardH};}
+// Visible: whole inside the list (focus, keys); shown: any part of it on screen (drawn, tappable below the header).
+inline bool settingsVisible(int index,int scroll){auto r=settingsRect(index,scroll);return r.y>=SettingsListY&&r.y+r.h<=Bottom;}
+inline bool settingsShown(int index,int scroll){auto r=settingsRect(index,scroll);return r.y+r.h>SettingsListY&&r.y<H;}
+inline int settingsFirstVisible(int scroll){int i=0;while(i+1<SettingsCount&&!settingsVisible(i,scroll))i++;return i;}
+inline int settingsLastVisible(int scroll){int i=settingsFirstVisible(scroll);while(i+1<SettingsCount&&settingsVisible(i+1,scroll))i++;return i;}
+inline int settingsMaxScroll(){return std::max(0,settingsContentY(SettingsCount-1)+SettingsCardH-SettingsViewH);}
+// The nearest scroll showing a row whole, with its group label when it opens a group.
+inline int settingsReveal(int index,int scroll){int top=settingsContentY(index)-(settingsGroupFirst(index)?SettingsHeaderH:0),bottom=settingsContentY(index)+SettingsCardH;
+ if(top<scroll)scroll=top;else if(bottom>scroll+SettingsViewH)scroll=bottom-SettingsViewH;return std::max(0,std::min(settingsMaxScroll(),scroll));}
+// One page: the list height less one row, so the last row seen stays on screen.
+inline int settingsPage(int scroll,bool down){int d=SettingsViewH-SettingsRowH;return std::max(0,std::min(settingsMaxScroll(),scroll+(down?d:-d)));}
 // Settings pages share one layout: switch card on top, then uppercase group labels with cards below.
 constexpr Rect SettingsSwitch={Margin,Top+6,W-2*Margin,40};
 constexpr int SettingsSectionY=Top+54,SettingsBodyY=Top+70;
@@ -124,9 +136,6 @@ inline Rect supportTabRect(int i){return settingsHalf(i,Top+6,28);}
 constexpr Rect LinkZoomOut={W-Margin-30,H-Margin-30,30,30},LinkZoomIn={W-Margin-30,H-Margin-64,30,30};
 inline Rect linkRowRect(int row){return {0,StatusH+LinkBarH+2+row*LinkRowH,W,LinkRowH};}
 inline Rect accentCardRect(int i){return settingsThird(i,Top+6,1,72);}
-inline int settingsMaxScroll(){int first=0;while(!settingsVisible(SettingsCount-1,first))first++;return first;}
-// One page down starts at the row after the last visible one; one page up ends just above the current first row.
-inline int settingsPage(int scroll,bool down){if(down)return std::min(settingsMaxScroll(),settingsLastVisible(scroll)+1);int first=scroll;while(first>0&&settingsLastVisible(first-1)>=scroll-1)first--;return first;}
 // Lights: display and keyboard label + slider rows (44 px rows, 22 px sliders), then a hint line.
 constexpr int ControlFirstY=(Top+8),ControlStep=44,ControlSliderH=22;
 constexpr int HapticY=ControlFirstY+ControlStep*2;
@@ -201,9 +210,10 @@ constexpr Rect messageMapRect(){return {Margin+8+(W-2*Margin-16)-MessageMapW,Mes
 constexpr Rect messageLinkRect(){return {Margin+8+(W-2*Margin-16)-MessageMapW,MessageActionY+2*MessageActionStep,MessageMapW,MessageActionH};}
 constexpr int receivedMessageAction(int row){return row==0?0:row==1?2:row==2?5:row==3?1:3;}
 constexpr Rect messageActionRect(int index){return {Margin+8,MessageActionY+index*MessageActionStep,W-2*Margin-16,MessageActionH};}
-// Landscape: the four options as a 2 x 2 grid (one column of 44 px rows ran off the 240 px screen).
+// Landscape: the options as a 2-column grid (a direct chat adds Path as the fifth) (one column of 44 px rows ran off the 240 px screen).
 inline Rect chatOptionRect(int index){int w=(W-2*Margin-16-8)/2;return {Margin+8+(index%2)*(w+8),Top+36+(index/2)*46,w,38};}
-constexpr int ChatOptionCount=4;
+constexpr int ChatOptionCount=4;// channels; a direct chat adds Path
+inline int chatOptionCount(bool direct){return direct?ChatOptionCount+1:ChatOptionCount;}
 
 // Channel options rows: notifications, show key + QR (channels only), delete.
 // Landscape: the first action full width, the other two side by side below it.
@@ -231,7 +241,9 @@ constexpr int LoRaInset=Margin+6,LoRaContentW=W-2*LoRaInset;
 // the RX / path status moves to the footer line.
 constexpr int LoRaBandY=(Top+4),LoRaBandH=22,LoRaPresetY=(Top+30),LoRaPresetH=30;
 constexpr int LoRaFieldY=(Top+64),LoRaFieldStep=20,LoRaFieldW=(LoRaContentW-96),LoRaValueX=100;
-constexpr Rect LoRaBand868={LoRaInset,LoRaBandY,(LoRaContentW-Gap)/2,LoRaBandH},LoRaBand900={W/2+Gap/2,LoRaBandY,(LoRaContentW-Gap)/2,LoRaBandH};
+// Band buttons 868 / 900 / 433 in thirds of the content width.
+constexpr int LoRaBandW=(LoRaContentW-2*Gap)/3;
+constexpr Rect LoRaBand868={LoRaInset,LoRaBandY,LoRaBandW,LoRaBandH},LoRaBand900={LoRaInset+LoRaBandW+Gap,LoRaBandY,LoRaBandW,LoRaBandH},LoRaBand433={LoRaInset+2*(LoRaBandW+Gap),LoRaBandY,LoRaBandW,LoRaBandH};
 constexpr Rect LoRaPreset={LoRaInset,LoRaPresetY,LoRaContentW,LoRaPresetH};
 constexpr Rect LoRaPresetPrev={LoRaInset,LoRaPresetY,30,LoRaPresetH},LoRaPresetNext={W-LoRaInset-30,LoRaPresetY,30,LoRaPresetH};
 inline Rect loraFieldRect(int field){return {LoRaInset,LoRaFieldY+field*LoRaFieldStep,LoRaFieldW,LoRaFieldStep-1};}

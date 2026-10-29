@@ -52,26 +52,48 @@ public:
   uint32_t started=micros();
   if(!shown)shown=(uint16_t*)heap_caps_malloc(Width*Height*2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
   if(!shown||!shownValid||full){push16(frame,0,0,Width,Height);if(shown){memcpy(shown,frame,Width*Height*2);shownValid=true;}lastPresentUs=micros()-started;return true;}
+  bool changed=presentRows(frame,0,Height);lastPresentUs=micros()-started;return changed;
+ }
+ // Changed rows of y0..y1 against the shown frame: each run of changed rows goes out as one window.
+ bool presentRows(const uint16_t *frame,int y0,int y1){
   bool changed=false;int runStart=-1,left=Width,right=-1;
-  for(int row=0;row<=Height;row++){
+  for(int row=y0;row<=y1;row++){
    int l=Width,r=-1;
-   if(row<Height){const uint16_t *a=frame+row*Width,*b=shown+row*Width;if(memcmp(a,b,Width*2)){l=0;while(a[l]==b[l])l++;r=Width-1;while(a[r]==b[r])r--;}}
+   if(row<y1){const uint16_t *a=frame+row*Width,*b=shown+row*Width;if(memcmp(a,b,Width*2)){l=0;while(a[l]==b[l])l++;r=Width-1;while(a[r]==b[r])r--;}}
    if(r>=0){if(runStart<0)runStart=row;left=std::min(left,l);right=std::max(right,r);continue;}
    if(runStart>=0){push16(frame,left,runStart,right-left+1,row-runStart);for(int k=runStart;k<row;k++)memcpy(shown+k*Width+left,frame+k*Width+left,(right-left+1)*2);changed=true;runStart=-1;left=Width;right=-1;}
   }
-  lastPresentUs=micros()-started;return changed;
+  return changed;
  }
- void invalidate(){shownValid=false;}
+ // A list scrolled (finger, keys, paging): the band y0..y1 changed almost whole, so it goes out directly (no compare with the
+ // shown frame in PSRAM) and is copied into it, so later presents and transitions start from what the panel shows.
+ // Rows outside are compared.
+ bool presentBand(const uint16_t *frame,int y0,int y1){
+  if(asleep)return false;
+  if(!shown||!shownValid)return present(frame,true);
+  uint32_t started=micros();presentRows(frame,0,y0);push16(frame,0,y0,Width,y1-y0);memcpy(shown+y0*Width,frame+y0*Width,size_t(Width)*(y1-y0)*2);presentRows(frame,y1,Height);
+  lastPresentUs=micros()-started;return true;
+ }
  // Backlight off = panel in sleep mode (DISPOFF + SLPIN): no scanning, no frame writes. The panel RAM keeps the
  // last image, so "shown" stays valid; frames rendered meanwhile are dropped and the caller repaints on wake.
  // ST7789: 120 ms between SLPIN and SLPOUT in either direction, 5 ms after SLPOUT before the next command.
  bool asleep=false;uint32_t sleepChangedAt=0,sleeps=0;
- bool sleep(bool on){
-  if(on==asleep)return false;
+ // Into sleep only: out of it goes through wake(), which writes the current frame before the display turns on.
+ bool sleep(){
+  if(asleep)return false;
   uint32_t since=millis()-sleepChangedAt;if(since<120)delay(120-since);
-  if(on){begin();command(0x28);command(0x10);end();sleeps++;}
-  else{begin();command(0x11);end();delay(5);begin();command(0x29);end();}
-  asleep=on;sleepChangedAt=millis();return true;
+  begin();command(0x28);command(0x10);end();sleeps++;
+  asleep=true;sleepChangedAt=millis();return true;
+ }
+ // Wake with a frame: out of sleep with the display still off (DISPOFF since the sleep), the frame written whole,
+ // then DISPON. The panel RAM held the image shown before the sleep (Home before an auto-lock): lighting it first
+ // flashed that image before the lock screen.
+ bool wake(const uint16_t *frame){
+  if(!asleep)return false;
+  uint32_t since=millis()-sleepChangedAt;if(since<120)delay(120-since);
+  begin();command(0x11);end();delay(5);asleep=false;sleepChangedAt=millis();
+  push16(frame,0,0,Width,Height);if(shown){memcpy(shown,frame,Width*Height*2);shownValid=true;}
+  begin();command(0x29);end();return true;
  }
  // Smooth scroll: when the new frame is the shown one moved vertically inside a band of rows (a list or the chat
  // scrolled by one step), the move is played as eased frames before the exact frame is presented. The shift is

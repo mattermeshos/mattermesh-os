@@ -7,7 +7,7 @@
 #include "home_widgets.h"
 namespace mm {
 enum class WeatherPhaseView {Closed,WifiOff,Connecting,NoNetwork,WaitingClock,Locating,Fetching,Ready,Error};
-enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Keyboard,Storage,QuickSettings,Cli,ContactPicker,TextSize,AccentKey ,Link,Support,HomeWidgets,BesideClock,MainArea,Note};
+enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Keyboard,Storage,QuickSettings,Cli,ContactPicker,TextSize,AccentKey ,Link,Support,HomeWidgets,BesideClock,MainArea,Note,DmPath};
 struct Conversation { std::string name,scope,preview,time="--:--",sender,age="--";bool direct=false;int id=0,unread=0,activity=0; };
 struct Message {std::string sender,time,body,meta;bool mine;std::string path,heard,scope;int hops=-1;uint32_t token=0;int repeaters=-1;Message(std::string s="",std::string t="",std::string b="",std::string m="",bool own=false):sender(s),time(t),body(b),meta(m),mine(own){} };
 struct ContactRow {std::string name,detail;};
@@ -15,6 +15,9 @@ struct Node {std::string name,key;int type=0;bool live=false;uint32_t age=0;floa
 struct MapPin {int x=0,y=0;bool repeater=false;std::string name;int step=-1;}; // step: route stop (0 = sender, 1.. = repeaters)
 struct MapSegment {int x0=0,y0=0,x1=0,y1=0;bool dashed=false;};
 struct State {
+ // Chat options > Path (43): the route of the DMs to a contact; dmPathMode 0 learned, 1 flood only, 2 set by hand.
+ struct DmPathRepeater {std::string name,prefix;};
+ std::string dmPathName,dmPathRoute,dmPathOrigin,dmPathDraft,dmPathInput;int dmPathMode=0,dmPathHashBytes=2,dmPathFocus=0;bool dmPathEditing=false;std::vector<DmPathRepeater> dmPathRepeaters;
  const uint8_t *mapBits=nullptr;const uint16_t *mapPixels=nullptr;/* Plus: RGB565 map view */int mapStyle=0;/* Plus: 0 LIGHT, 1 NIGHT */int mapSelfX=-1,mapSelfY=-1,mapScalePx=0;bool mapFollow=false,messageRouteView=false;std::string mapStatus,mapScaleLabel;std::vector<MapPin> mapPins;std::vector<MapSegment> mapRoute;std::vector<std::string> mapLegend;
  bool historyLoading=false;std::string historyError;
  // CLI (30): raw output lines (wrapped when drawn), prompt, edit line, scroll in wrapped lines from the bottom.

@@ -13,5 +13,5 @@ void powerBegin(uint8_t display,uint8_t keyboard);void powerLoop();void activity
 // Hold: while active (dictation recording/transcribing) the display/keyboard lights keep their current
 // state and the idle clock does not advance (so no dimming and no auto-lock); when released, the idle
 // timers start one second later. Call every loop with the current busy state.
-void powerHold(bool active);void brightness(uint8_t display,uint8_t keyboard);bool timeout(bool keyboard,uint32_t seconds);PowerState powerState();
+void brightness(uint8_t display,uint8_t keyboard);bool timeout(bool keyboard,uint32_t seconds);PowerState powerState();
 }

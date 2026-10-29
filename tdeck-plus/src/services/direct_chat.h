@@ -18,9 +18,11 @@ inline std::string directPathHashes(uint8_t encoded,const uint8_t *bytes){
  if(encoded==DirectPathUnknown)return "";int hops=encoded&63,width=(encoded>>6)+1;
  return hexString(bytes,size_t(hops*width),false,'>',size_t(width));
 }
-// Line under a direct chat (where "First RPT" appears): the private route MeshCore learned and keeps.
-inline std::string directPathLine(uint8_t encoded,const uint8_t *bytes){
- int hops=directPathHops(encoded);if(hops<0)return "DM path: flood (not learned yet)";if(hops==0)return "DM path: direct, 0 hops";
- return "DM path: "+std::to_string(hops)+(hops==1?" hop ":" hops ")+directPathHashes(encoded,bytes);
+// Line under a direct chat (where "First RPT" appears): the private route MeshCore learned and keeps, or the one chosen
+// in Chat options > Path (mode 1 flood only, 2 set by hand).
+inline std::string directPathLine(uint8_t encoded,const uint8_t *bytes,int mode=0){
+ if(mode==1)return "DM path: flood only";const char *head=mode==2?"DM path (set): ":"DM path: ";
+ int hops=directPathHops(encoded);if(hops<0)return "DM path: flood (not learned yet)";if(hops==0)return std::string(head)+"direct, 0 hops";
+ return head+std::to_string(hops)+(hops==1?" hop ":" hops ")+directPathHashes(encoded,bytes);
 }
 }

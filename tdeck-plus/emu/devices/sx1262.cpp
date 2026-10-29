@@ -1,5 +1,7 @@
 #include "sx1262.h"
 #include <array>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <random>
@@ -55,8 +57,9 @@ struct Sx1262Model::Impl {
   void stop() { receiving=0; headerAt=txEnd=txTimeout=rxTimeout=cadEnd=symbolDeadline=0; }
   void reset() {
     stop(); regs.fill(0); buffer.fill(0); settings=AirFrame{};
-    const char version[]="SX1261 V1.1";
-    std::copy(version,version+sizeof(version),regs.begin()+0x0320);
+    // MM_EMU_SX1268: the 433 MHz T-Deck chip (its version string); MM_EMU_NO_RADIO: a chip that answers nothing known.
+    const char *version=getenv("MM_EMU_NO_RADIO")?"XXXXXX":getenv("MM_EMU_SX1268")?"SX1268 V1.1":"SX1261 V1.1";
+    std::copy(version,version+strlen(version)+1,regs.begin()+0x0320);
     regs[0x0740]=0x14; regs[0x0741]=0x24; regs[0x08e7]=0x38;
     regs[0x08ac]=0x94; regs[0x0736]=0x01; regs[0x08d8]=0x1e;
     regs[0x0889]=0x04; regs[0x08b8]=0x80;

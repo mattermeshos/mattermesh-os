@@ -20,6 +20,7 @@ static bool appSetBleName(String name){name.trim();if(name.length()>device::BLE_
  if(!device::prefPutString("mmble","name",name))return false;
  appBleCustomName=name;device::bleCompanionCustomName(name);return true;}
 static void appLocation(int32_t &lat,int32_t &lon){auto g=device::locationState();if(g.configured){lat=int32_t(lround(g.latitude*1e6));lon=int32_t(lround(g.longitude*1e6));}}
+static bool appSetLocation(int32_t lat,int32_t lon){return device::locationSet(lat/1e6,lon/1e6);}
 // App CMD_SET_CHANNEL. Our channel slots follow the conversation list (direct chats take slots too), so the app's
 // index edits a channel conversation in place, anything else appends one (scope "*") like Messages > New channel.
 // A channel already known by name or key is left as it is; deleting (empty name or zero key) is not supported.
@@ -51,7 +52,7 @@ void appLinkBegin(){
  appBleCustomName=device::prefGetString("mmble","name");device::bleCompanionCustomName(appBleCustomName);
  matter::CompanionHooks h;h.batteryMv=[]()->uint16_t{return uint16_t(device::batteryState().voltage);};
  h.storageUsedKb=[]()->uint32_t{return sdReady?uint32_t(SD.usedBytes()/1024):0;};h.storageTotalKb=[]()->uint32_t{return sdReady?uint32_t(SD.totalBytes()/1024):0;};
- h.reboot=[](){Serial.flush();delay(300);ESP.restart();};h.pin=appPin;h.setPin=appSetPin;h.location=appLocation;h.setChannel=appSetChannel;matter::companionHooks(h);
+ h.reboot=[](){Serial.flush();delay(300);ESP.restart();};h.pin=appPin;h.setPin=appSetPin;h.location=appLocation;h.setLocation=appSetLocation;h.setChannel=appSetChannel;matter::companionHooks(h);
  device::bleCompanionConfig(matter::snapshot().config.name,appPinValue);// before connectivityBegin(): the BLE name comes from the node name
 }
 void appWifiToggle(){appWifiEnabled=!appWifiEnabled;device::prefPutInt("mmble","tcp",appWifiEnabled?1:0);if(!appWifiEnabled&&appServerOn){if(appClient)appClient.stop();appServer.end();appServerOn=false;}}

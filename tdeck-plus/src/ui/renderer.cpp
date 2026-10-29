@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "dm_path_layout.h"
 #include <unordered_map>
 #include "services/link_html.h"
 #include "composer_caret.h"
@@ -358,7 +359,7 @@ void Renderer::chat(const State &s){
  struct Wrapped{std::vector<std::string> lines;int widest;};static std::unordered_map<uint64_t,Wrapped> wrapped;static std::unordered_map<std::string,std::vector<std::string>> metaWrapped;
  int latestOwn=s.latestOwnMessage;
  if(latestOwn==-2){latestOwn=-1;for(int i=int(s.messages.size())-1;i>=0;i--)if(s.messages[i].mine){latestOwn=i;break;}}
- auto metadata=[&](const Message &m){if(m.mine){if(latestOwn<0||latestOwn>=int(s.messages.size())||&m!=&s.messages[latestOwn])return std::vector<std::string>{};return std::vector<std::string>{m.repeaters<0?"Heard x--":"Heard x"+std::to_string(m.repeaters)};}std::string meta=m.time;if(!m.meta.empty())meta+=" | "+m.meta;if(!s.scope.empty()&&m.meta.find('|')==std::string::npos&&m.meta.find(s.scope)==std::string::npos)meta+=" | "+s.scope;
+ auto metadata=[&](const Message &m){if(m.mine){if(latestOwn<0||latestOwn>=int(s.messages.size())||&m!=&s.messages[latestOwn])return std::vector<std::string>{};/* DM: route and delivery; channel: repeats heard */if(s.chatDirect)return std::vector<std::string>{m.meta.empty()?std::string("Sending..."):m.meta};return std::vector<std::string>{m.repeaters<0?"Heard x--":"Heard x"+std::to_string(m.repeaters)};}std::string meta=m.time;if(!m.meta.empty())meta+=" | "+m.meta;if(!s.chatDirect&&!s.scope.empty()&&m.meta.find('|')==std::string::npos&&m.meta.find(s.scope)==std::string::npos)meta+=" | "+s.scope;
   std::string key=(chatTextLarge()?"L":"S")+meta;auto it=metaWrapped.find(key);if(it==metaWrapped.end()){if(metaWrapped.size()>512)metaWrapped.clear();it=metaWrapped.emplace(key,c.lines(meta,W-2*BubbleMargin,Font::ChatMeta)).first;}return it->second;};
  // Each message is laid out once per frame: the fit pass (height) and the draw pass share the wrapped lines.
  struct Lay{bool ok=false;int px=0,widest=-1;std::vector<std::string> lines,meta;};std::vector<Lay> lays(s.messages.size());
@@ -431,6 +432,7 @@ void Renderer::chat(const State &s){
   auto count=showCounter?std::to_string(s.input.size())+"/"+std::to_string(s.messageLimit):std::string();
   int counterWidth=c.width(count,Font::ChatMeta);
   if(!s.firstRepeater.empty())c.text(Margin,counterY+2,s.firstRepeater,Font::ChatMeta,FG,W-2*Margin-(showCounter?counterWidth+Gap:0));
+  if(s.chatDirect&&!s.firstRepeater.compare(0,7,"DM path")){dmPathLineOut={0,counterY,W-(showCounter?counterWidth+Margin+Gap:0),FirstRepeaterH};touchableAdd(dmPathLineOut,0);}
   if(showCounter)c.text(W-Margin-counterWidth,counterY+2,count,Font::ChatMeta);
  }
  g.fillRect(0,composerTop,W,composerH,BG);Rect composer={Margin,composerTop+1,W-2*Margin,composerH-3};{c.fillRound(composer.x,composer.y,composer.w,composer.h,9,BG);g.drawRoundRect(composer.x,composer.y,composer.w,composer.h,9,Line);}
@@ -446,7 +448,7 @@ void Renderer::chat(const State &s){
  if(s.accent){auto letters=accentBarText(s);if(!letters.empty()){Rect bar={composer.x,composer.y-32,composer.w,28};c.fillRound(bar.x,bar.y,bar.w,bar.h,8,FG);c.centered(bar.x,bar.y+(bar.h-c.lineHeight(Font::ChatTitle))/2,bar.w,letters,Font::ChatTitle,BG);}
   c.fillRound(ComposerEmoji.x+2,ComposerEmoji.y+2,ComposerEmoji.w-4,ComposerEmoji.h-5,5,FG);c.centered(ComposerEmoji.x,ComposerEmoji.y+(ComposerEmoji.h-c.lineHeight(Font::ChatTitle))/2,ComposerEmoji.w,s.accentTaps>1?"\xc2\xb4"+std::to_string(s.accentTaps):std::string("\xc2\xb4"),Font::ChatTitle,BG);}
  if(s.emojiPicker)emojiPopup(s);
- if(s.messageMenu){Rect info=dialogPanel();c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Add region scope","Clear chat","Send GPS position"};for(int i=0;i<ChatOptionCount;i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
+ if(s.messageMenu){Rect info=dialogPanel();c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Add region scope","Clear chat","Send GPS position","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
  if(s.scopePicker){
   Rect panel=dialogPanel();c.text(Margin+8,Top+12,s.notice.empty()?"Region scope":s.notice,s.notice.empty()?Font::ChatTitle:Font::ChatMeta,FG,panel.w-16);
   int offset=std::max(0,std::min(s.scopeOffset,std::max(0,int(s.regionScopes.size())-1)));
@@ -605,7 +607,7 @@ void Renderer::welcome(const State &s){
   c.text(r.x+30,r.y+6,"How the clock is set",Font::Bold,FG,r.w-38);
   const char *lines[]={"With Wi-Fi: from the internet, in a few seconds.","Without Wi-Fi: from GPS satellites, outdoors.","Or by hand: Settings > Date / time."};
   for(int i=0;i<3;i++)c.text(r.x+12,r.y+26+i*15,lines[i],Font::ChatMeta,Muted,r.w-20);
- }else if(step==2){choice(welcomeCard(0,2),"868 MHz","Europe, UK, Switzerland",s.welcomeBand==868);choice(welcomeCard(1,2),"900 MHz","Americas, Oceania, Asia",s.welcomeBand==900);}
+ }else if(step==2){choice(welcomeCard(0,3),"868 MHz","Europe, UK, Switzerland",s.welcomeBand==868);choice(welcomeCard(2,3),"433 MHz","433 MHz T-Deck only",s.welcomeBand==433);choice(welcomeCard(1,3),"900 MHz","Americas, Oceania, Asia",s.welcomeBand==900);}
  else if(step==3){
   for(int i=0;i<WelcomeRows&&s.welcomeScroll+i<int(s.welcomePresets.size());i++){int at=s.welcomeScroll+i;Rect r=welcomeRow(i);bool on=at==s.welcomeFocus;c.card(r,on,8);auto ink=on?OnAccent:FG;
    c.text(r.x+10,r.y+2,s.welcomePresets[at].first,Font::ChatBody,ink,r.w-20);c.text(r.x+10,r.y+17,s.welcomePresets[at].second,Font::ChatMeta,on?OnAccent:Muted,r.w-20);}
@@ -688,11 +690,9 @@ void Renderer::form(const State &s){
  c.footer(s.symbols?"SYMBOLS":s.caps?"ABC":"abc","MESH CHAT");
 }
 void Renderer::settings(const State &s){
- shell(s,"Settings");
- const char *groups[]={"CONNECTIVITY","DEVICE","SYSTEM"};const int first[]={0,SettingsDeviceFirst,SettingsSystemFirst};
- // A group label is drawn only together with its first row, so it never sits alone at the bottom.
- for(int i=0;i<3;i++)if(settingsVisible(first[i],s.settingsOffset))c.text(Margin+2,settingsRect(first[i],s.settingsOffset).y-15,groups[i],Font::ChatMeta);
- for(int i=0;i<SettingsCount;i++){if(!settingsVisible(i,s.settingsOffset))continue;auto r=settingsRect(i,s.settingsOffset);
+ g.fillScreen(BG);touchablesClear();/* status bar and header once, at the end, over the rows scrolled under them */
+ for(int i=0;i<SettingsGroupCount;i++){int y=settingsRect(SettingsGroupFirst[i],s.settingsOffset).y-15;if(y+14>SettingsListY-HeaderH&&y<H)c.text(Margin+2,y,SettingsGroupNames[i],Font::ChatMeta);}
+ for(int i=0;i<SettingsCount;i++){if(!settingsShown(i,s.settingsOffset))continue;auto r=settingsRect(i,s.settingsOffset);
   // Detail line by destination section (the row list differs between the Max and the Plus).
   int to=SettingsItems[i].section;
   std::string look=theme(s.wallpaper).name;
@@ -701,7 +701,10 @@ void Renderer::settings(const State &s){
  }
  // Scroll indicator like the Home conversation list: thin track + 3 px thumb right of the cards.
  if(int max=settingsMaxScroll();max>0){int track=Bottom-SettingsListY,total=settingsContentY(SettingsCount-1)+SettingsCardH,thumb=std::max(12,track*track/total),offset=std::min(s.settingsOffset,max);
-  g.drawFastVLine(W-3,SettingsListY,track,FG);g.fillRect(W-4,SettingsListY+settingsSnapY(offset)*(track-thumb)/settingsSnapY(max),3,thumb,FG);}
+  g.drawFastVLine(W-3,SettingsListY,track,FG);g.fillRect(W-4,SettingsListY+offset*(track-thumb)/max,3,thumb,FG);}
+ // Rows scrolled under the header are cut by painting the bars again on top.
+ g.fillRect(0,0,W,SettingsListY,BG);touchableBlock({0,0,W,SettingsListY});/* rows under the header: no ring there; the bars register after it */
+ c.statusBar(s.status);c.pageHeader("Settings",true,Icon::Menu);hideHeaderAction();
 }
 void Renderer::section(const State &s){
  if(s.page==Page::Link){linkView(s);return;}
@@ -755,7 +758,7 @@ void Renderer::section(const State &s){
   }else{
   std::string radioLine=s.radioReady?(s.radioTX?"TX active":s.radioQueued?"TX queued / RX":"RX ready"):("Radio error "+std::to_string(s.radioError)),pathLine="paths "+std::to_string(s.radioPathBytes)+"B";
   
-  c.button(LoRaBand868,"868 MHz",s.radioBand==868);c.button(LoRaBand900,"900 MHz",s.radioBand==900);
+  c.button(LoRaBand868,"868 MHz",s.radioBand==868);c.button(LoRaBand900,"900 MHz",s.radioBand==900);c.button(LoRaBand433,"433 MHz",s.radioBand==433);
   c.card(LoRaPreset,false,5);if(s.radioFocus==0)g.drawRoundRect(LoRaPreset.x+2,LoRaPreset.y+2,LoRaPreset.w-4,LoRaPreset.h-4,4,FG);
   c.iconButton({LoRaPresetPrev.x,LoRaPreset.y+(LoRaPreset.h-30)/2,30,30},Icon::Back);c.iconButton({LoRaPresetNext.x,LoRaPreset.y+(LoRaPreset.h-30)/2,30,30},Icon::ChevronRight);
   std::string name=s.radioPreset>=0&&s.radioPreset<matter::RADIO_PRESET_COUNT?matter::RADIO_PRESETS[s.radioPreset].name:"Custom";
@@ -889,7 +892,7 @@ void Renderer::section(const State &s){
   const char *names[]={"Display / front-light","Keyboard backlight"};for(int i=0;i<2;i++){Rect r=powerRowRect(i);bool focus=s.powerField==i;c.card(r,focus);auto ink=focus?BG:FG;if(i)c.icon(Icon::Keyboard,r.x+6,r.y+(r.h-16)/2,16,ink);else{g.drawRect(r.x+7,r.y+14,16,10,ink);g.drawFastHLine(r.x+12,r.y+27,6,ink);}c.text(r.x+30,r.y+5,names[i],Font::ChatBody,ink,r.w-50);uint32_t seconds=i?s.keyboardTimeout:s.displayTimeout;std::string value=seconds==0?"Never":seconds>=60?std::to_string(seconds/60)+" minute"+(seconds>=120?"s":""):std::to_string(seconds)+" seconds";c.text(r.x+30,r.y+23,value+(seconds==30?" / default":""),Font::ChatMeta,ink,r.w-50);c.icon(Icon::ChevronRight,r.x+r.w-16,r.y+(r.h-12)/2,12,ink);}
   c.sectionLabel(timeoutOptionRect(0).y-16,s.powerField?"KEYBOARD TIMEOUT":"DISPLAY TIMEOUT");const char *labels[]={"15s","30s","1m","2m","5m","Never"};const uint32_t values[]={15,30,60,120,300,0};uint32_t selected=s.powerField?s.keyboardTimeout:s.displayTimeout;
   for(int i=0;i<6;i++){Rect r=timeoutOptionRect(i);c.card(r,selected==values[i]);c.centered(r.x,r.y+(r.h-c.lineHeight(Font::Small))/2,r.w,labels[i],Font::Small,selected==values[i]?BG:FG);}
-  int y=timeoutOptionRect(0).y+(36);c.text(Margin+2,y+(0),"Lights wake on key or touch.",Font::ChatMeta,FG,W-2*Margin);c.text(Margin+2,y+(14),"Locks after 30 s or a trackball hold.",Font::ChatMeta,FG,W-2*Margin);
+  int y=timeoutOptionRect(0).y+(36);c.text(Margin+2,y+(0),"Lights wake on key or touch.",Font::ChatMeta,FG,W-2*Margin);c.text(Margin+2,y+(14),"Locks with the display (min 30 s) or a trackball hold.",Font::ChatMeta,FG,W-2*Margin);
  }else if(s.page==Page::AccentKey){
   // Three choice cards: the active one is ticked, the focused one outlined.
   const char *names[]={"Off","Right Shift","Left Shift"};const char *detail[]={"No accents","Accents in chats","Accents in chats"};
@@ -1050,7 +1053,8 @@ void Renderer::section(const State &s){
 #include "quick_settings_renderer.inc"
 #include "cli_renderer.inc"
 #include "weather_apps_renderer.inc"
-void Renderer::draw(const State &s){switch(s.page){
+#include "dm_path_renderer.inc"
+void Renderer::draw(const State &s){switch(s.page){case Page::DmPath:dmPathPage(s);break;
  case Page::Cli:cliApp(s);break;
  case Page::Home:home(s);break;case Page::Launcher:launcher(s);break;case Page::Messages:messages(s);break;case Page::Chat:chat(s);break;case Page::NewChat:form(s);break;case Page::ContactPicker:contactPicker(s);break;case Page::Settings:settings(s);break;case Page::QuickSettings:quickSettings(s);break;default:section(s);}if(s.channelOptions)channelOptions(s);}
 }

@@ -13,9 +13,11 @@ public:
  // Plus continuous chat scroll: chat() normalises State::chatOffset/chatPixel; the caller adds chatShiftOut to its
  // offset (older messages) and keeps chatPixelOut.
  int chatShiftOut=0,chatPixelOut=0;
+ Rect dmPathLineOut{0,0,0,0};// direct chat: the "DM path" line drawn above the composer (a tap opens Path)
  int chatComposerTop=ComposerY;// top of the composer card painted by chat(): ComposerY unless a draft expanded it
 private:
  void shell(const State &s,const std::string &title,bool back=true,Icon right=Icon::Menu);
+ void dmPathPage(const State &s);// Chat options > Path (43)
  void hideHeaderAction();// blanks the header's right button (pages without one) and keeps the press ring off it
  void mapView(const State &s); // MapArea: tiles, route, pins, own position, status, scale
  void linkView(const State &s); // link viewer: bar, page rows or picture (section 33)

@@ -5,19 +5,21 @@
 #include "ui/fast_canvas.h"
 #include "ui/navigation_catalog.h"
 int main(){
- assert(mm::ApplicationCount==4&&mm::Applications[0].section==9&&mm::SettingsCount==19);// Plus: Themes, Home widgets, Text size, Accent key and Keyboard languages rows, no Antenna rowfor(auto app:mm::Applications)assert(app.section!=3);
- assert(mm::SettingsItems[mm::SettingsGpsIndex].section==3);assert(mm::settingsRect(mm::SettingsGpsIndex,0).y+34<=mm::Bottom);
+ assert(mm::ApplicationCount==4&&mm::Applications[0].section==9&&mm::SettingsCount==19);/* Plus: Themes, Home widgets, Text size, Accent key and Keyboard languages rows, no Antenna row */for(auto app:mm::Applications)assert(app.section!=3);
+ assert(mm::SettingsItems[mm::SettingsGpsIndex].section==3);assert(mm::settingsVisible(mm::SettingsGpsIndex,mm::settingsReveal(mm::SettingsGpsIndex,0)));
  assert(mm::GpsToggle.y>=mm::Top&&mm::GpsToggle.x+mm::GpsToggle.w<=mm::W-mm::Margin);
  mm::FastCanvas16 canvas(mm::W,mm::H);mm::Components c(canvas);mm::Renderer renderer(canvas);mm::State s;
  for(bool connected:{false,true}){s.status.mesh=connected;c.statusBar(s.status);for(int y=0;y<mm::StatusH-1;y++)for(int x=mm::StatusIconsX+mm::StatusIconStep;x<mm::StatusIconsX+mm::StatusIconStep+mm::IconStatus;x++)assert(canvas.getPixel(x,y)==mm::StatusBg);}
  s.page=mm::Page::GPS;s.gpsAvailable=true;s.locationValid=true;s.latitude=45.9;s.longitude=7.6;renderer.draw(s);std::vector<uint16_t> on(canvas.getBuffer(),canvas.getBuffer()+mm::W*mm::H);s.gpsEnabled=false;renderer.draw(s);assert(!std::equal(on.begin(),on.end(),canvas.getBuffer()));
- // Whole-row scrolling: the first visible row (or its group label) starts at the list top, rows never overlap
- // the status/header or the bottom margin, the last row is reachable and paging covers every row.
- for(int scroll=0;scroll<=mm::settingsMaxScroll();scroll++){auto r=mm::settingsRect(scroll,scroll);assert(r.y==mm::SettingsListY+(mm::settingsGroupFirst(scroll)?mm::SettingsHeaderH:0));
-  int last=mm::settingsLastVisible(scroll);assert(last>scroll&&mm::settingsRect(last,scroll).y+mm::SettingsCardH<=mm::Bottom);for(int i=scroll;i<=last;i++)assert(mm::settingsVisible(i,scroll));if(scroll>0)assert(!mm::settingsVisible(scroll-1,scroll));}
- assert(mm::settingsVisible(mm::SettingsCount-1,mm::settingsMaxScroll()));
- {int scroll=0,seen=mm::settingsLastVisible(0);while(scroll<mm::settingsMaxScroll()){int next=mm::settingsPage(scroll,true);assert(next>scroll&&next<=seen+1);scroll=next;seen=mm::settingsLastVisible(scroll);}assert(seen==mm::SettingsCount-1);
-  while(scroll>0){int prev=mm::settingsPage(scroll,false);assert(prev<scroll&&mm::settingsLastVisible(prev)>=scroll-1);scroll=prev;}}
+ // Pixel scrolling: every scroll from 0 to the max shows at least one whole row; settingsReveal shows any row whole
+ // (with its group label); paging moves by the list height less one row, so it reaches both ends; groups in order.
+ for(int scroll=0;scroll<=mm::settingsMaxScroll();scroll++){int first=mm::settingsFirstVisible(scroll),last=mm::settingsLastVisible(scroll);assert(mm::settingsVisible(first,scroll)&&last>=first);
+  for(int i=first;i<=last;i++){auto r=mm::settingsRect(i,scroll);assert(r.y>=mm::SettingsListY&&r.y+mm::SettingsCardH<=mm::Bottom);}}
+ assert(mm::settingsVisible(mm::SettingsCount-1,mm::settingsMaxScroll())&&mm::settingsVisible(0,0)&&mm::settingsRect(0,0).y==mm::SettingsListY+mm::SettingsHeaderH);
+ for(int i=0;i<mm::SettingsCount;i++)for(int from:{0,mm::settingsMaxScroll()/2,mm::settingsMaxScroll()}){int at=mm::settingsReveal(i,from);assert(mm::settingsVisible(i,at));if(mm::settingsGroupFirst(i))assert(mm::settingsRect(i,at).y-mm::SettingsHeaderH>=mm::SettingsListY);}
+ {int scroll=0,pages=0;while(scroll<mm::settingsMaxScroll()){int next=mm::settingsPage(scroll,true);assert(next>scroll);scroll=next;pages++;}assert(scroll==mm::settingsMaxScroll()&&pages<=6);
+  while(scroll>0){int prev=mm::settingsPage(scroll,false);assert(prev<scroll);scroll=prev;}}
+ for(int g=1;g<mm::SettingsGroupCount;g++)assert(mm::SettingsGroupFirst[g]>mm::SettingsGroupFirst[g-1]);
  // Plus: no Antenna page (one LoRa antenna), no haptic / vibration rows on Lights (no motor), no dictation card on Sound;
  // the Plus-only Themes, Text size and Date / time pages are checked instead.
  // Settings pages: one switch card shared by Wi-Fi/Bluetooth/GPS/Sound, every touch target inside the content

@@ -18,6 +18,7 @@ using Receiver=void(*)(const Received&);using Delivered=void(*)(const Delivery&)
 bool begin(fs::FS &fs,Receiver receiver,Delivered delivered);
 struct RadioDiag {float tcxo=0,rssi=0,snr=0;bool boosted=false;uint16_t deviceErrors=0;int noiseFloor=0;uint32_t received=0,recvErrors=0;};
 RadioDiag radioDiag();bool radioClearErrors();
+bool radioSX1268();// the 433 MHz T-Deck radio chip (an SX1262 otherwise)
 // Noise floor (MeshCore calibrates it every few seconds) and the last packet's signal, no SPI access.
 struct RadioLevels {int noiseFloor=0;float rssi=0,snr=0;bool received=false;};RadioLevels radioLevels();
 struct RadioCounters {bool ready=false;uint32_t received=0,sent=0;};// the main loop polls these every iteration
@@ -38,6 +39,16 @@ void clearChannels();
 bool channelSecret(int id,String &hex);
 // Saved route to a contact (MeshCore out_path, kept in contacts.tsv); false if the contact is unknown.
 bool contactPath(const String &key,uint8_t &encoded,uint8_t *bytes,size_t capacity);
+// Route of the direct messages to a contact. Auto: the path MeshCore learns from replies (flood until then; a learned
+// path that gets no ACK is dropped and the message goes once more by flood). Flood: always flood, the learned path is
+// not used. Manual: a path set by hand (hops of 1-3 byte repeater hashes), kept when replies would teach another.
+enum class DmRouteMode : uint8_t {Auto=0,Flood=1,Manual=2};
+DmRouteMode dmRouteMode(const String &key);
+bool dmRouteReset(const String &key);// Auto again, the learned path forgotten
+bool dmRouteFlood(const String &key,bool on);
+bool dmRouteSet(const String &key,const uint8_t *hashes,int hops,int hashBytes);
+// Known repeaters for a path: heard live first, then the most recently heard (at most limit).
+std::vector<Node> recentRepeaters(int limit);
  bool registerScope(const String &scope);
 bool send(int channelId,const String &peerKey,const String &scope,const String &text,uint32_t token,String &reason);
 size_t textLimit(bool direct);
@@ -55,6 +66,7 @@ using CompanionWriter=void(*)(void *ctx,const uint8_t *frame,size_t len);
 struct CompanionSession {bool listing=false,active=false;int next=0;uint32_t since=0,mostRecent=0,pushSeq=0,logSeq=0;};// active: the app sent DEVICE_QUERY on this link
 struct CompanionHooks {uint16_t (*batteryMv)()=nullptr;uint32_t (*storageUsedKb)()=nullptr,(*storageTotalKb)()=nullptr;void (*reboot)()=nullptr;
  uint32_t (*pin)()=nullptr;bool (*setPin)(uint32_t)=nullptr;void (*location)(int32_t &lat,int32_t &lon)=nullptr;
+ bool (*setLocation)(int32_t lat,int32_t lon)=nullptr;// CMD_SET_ADVERT_LATLON (1e-6 degrees): the manual position
  // App channel edit (CMD_SET_CHANNEL): 0 = saved, otherwise a companion error code.
  uint8_t (*setChannel)(uint8_t idx,const char *name,const uint8_t secret[16])=nullptr;};
 void companionHooks(const CompanionHooks &hooks);
