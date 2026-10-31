@@ -214,8 +214,12 @@ static bool verifyIdentity(){const uint8_t challenge[]={0x4d,0x61,0x74,0x74,0x65
 // T-Deck / T-Deck Plus: TCXO 1.8 V, boosted RX gain, and DIO2 as the RF switch: the module routes the +22 dBm PA to the
 // antenna through a switch driven by DIO2 (off, as in stock MeshCore lilygo_tdeck, TX reaches the antenna ~16 dB weaker;
 // Meshtastic and WADAMESH drive it). User decision 2026-10-26, to verify in the field with Heard xN.
-static constexpr float tcxoVoltage=1.8f;static constexpr bool dio2RfSwitch=true;
-static bool initRadio(){auto start=[]{return radio.begin(state.config.frequency,state.config.bandwidth,state.config.sf,state.config.cr,RADIOLIB_SX126X_SYNC_WORD_PRIVATE,state.config.power,16,tcxoVoltage,false);};
+static float tcxoVoltage=1.8f;static constexpr bool dio2RfSwitch=true;
+// A module with a plain crystal: RadioLib drops the TCXO itself when calibration fails with an oscillator error, and when
+// the TCXO command is refused (-706/-707) we start again without it, as MeshCore's std_init does (we call begin() directly).
+// The no-TCXO setting stays only if that start works; tcxoVoltage follows what RadioLib ended up using.
+static bool initRadio(){auto begin=[]{return radio.begin(state.config.frequency,state.config.bandwidth,state.config.sf,state.config.cr,RADIOLIB_SX126X_SYNC_WORD_PRIVATE,state.config.power,16,tcxoVoltage,false);};
+ auto start=[&begin]{int e=begin();if((e==RADIOLIB_ERR_SPI_CMD_FAILED||e==RADIOLIB_ERR_SPI_CMD_INVALID)&&tcxoVoltage>0){const float tried=tcxoVoltage;tcxoVoltage=0;int plain=begin();if(plain==RADIOLIB_ERR_NONE)e=plain;else tcxoVoltage=tried;}if(e==RADIOLIB_ERR_NONE)tcxoVoltage=radio.tcxoVoltage;return e;};
  // An SX1268 with an 868/915 setting (the default before the welcome) starts on EU 433 Narrow at the 433 power, not saved:
  // the chip works only at 410-810 MHz.
  auto fit433=[]{if(state.config.frequency>810){state.config.frequency=433.65f;state.config.bandwidth=62.5f;state.config.sf=8;state.config.cr=8;state.config.power=bandDefaultPower(433,MAX_TX_POWER);}};
@@ -273,9 +277,11 @@ bool configure(const Config &cfg,String &reason){
  if(rfChanged&&!offline){radio.standby();state.config=cfg;if(!initRadio()){state.config=old;state.ready=initRadio();reason="Radio settings rejected";return false;}}
  File f=storage->open("/mattermesh/radio.tmp","w");
  String row=String(cfg.frequency,3)+"\t"+String(cfg.bandwidth,2)+"\t"+String(cfg.sf)+"\t"+String(cfg.cr)+"\t"+String(cfg.power)+"\t"+cfg.name+"\t"+String(cfg.pathBytes)+"\n";
- bool ok=f&&f.print(row)==row.length();if(f){f.flush();f.close();}
- ok=ok&&device::sdReplace(*storage,"/mattermesh/radio.tmp","/mattermesh/radio.conf","/mattermesh/radio.bak");
- if(!ok){storage->remove("/mattermesh/radio.tmp");state.config=old;if(rfChanged&&!offline)state.ready=initRadio();reason="SD settings save failed";return false;}
+ const bool opened=bool(f);bool written=opened&&f.print(row)==row.length();if(f){f.flush();f.close();}
+ // print() only fills a buffer: the size on the card tells whether the row really got there.
+ if(written){File saved=storage->open("/mattermesh/radio.tmp");written=saved&&saved.size()==row.length();if(saved)saved.close();}
+ const bool ok=written&&device::sdReplace(*storage,"/mattermesh/radio.tmp","/mattermesh/radio.conf","/mattermesh/radio.bak");
+ if(!ok){storage->remove("/mattermesh/radio.tmp");state.config=old;if(rfChanged&&!offline)state.ready=initRadio();reason=String("SD settings save failed: ")+(!opened?"open":!written?"write":"rename");return false;}
  state.config=cfg;setOutgoingPathHashBytes(cfg.pathBytes);reason=!offline?String("LoRa settings saved"):state.error==RADIOLIB_ERR_CHIP_NOT_FOUND?String("Saved. Radio not found"):"Saved. Radio error "+String(state.error);return true;
 }
 bool registerScope(const String &scope){if(!scope.length()||scope=="*"||scope=="unknown")return true;for(auto &value:knownScopes)if(value==scope)return true;if(knownScopes.size()>=64)return false;knownScopes.push_back(scope);return true;}

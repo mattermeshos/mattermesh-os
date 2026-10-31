@@ -237,7 +237,8 @@ struct Sx1262Model::Impl {
       case 0x89: need(1); break;
       case 0x98: need(2); break;
       case 0x96: need(1); break;
-      case 0x97: need(4); break;
+      // MM_EMU_NO_TCXO: a module with a plain crystal refuses the TCXO command.
+      case 0x97: need(4); if(getenv("MM_EMU_NO_TCXO")) commandStatus=10; break;
       case 0x9d: need(1); break;
       case 0xa0: if(need(1)) symbolTimeout=command[1]; break;
       case 0x9f: if(need(1)) stopTimerOnPreamble=command[1]!=0; break;

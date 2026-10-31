@@ -2106,7 +2106,7 @@ loadMapStyle();
   refreshLastReceived();matter::begin(SD,incomingRadio,deliveredRadio);for(auto &scope:regionScopes)matter::registerScope(scope.c_str());configureChannels();}
  {device::BatteryLoad boot;boot.active=true;boot.cpuHigh=true;device::batteryLoad(boot);}// screen on at boot: the first sample is taken under load
  device::batteryLoop();device::locationBegin();if(sdReady){device::LocationStore store;store.load=gpsStoreLoad;store.save=gpsStoreSave;device::locationStore(store);}appLinkBegin();device::linkBegin();device::connectivityBegin();device::weatherBegin();device::stormBegin();device::radarBegin();device::otaBegin();
- {auto r=matter::snapshot();Serial.printf("RADIO_BOOT ready=%d frequency=%.3f band=%d bw=%.2f sf=%u cr=%u power=%d error=%d chip=%s\n",r.ready,r.config.frequency,matter::radioBand(r.config.frequency),r.config.bandwidth,r.config.sf,r.config.cr,r.config.power,r.error,r.error==-2?"none":matter::radioSX1268()?"SX1268":"SX1262");/* -2: RadioLib chip not found */}
+ {auto r=matter::snapshot();Serial.printf("RADIO_BOOT ready=%d frequency=%.3f band=%d bw=%.2f sf=%u cr=%u power=%d error=%d chip=%s\n",r.ready,r.config.frequency,matter::radioBand(r.config.frequency),r.config.bandwidth,r.config.sf,r.config.cr,r.config.power,r.error,r.error==-2?"none":matter::radioSX1268()?"SX1268":"SX1262");/* -2: RadioLib chip not found */Serial.printf("RADIO_TCXO %.1f\n",matter::radioDiag().tcxo);}
  splash(100,sdReady?"Ready for the field.":"SD unavailable / check card");
  if(!sdReady)notice="SD unavailable / check card";
  // Clean install (mark 2) -> welcome. Without a mark (set up before the mark existed): radio settings on the SD mean
