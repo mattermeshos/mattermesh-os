@@ -24,6 +24,9 @@ cat > "$d/bravo.emu" <<'S'
 14800 serial rlink sync yes
 15000 serial rlink status
 15200 serial rlink info
+15300 serial section 41
+15400 serial rlink page
+15500 serial home
 15600 serial home
 16000 tap 21
 17000 tap 21
@@ -67,4 +70,5 @@ air=open(sys.argv[1]).read().splitlines()
 assert sum(1 for l in air if " sender=Alpha " in l and " length=" in l and int(l.split(" length=")[1].split()[0])>=40)>=1
 PY
 grep -q "RLINK_SYNC asked=1 choice=1" "$d/bravo.log"||fail "the download question was not shown"
+grep -q "RLINK_PAGE saved=1 name=MeshCore-Alpha" "$d/bravo.log"||fail "the page does not show the paired companion"
 echo "PASS: companion link - Bravo pairs with Alpha (wrong PIN refused), its radio sleeps, its Public message goes out through Alpha and Charlie hears it, Charlie's reply reaches Bravo's chat, off wakes the radio"

@@ -684,6 +684,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
  // The lock screen keeps `section`: do not rebuild the map view (PSRAM + tile requests) or tool state while locked.
  if(!deviceLocked&&screen==Screen::Section&&section==9)mapCompose(v);
  if(!deviceLocked&&screen==Screen::Section&&mm::toolsSection(section))toolsCompose(v);
+ if(!deviceLocked&&screen==Screen::Section&&(section==mm::RadioLinkSection||section==mm::RadioLinkSettingsSection||section==19))radioLinkCompose(v);/* Settings: the Companion link row status */
  if(!deviceLocked&&screen==Screen::Section&&section==10)weatherTabsCompose(v);
  v.homeWidget=homeWidget;v.homeWidgetFocus=homeWidgetFocus;v.homeWidgetChosen=homeWidgetChosen;v.homeMain=homeMain;v.homeMainFocus=homeMainFocus;v.homeWidgetsRow=homeWidgetsRow;// Settings shows the choices on its Home widgets row
  if(screen==Screen::Section&&section==mm::NoteSection)v.noteInput=noteInput.c_str();
