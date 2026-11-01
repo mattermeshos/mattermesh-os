@@ -1,5 +1,7 @@
 {
-"account-group": 985161,
+ "airplane": 983069,
+ "chart-bell-curve": 986195,
+ "account-group": 985161,
 "account-group-outline": 985944,
 "antenna": 987417,
 "battery-70": 983168,
@@ -52,5 +54,6 @@
 "weather-snowy": 984472,
 "weather-sunny": 984473,
 "wifi": 984489,
-"wrench": 984503
+"wrench": 984503,
+"hiking": 986495
 }

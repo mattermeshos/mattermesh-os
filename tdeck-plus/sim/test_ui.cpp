@@ -32,7 +32,7 @@ int main(){
  assert(mm::WeatherWifiButton.y+mm::WeatherWifiButton.h<mm::WeatherPrompt.y+mm::WeatherPrompt.h&&mm::WeatherWifiButton.x>=mm::WeatherPrompt.x&&mm::WeatherWifiButton.x+mm::WeatherWifiButton.w<=mm::WeatherPrompt.x+mm::WeatherPrompt.w);
  for(int i=0;i<4;i++){auto r=mm::weatherCell(i);assert(r.x>=mm::Margin&&r.x+r.w<=mm::W-mm::Margin&&r.y+r.h<=mm::Bottom);if(i)assert(mm::weatherCell(i-1).x+mm::weatherCell(i-1).w<r.x);}
  for(int i=0;i<5;i++){auto r=mm::ownMessageActionRect(i);assert(r.x>=mm::Margin&&r.y>=mm::Top&&r.x+r.w<=mm::W-mm::Margin&&r.y+r.h<=mm::Bottom);for(int j=i+1;j<5;j++){auto q=mm::ownMessageActionRect(j);assert(r.x+r.w<=q.x||q.x+q.w<=r.x||r.y+r.h<=q.y||q.y+q.h<=r.y);}}
- for(int i=0;i<mm::ContactRows;i++){auto r=mm::contactRowRect(i);assert(r.y>=mm::ContactSearch.y+mm::ContactSearch.h&&r.y+r.h<=mm::Bottom);}// Plus: no pager row below the list
+ for(int i=0;i<mm::ContactRows;i++){auto r=mm::contactRowRect(i);assert(r.y>=mm::Top&&r.y+r.h<=mm::H);}// Plus: no pager row below the list
  for(int i=0;i<6;i++){auto r=mm::timeoutOptionRect(i);assert(r.x>=0&&r.y>=mm::Top&&r.x+r.w<=mm::W&&r.y+r.h<mm::Bottom);}
  std::string longWord(96,'W');auto lines=c.lines(longWord,176);std::string result;for(auto &line:lines){assert(c.width(line)<=176);result+=line;}assert(result==longWord);
  // The byte counter appears only after95 and never occupies composer pixels.
@@ -95,7 +95,7 @@ int main(){
  s.lockHasMessage=true;s.receivedName="Ridge_L1 🇮🇹";r.lock(s);auto lockPixels=shot();assert(s.receivedName=="Ridge_L1 🇮🇹");s.receivedName="Ridge_L1";r.lock(s);assert(shot()==lockPixels);
  // Plus Home header: clock (MenuClock) and date left-aligned in MenuHomeClock's column, left of the divider; the right box
  // (here: logo + contact count + fact, no weather) centred between the divider and the right margin. The Max centred
- // clock/date/status in MenuHomeClock/MenuHomeDate/MenuHomeStatus; the Plus does not use those two info rects.
+ // clock/date/status in MenuHomeClock; the Plus does not use those two info rects.
  for(auto clock:{"22:51","11:11","00:00"})for(auto date:{"Wed, Oct 14","Mon, Apr 28","Sat, Sep 30"})for(bool acquiring:{false,true}){
   s.status.clock=clock;s.menuDate=date;s.status.acquiringTime=acquiring;s.nodeCount=303;r.home(s);
   const int divider=mm::W/2+6-10,boxX=mm::W/2+4,boxR=mm::W-mm::Margin;

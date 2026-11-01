@@ -5,7 +5,7 @@
 #include "ui/fast_canvas.h"
 #include "ui/navigation_catalog.h"
 int main(){
- assert(mm::ApplicationCount==4&&mm::Applications[0].section==9&&mm::SettingsCount==19);/* Plus: Themes, Home widgets, Text size, Accent key and Keyboard languages rows, no Antenna row */for(auto app:mm::Applications)assert(app.section!=3);
+ assert(mm::ApplicationCount==4&&mm::Applications[0].section==9&&mm::SettingsCount==20);/* Plus: Themes, Home widgets, Text size, Accent key and Keyboard languages rows, no Antenna row */for(auto app:mm::Applications)assert(app.section!=3);
  assert(mm::SettingsItems[mm::SettingsGpsIndex].section==3);assert(mm::settingsVisible(mm::SettingsGpsIndex,mm::settingsReveal(mm::SettingsGpsIndex,0)));
  assert(mm::GpsToggle.y>=mm::Top&&mm::GpsToggle.x+mm::GpsToggle.w<=mm::W-mm::Margin);
  mm::FastCanvas16 canvas(mm::W,mm::H);mm::Components c(canvas);mm::Renderer renderer(canvas);mm::State s;

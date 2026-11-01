@@ -226,12 +226,15 @@ void Components::statusBar(const Status &s){
  text(Margin,StatusTextY,s.clock,Font::ChatBody,StatusFg,StatusClockW);
  if(!s.keyboard.empty())text(StatusAntennaX,StatusTextY,s.keyboard,Font::ChatMeta,StatusFg,StatusAntennaW);// keyboard language (Alt + Space)
  // the T-Deck Plus has one LoRa antenna
- const Icon indicators[]={Icon::Messages,Icon::GPS,Icon::Wifi,Icon::Bluetooth};
- const bool active[]={s.unread>0,s.gps,s.wifi,s.bt};
+ // The companion link on: its antenna in the Bluetooth place.
+ const Icon indicators[]={Icon::Messages,Icon::GPS,Icon::Wifi,s.companion?Icon::Antenna:Icon::Bluetooth};
+ const bool active[]={s.unread>0,s.gps,s.wifi,s.bt||s.companion};
  int count=0;for(bool on:active)if(on)count++;
  auto layout=statusLayout(s);
  int first=layout.iconsRight-(count?(count-1)*StatusIconStep+IconStatus:0),visible=0;
- for(int i=0;i<4;i++)if(active[i])icon(indicators[i],first+visible++*StatusIconStep,StatusIconY,IconStatus,StatusFg);// MDI sprites share one grid
+ // Red: on but not connected (Wi-Fi without a network, a companion not reached). Connected: the normal status ink.
+ const bool waiting[]={false,false,!s.wifiLinked,s.companion&&!s.companionLinked};
+ for(int i=0;i<4;i++)if(active[i])icon(indicators[i],first+visible++*StatusIconStep,StatusIconY,IconStatus,waiting[i]?rgb(0xE0,0x45,0x3A):StatusFg);// MDI sprites share one grid
  text(layout.percentX,StatusTextY,layout.percent,Font::ChatBody,StatusFg);
  // iOS-style battery: rounded body, soft outline, level filled in the theme accent, rounded terminal; bolt when charging.
  {int x=layout.batteryX,y=StatusBatteryY,bw=StatusBatteryW-3,bh=StatusBatteryH;int level=std::max(0,std::min(100,s.battery));

@@ -6,10 +6,10 @@
 #include "fast_canvas.h"
 namespace mm {
 enum class Font { Small,Body,Bold,Title,Brand,Clock,Tiny,HomeClock,LockText,ChatBody,ChatMeta,ChatTitle,MenuClock,MenuLabel,LockClock,NavLabel,ChatText };// ChatText: chat bubbles and composer (larger on the T-Deck Plus LCD, = ChatBody on e-paper)
-enum class Icon { Messages,Mesh,Weather,Radio,Files,Terminal,Notes,Tools,Settings,GPS,Info,Battery,Signal,Wifi,Bluetooth,Contacts,Keyboard,Flashlight,Clock,Lock,Power,Back,Search,Compose,Menu,Plus,ChevronRight,Mountain };// order = tools/make_aa_icons.py ICONS
+enum class Icon { Messages,Mesh,Weather,Radio,Files,Terminal,Notes,Tools,Settings,GPS,Info,Battery,Signal,Wifi,Bluetooth,Contacts,Keyboard,Flashlight,Clock,Lock,Power,Back,Search,Compose,Menu,Plus,ChevronRight,Mountain,Antenna };// order = tools/make_aa_icons.py ICONS
 // MatterMesh OS icon pack: sprites mm_aa_icons::PackFirst+id (tools/make_aa_icons.py).
-enum class PackIcon { Chat,Contacts,Settings,Apps,Map,Files,Weather,Signal,Tools,List,Radio,Keyboard };
-struct Status { std::string clock="--:--";int battery=-1,unread=0;bool mesh=false,wifi=false,bt=false,gps=false,acquiringTime=false,charging=false;std::string keyboard;/* keyboard language code, only with 2+ languages on */ };
+enum class PackIcon { Chat,Contacts,Settings,Apps,Map,Files,Weather,Signal,Tools,List,Radio,Keyboard,Trail,Plane,Spectrum };
+struct Status { std::string clock="--:--";int battery=-1,unread=0;bool mesh=false,wifi=false,bt=false,gps=false,acquiringTime=false,charging=false,companion=false,wifiLinked=false,companionLinked=false;/* companion: the link is on, its radio in use once companionLinked; wifiLinked: on a network */std::string keyboard;/* keyboard language code, only with 2+ languages on */ };
 struct StatusLayout {std::string percent;int percentX,percentWidth,batteryX,iconsRight;};
 // Touchables: what the components draw that a finger can press (cards, buttons, icon buttons, tabs, the Home cards
 // and tabs), recorded during a render; render() shows a press ring on the one under a resting finger.

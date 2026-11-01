@@ -39,13 +39,15 @@ static RxLog rxPackets; // last received packets (CLI log); slots in PSRAM (begi
 static fs::FS *storage=nullptr;
 static Receiver receivedCallback;static Delivered deliveredCallback;
 static Snapshot state;static bool contactsDirty=false;static uint32_t saveAt=0,lastContactsSave=0,lastContactsAttempt=0;
-struct CachedNode {char key[65]={},name[32]={};uint8_t type=0;uint32_t seen=0;int32_t lat=0,lon=0;int hops=-1;float rssi=0,snr=0;bool live=false,verified=false,advertVerified=false;uint8_t advertDigest[32]={};
+struct CachedNode {char key[65]={},name[32]={};uint8_t type=0;uint32_t seen=0,advertAt=0;int32_t lat=0,lon=0;int hops=-1;float rssi=0,snr=0;bool live=false,book=false,/* in the contact book: only these are listed */verified=false,advertVerified=false;uint8_t advertDigest[32]={};
 };
 static CachedNode *discovered=nullptr;static int discoveredCount=0;
 static uint32_t nodeChanges=0;// any cached node heard or changed: the Contacts page repaints
-// Returns true when the node is new or its saved fields (name, type, position) changed: only then the contact book on SD is dirty.
-static bool cacheNode(const CachedNode &node){int index=discoveredCount;for(int i=0;i<discoveredCount;i++)if(!strcmp(discovered[i].key,node.key)){index=i;break;}bool changed=true;if(index==discoveredCount){if(discoveredCount>=NODE_CAPACITY)return false;new(&discovered[discoveredCount++]) CachedNode(node);}else{auto old=discovered[index];changed=strcmp(old.name,node.name)!=0||old.type!=node.type||old.lat!=node.lat||old.lon!=node.lon;discovered[index]=node;auto &n=discovered[index];if(!node.lat&&!node.lon){n.lat=old.lat;n.lon=old.lon;}}
- nodeChanges++;return changed;}
+static bool contactImporting=false;// an app import is the user's choice: it passes with Add new off
+static bool bookHasKey(const char *key);static void markInBook(const uint8_t *pub,bool in);
+// Returns true when a contact is new or its saved fields (name, type, position) changed: only then the contact book on SD is dirty.
+static bool cacheNode(const CachedNode &node){const bool inBook=node.book||bookHasKey(node.key);int index=discoveredCount;for(int i=0;i<discoveredCount;i++)if(!strcmp(discovered[i].key,node.key)){index=i;break;}bool changed=true;if(index==discoveredCount){if(discoveredCount>=NODE_CAPACITY){/* a full cache gives way: unsaved nodes first (Add new off keeps feeding it) */int spare=-1;for(int i=0;i<discoveredCount&&spare<0;i++)if(!discovered[i].book)spare=i;if(spare<0)return false;index=spare;discovered[spare]=CachedNode(node);}else new(&discovered[discoveredCount++]) CachedNode(node);}else{auto old=discovered[index];changed=old.book!=inBook||strcmp(old.name,node.name)!=0||old.type!=node.type||old.lat!=node.lat||old.lon!=node.lon;discovered[index]=node;auto &n=discovered[index];if(!node.lat&&!node.lon){n.lat=old.lat;n.lon=old.lon;}}
+ discovered[index].book=inBook;nodeChanges++;return inBook&&changed;}
 
 static String channelScopes[CHAT_SLOTS],currentScope="*";static bool explicitGroupScope=false;
 static std::vector<String> knownScopes;// filled by registerScope (saved and channel scopes)
@@ -96,7 +98,25 @@ static TrackedTX outgoing[16];
 struct EchoTrack {bool active=false;uint32_t token=0,seenAt=0;uint8_t hash[MAX_HASH_SIZE]={};RepeaterObserver repeaters;};
 static EchoTrack echoes[16];static unsigned nextEcho=0;
 static String receivedPath(const mesh::Packet *p){if(!p->isRouteFlood())return "direct";String out="flood:";for(unsigned i=0;i<p->getPathHashCount();i++){if(i)out+=",";out+=hex(p->path+i*p->getPathHashSize(),p->getPathHashSize());}return out;}
-static void observeEcho(mesh::Packet *p){if(!p->isRouteFlood())return;uint8_t hash[MAX_HASH_SIZE];p->calculatePacketHash(hash);for(auto &e:echoes)if(e.active&&millis()-e.seenAt<600000&&!memcmp(hash,e.hash,MAX_HASH_SIZE)){if(e.repeaters.observe(p->path,p->getPathHashCount(),p->getPathHashSize())){Delivery d;d.token=e.token;d.repeaters=e.repeaters.count;if(p->getPathHashCount())d.firstRepeater=hex(p->path,p->getPathHashSize());for(int i=0;i<e.repeaters.count;i++){if(i)d.heard+=",";d.heard+=hex(e.repeaters.hashes[i],e.repeaters.sizes[i]);}deliveredCallback(d);}break;}}
+// The last advert sent: its copies heard back name the repeaters that took it.
+static struct {bool active=false;uint32_t at=0,revision=0;uint8_t hash[MAX_HASH_SIZE]={};RepeaterObserver repeaters;} advertEcho;
+static void observeEcho(mesh::Packet *p){if(!p->isRouteFlood())return;uint8_t hash[MAX_HASH_SIZE];p->calculatePacketHash(hash);if(advertEcho.active&&!memcmp(hash,advertEcho.hash,MAX_HASH_SIZE)&&advertEcho.repeaters.observe(p->path,p->getPathHashCount(),p->getPathHashSize()))advertEcho.revision++;for(auto &e:echoes)if(e.active&&millis()-e.seenAt<600000&&!memcmp(hash,e.hash,MAX_HASH_SIZE)){if(e.repeaters.observe(p->path,p->getPathHashCount(),p->getPathHashSize())){Delivery d;d.token=e.token;d.repeaters=e.repeaters.count;if(p->getPathHashCount())d.firstRepeater=hex(p->path,p->getPathHashSize());for(int i=0;i<e.repeaters.count;i++){if(i)d.heard+=",";d.heard+=hex(e.repeaters.hashes[i],e.repeaters.sizes[i]);}deliveredCallback(d);}break;}}
+
+// Companion link: the companion builds and sends the packet, so its hash is unknown here. The first copy it hears
+// back is found by decrypting each group text with the sent channel key (same timestamp and text); its hash then
+// finds the other repeats through observeEcho.
+struct RemoteEcho {bool active=false;uint32_t token=0,timestamp=0,at=0;uint8_t secret[PUB_KEY_SIZE]={};String text;};
+static RemoteEcho remoteEchoes[8];static unsigned nextRemote=0;
+void remoteEchoTrack(uint32_t token,const uint8_t secret[16],uint32_t timestamp,const String &text){auto &r=remoteEchoes[nextRemote++%8];r=RemoteEcho();r.active=true;r.token=token;r.timestamp=timestamp;r.at=millis();memcpy(r.secret,secret,16);r.text=text;}
+void remoteRaw(const uint8_t *raw,int len){
+ static mesh::Packet p;if(len<2||len>255||!p.readFrom(raw,uint8_t(len)))return;
+ if(p.getPayloadType()==PAYLOAD_TYPE_GRP_TXT&&p.isRouteFlood()&&p.payload_len>1+CIPHER_MAC_SIZE)for(auto &r:remoteEchoes){
+  if(!r.active)continue;if(millis()-r.at>600000){r.active=false;continue;}
+  uint8_t plain[MAX_PACKET_PAYLOAD+1];int n=mesh::Utils::MACThenDecrypt(r.secret,plain,p.payload+1,p.payload_len-1);if(n<=5)continue;plain[n]=0;
+  uint32_t ts;memcpy(&ts,plain,4);const char *body=strstr(reinterpret_cast<const char*>(plain)+5,": ");
+  if(ts!=r.timestamp||!body||strcmp(body+2,r.text.c_str()))continue;
+  auto &e=echoes[nextEcho++%16];e=EchoTrack();e.active=true;e.token=r.token;e.seenAt=millis();p.calculatePacketHash(e.hash);r.active=false;break;}
+ observeEcho(&p);}
 
 // Direct message routes chosen on the T-Deck (Flood only / Manual), by contact key; Auto contacts have no row.
 // Saved in /mattermesh/dmroutes.tsv: key, mode, encoded path length (MeshCore out_path_len), path hex.
@@ -146,10 +166,12 @@ protected:
  int calcRxDelay(float,uint32_t)const override{return 0;}
  void sendFloodScoped(const ContactInfo&,mesh::Packet *pkt,uint32_t delay=0)override{flood(pkt,delay);}
  void sendFloodScoped(const mesh::GroupChannel &ch,mesh::Packet *pkt,uint32_t delay=0)override{int idx=activeChannelIdx(ch);String old=currentScope;if(!explicitGroupScope)currentScope=idx>=0?channelScopes[idx]:"*";flood(pkt,delay);currentScope=old;}
- void onAdvertRecv(mesh::Packet *packet,const mesh::Identity &id,uint32_t timestamp,const uint8_t *data,size_t length)override{BaseChatMesh::onAdvertRecv(packet,id,timestamp,data,length);}
+ void onAdvertRecv(mesh::Packet *packet,const mesh::Identity &id,uint32_t timestamp,const uint8_t *data,size_t length)override{BaseChatMesh::onAdvertRecv(packet,id,timestamp,data,length);contactImporting=false;}
  void onDiscoveredContact(ContactInfo &c,bool,uint8_t pathLen,const uint8_t*)override{
-  String key=hex(c.id.pub_key,32);CachedNode n;key.toCharArray(n.key,sizeof(n.key));safe(c.name,31).toCharArray(n.name,sizeof(n.name));n.type=c.type;n.seen=millis();n.hops=pathLen&63;n.rssi=driver.getLastRSSI();n.snr=driver.getLastSNR();n.live=true;n.verified=true;n.lat=c.gps_lat;n.lon=c.gps_lon;if(cacheNode(n)){contactsDirty=true;saveAt=millis();}
+  String key=hex(c.id.pub_key,32);CachedNode n;key.toCharArray(n.key,sizeof(n.key));safe(c.name,31).toCharArray(n.name,sizeof(n.name));n.type=c.type;n.seen=millis();n.hops=pathLen&63;n.rssi=driver.getLastRSSI();n.snr=driver.getLastSNR();n.live=true;n.verified=true;n.lat=c.gps_lat;n.lon=c.gps_lon;n.advertAt=c.last_advert_timestamp;if(cacheNode(n)){contactsDirty=true;saveAt=millis();}
  }
+ bool shouldAutoAddContactType(uint8_t)const override{return contactImporting||contactsAddNew();}
+ void onContactsFull()override{if(contactsReplaceOldest())contactsDeleteOldest(1);}// the new contact takes the slot at its next advert
  void onContactPathUpdated(const ContactInfo &c)override{dmRouteApply(const_cast<ContactInfo&>(c));/* a manual path stays */contactsDirty=true;saveAt=millis();}
  ContactInfo *processAck(const uint8_t *data)override{companion::ackReceived(data);uint32_t ack;memcpy(&ack,data,4);if(pending.active&&(pending.ack==ack||(pending.firstAck&&pending.firstAck==ack))){auto contact=lookupContactByPubKey(pending.key,32);Delivery d;d.token=pending.token;d.state=pending.route+": delivered";deliveredCallback(d);pending.active=false;return contact;}return checkConnectionsAck(data);}
  void onMessageRecv(const ContactInfo &c,mesh::Packet *p,uint32_t ts,const char *t)override{if(c.type==ADV_TYPE_REPEATER)return;deliver(c,p,ts,t);}// repeater CLI replies are not chat messages
@@ -185,7 +207,7 @@ public:
    if(used+n>blockSize)flush();memcpy(block+used,row,n);used+=n;}
   flush();heap_caps_free(block);f.flush();f.close();if(!ok){storage->remove("/mattermesh/contacts.tmp");return false;}
   return device::sdReplace(*storage,"/mattermesh/contacts.tmp","/mattermesh/contacts.tsv","/mattermesh/contacts.bak");}
- void loadContacts(){File f=storage->open(device::sdSavedPath(*storage,"/mattermesh/contacts.tsv","/mattermesh/contacts.bak"));if(!f)return;while(f.available()){String row=f.readStringUntil('\n');row.trim();ContactInfo c={};if(!unhex(field(row,0),c.id.pub_key,32))continue;String name=field(row,1);name.toCharArray(c.name,sizeof(c.name));c.type=field(row,2).toInt();c.out_path_len=field(row,3).toInt();if(c.out_path_len!=OUT_PATH_UNKNOWN&&(!mesh::Packet::isValidPathLen(c.out_path_len)||!unhex(field(row,4),c.out_path,(c.out_path_len&63)*((c.out_path_len>>6)+1))))continue;c.last_advert_timestamp=field(row,5).toInt();c.gps_lat=field(row,6).toInt();c.gps_lon=field(row,7).toInt();c.shared_secret_valid=false;if(addContact(c)){CachedNode n;hex(c.id.pub_key,32).toCharArray(n.key,sizeof(n.key));String(c.name).toCharArray(n.name,sizeof(n.name));n.type=c.type;n.lat=c.gps_lat;n.lon=c.gps_lon;cacheNode(n);}}f.close();}
+ void loadContacts(){File f=storage->open(device::sdSavedPath(*storage,"/mattermesh/contacts.tsv","/mattermesh/contacts.bak"));if(!f)return;while(f.available()){String row=f.readStringUntil('\n');row.trim();ContactInfo c={};if(!unhex(field(row,0),c.id.pub_key,32))continue;String name=field(row,1);name.toCharArray(c.name,sizeof(c.name));c.type=field(row,2).toInt();c.out_path_len=field(row,3).toInt();if(c.out_path_len!=OUT_PATH_UNKNOWN&&(!mesh::Packet::isValidPathLen(c.out_path_len)||!unhex(field(row,4),c.out_path,(c.out_path_len&63)*((c.out_path_len>>6)+1))))continue;c.last_advert_timestamp=field(row,5).toInt();c.gps_lat=field(row,6).toInt();c.gps_lon=field(row,7).toInt();c.shared_secret_valid=false;if(addContact(c)){CachedNode n;n.book=true;n.advertAt=c.last_advert_timestamp;hex(c.id.pub_key,32).toCharArray(n.key,sizeof(n.key));String(c.name).toCharArray(n.name,sizeof(n.name));n.type=c.type;n.lat=c.gps_lat;n.lon=c.gps_lon;cacheNode(n);}}f.close();}
 };
 static ChatMesh *meshPtr=nullptr;
 static ChatMesh &chatMesh(){return *meshPtr;}
@@ -226,7 +248,10 @@ static bool initRadio(){auto begin=[]{return radio.begin(state.config.frequency,
  if(radio.sx1268())fit433();
  state.error=start();if(state.error==RADIOLIB_ERR_CHIP_NOT_FOUND&&!radio.sx1268()){Config asked=state.config;radio.acceptSX1268();fit433();state.error=start();
   if(state.error==RADIOLIB_ERR_CHIP_NOT_FOUND){radio.acceptSX1262();state.config=asked;}/* neither: the settings stay as they were */}
- if(state.error)return false;state.error=radio.setCRC(1);if(state.error)return false;state.error=radio.setCurrentLimit(140);if(state.error)return false;state.error=radio.setDio2AsRfSwitch(dio2RfSwitch);if(state.error)return false;
+ if(state.error)return false;// begin() resets the chip, and RadioLib skips the image calibration when its last frequency is near: without it the
+ // receiver stays calibrated for another band and hears less.
+ radio.calibrateImage(state.config.frequency);
+ state.error=radio.setCRC(1);if(state.error)return false;state.error=radio.setCurrentLimit(140);if(state.error)return false;state.error=radio.setDio2AsRfSwitch(dio2RfSwitch);if(state.error)return false;
  state.error=radio.setRxBoostedGainMode(true);if(state.error)return false;
  driver.setParams(state.config.frequency,state.config.bandwidth,state.config.sf,state.config.cr);driver.begin();state.error=radio.startReceive();return state.error==0;}
 bool begin(fs::FS &fs,Receiver receiver,Delivered delivered){storage=&fs;receivedCallback=receiver;deliveredCallback=delivered;if(!meshPtr){void *memory=heap_caps_malloc(sizeof(ChatMesh),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);void *cache=heap_caps_malloc(sizeof(CachedNode)*NODE_CAPACITY,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!memory||!cache){heap_caps_free(memory);heap_caps_free(cache);state.error=-1004;return false;}meshPtr=new(memory) ChatMesh();discovered=static_cast<CachedNode*>(cache);discoveredCount=0;if(!rxPackets.ready()){void *slots=heap_caps_malloc(sizeof(RxPacket)*RX_LOG_CAPACITY,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(slots)rxPackets.attach(static_cast<RxPacket*>(slots),RX_LOG_CAPACITY);}}
@@ -235,19 +260,40 @@ bool begin(fs::FS &fs,Receiver receiver,Delivered delivered){storage=&fs;receive
  if(!initRadio())return false;chatMesh().begin();chatMesh().loadContacts();dmRoutesLoad();state.ready=true;return true;
 }
 uint32_t nodesRevision(){return nodeChanges;}
-void loop(){if(!state.ready)return;chatMesh().loop();driver.loop();if(pending.active&&pending.transmitted&&int32_t(millis()-pending.deadline)>0)dmNoAck();
+bool radioSuspend(bool off){if(!state.ready)return false;
+ if(off==state.suspended)return true;
+ // A DM still queued or waiting goes with the radio: its packet leaves the queue (no stale send after a wake).
+ if(off&&pending.active){for(auto &o:outgoing)if(o.token==pending.token&&o.packet){for(int i=0;i<pool.getOutboundTotal();i++)if(pool.getOutboundByIdx(i)==o.packet){pool.free(pool.removeOutboundByIdx(i));break;}o.packet=nullptr;}
+  Delivery d;d.token=pending.token;d.state="Not sent: radio off (companion link)";deliveredCallback(d);pending.active=false;}
+ if(off){radio.standby();radio.sleep(true);state.suspended=true;state.rx=false;return true;}
+ state.suspended=false;state.ready=initRadio();return state.ready;}
+void loop(){if(!state.ready||state.suspended)return;chatMesh().loop();driver.loop();if(pending.active&&pending.transmitted&&int32_t(millis()-pending.deadline)>0)dmNoAck();
  if(pending.active&&!pending.transmitted&&millis()-pending.queuedAt>60000&&!dmQueued(pending.token)){Delivery d;d.token=pending.token;d.state="TX failed";deliveredCallback(d);pending.active=false;}/* gone from the queue untransmitted (a slow duty-cycle wait is not a failure) */if(contactsDirty&&millis()-lastContactsAttempt>=3000&&(millis()-saveAt>3000||millis()-lastContactsSave>=120000)&&!busy()){lastContactsAttempt=millis();if(chatMesh().saveContacts()){lastContactsSave=millis();contactsDirty=false;}}}
 RadioLevels radioLevels(){RadioLevels l;if(!state.ready)return l;l.noiseFloor=driver.getNoiseFloor();if(auto p=rxPackets.newest(0)){l.received=true;l.rssi=p->rssi();l.snr=p->snr();}return l;}
-RadioDiag radioDiag(){RadioDiag d;d.tcxo=tcxoVoltage;if(state.ready){d.boosted=radio.getRxBoostedGainMode();d.deviceErrors=radio.getDeviceErrors();}d.noiseFloor=driver.getNoiseFloor();d.received=driver.getPacketsRecv();d.recvErrors=driver.getPacketsRecvErrors();if(d.received){d.rssi=driver.getLastRSSI();d.snr=driver.getLastSNR();}return d;}
+RadioDiag radioDiag(){RadioDiag d;d.tcxo=tcxoVoltage;if(state.ready&&!state.suspended){d.boosted=radio.getRxBoostedGainMode();d.deviceErrors=radio.getDeviceErrors();}d.noiseFloor=driver.getNoiseFloor();d.received=driver.getPacketsRecv();d.recvErrors=driver.getPacketsRecvErrors();if(d.received){d.rssi=driver.getLastRSSI();d.snr=driver.getLastSNR();}return d;}
 bool radioSX1268(){return radio.sx1268();}
-bool radioClearErrors(){return state.ready&&radio.clearDeviceErrors()==RADIOLIB_ERR_NONE;}
+bool radioClearErrors(){return state.ready&&!state.suspended&&radio.clearDeviceErrors()==RADIOLIB_ERR_NONE;}
 RadioCounters radioCounters(){RadioCounters c;c.ready=state.ready;c.received=driver.getPacketsRecv();c.sent=driver.getPacketsSent();return c;}// no Config copy (the node name String)
-Snapshot snapshot(){state.nodes=meshPtr?chatMesh().getNumContacts():0;state.received=driver.getPacketsRecv();state.sent=driver.getPacketsSent();state.errors=driver.getPacketsRecvErrors();state.rx=state.ready&&driver.isInRecvMode();state.queued=pool.getOutboundTotal();return state;} // rssi/snr are captured in logRx, no SPI reads per poll
-static bool matchesFilter(const CachedNode &n,int filter){return filter==0||(filter==1&&n.type==ADV_TYPE_CHAT)||(filter==2&&n.type==ADV_TYPE_REPEATER);}
+Snapshot snapshot(){state.nodes=meshPtr?chatMesh().getNumContacts():0;state.received=driver.getPacketsRecv();state.sent=driver.getPacketsSent();state.errors=driver.getPacketsRecvErrors();state.rx=state.ready&&!state.suspended&&driver.isInRecvMode();state.queued=pool.getOutboundTotal();return state;} // rssi/snr are captured in logRx, no SPI reads per poll
+static bool matchesFilter(const CachedNode &n,int filter){if(!n.book)return false;return filter==0||(filter==1&&n.type==ADV_TYPE_CHAT)||(filter==2&&n.type==ADV_TYPE_REPEATER);}
 int nodeCount(int filter){int count=0;for(int i=0;i<discoveredCount;i++)if(matchesFilter(discovered[i],filter))count++;return count;}
 ContactPage contacts(int filter,const std::string &query,int offset,int limit){ContactPage page;std::vector<int> idx;idx.reserve(discoveredCount);for(int i=0;i<discoveredCount;i++){auto &n=discovered[i];if(!matchesFilter(n,filter)||!mm::contactMatches(n.name,query))continue;idx.push_back(i);if(n.live)page.live++;}
  uint32_t now=millis();std::stable_sort(idx.begin(),idx.end(),[&](int a,int b){auto &x=discovered[a],&y=discovered[b];if(x.live!=y.live)return x.live;if(x.live)return uint32_t(now-x.seen)<uint32_t(now-y.seen);return strcasecmp(x.name,y.name)<0;});
- page.total=idx.size();for(int i=std::max(0,offset);i<int(idx.size())&&int(page.rows.size())<limit;i++){auto &n=discovered[idx[i]];Node node;node.key=n.key;node.name=n.name;node.type=n.type;node.seen=n.seen;node.hops=n.hops;node.rssi=n.rssi;node.snr=n.snr;node.live=n.live;node.lat=n.lat;node.lon=n.lon;page.rows.push_back(node);}return page;}
+ page.total=idx.size();for(int i=std::max(0,offset);i<int(idx.size())&&int(page.rows.size())<limit;i++){auto &n=discovered[idx[i]];Node node;node.key=n.key;node.name=n.name;node.type=n.type;node.seen=n.seen;node.advertAt=n.advertAt;node.hops=n.hops;node.rssi=n.rssi;node.snr=n.snr;node.live=n.live;node.lat=n.lat;node.lon=n.lon;page.rows.push_back(node);}return page;}
+static bool bookHasKey(const char *key){uint8_t pub[32];return meshPtr&&unhex(String(key),pub,32)&&chatMesh().lookupContactByPubKey(pub,32);}
+static void markInBook(const uint8_t *pub,bool in){String key=hex(pub,32);for(int i=0;i<discoveredCount;i++)if(key==discovered[i].key){discovered[i].book=in;break;}nodeChanges++;}
+static bool (*contactProtected)(const char *key)=nullptr;
+void contactsProtect(bool (*isProtected)(const char *key)){contactProtected=isProtected;}
+// Who Delete oldest may take, oldest advert first: not a favourite, an open chat or a node heard
+// since boot. Book indices, so the removal can walk them from the end.
+struct BookEntry {int index;uint32_t at;};
+static std::vector<BookEntry> deletableContacts(){std::vector<BookEntry> out;std::vector<const char*> live;for(int i=0;i<discoveredCount;i++)if(discovered[i].live)live.push_back(discovered[i].key);auto less=[](const char *a,const char *b){return strcmp(a,b)<0;};std::sort(live.begin(),live.end(),less);
+ ContactInfo c;for(int i=MAX_ANON_CONTACTS,n=i+chatMesh().getNumContacts();i<n;i++){/* the first slots are MeshCore's, for anonymous requests */if(!chatMesh().getContactByIdx(i,c)||(c.flags&1))continue;String key=hex(c.id.pub_key,32);if(std::binary_search(live.begin(),live.end(),key.c_str(),less)||(contactProtected&&contactProtected(key.c_str())))continue;out.push_back({i,c.last_advert_timestamp});}
+ std::stable_sort(out.begin(),out.end(),[](const BookEntry &a,const BookEntry &b){return a.at<b.at;});return out;}
+static int removeBookEntries(std::vector<int> &indices){std::sort(indices.begin(),indices.end(),std::greater<int>());int removed=0;bool routes=false;ContactInfo c;for(int index:indices){if(!chatMesh().getContactByIdx(index,c))continue;uint8_t pub[32];memcpy(pub,c.id.pub_key,32);if(!chatMesh().removeContact(c))continue;removed++;if(auto r=dmRouteFind(pub)){dmRoutes.erase(dmRoutes.begin()+(r-dmRoutes.data()));routes=true;}String key=hex(pub,32);for(int i=0;i<discoveredCount;i++)if(key==discovered[i].key){discovered[i]=discovered[--discoveredCount];break;}if(!(removed&15))delay(0);}if(routes)dmRoutesSave();/* once: the SD is slow and a book can hold many routes */if(removed){nodeChanges++;contactsDirty=true;saveAt=millis();if(state.suspended&&chatMesh().saveContacts())contactsDirty=false;/* asleep for the companion link: loop() is not running */}return removed;}
+int contactsDeletable(){return meshPtr?int(deletableContacts().size()):0;}
+int contactsDeleteOldest(int count){if(!meshPtr||count<=0)return 0;auto list=deletableContacts();std::vector<int> indices;for(int i=0;i<int(list.size())&&i<count;i++)indices.push_back(list[i].index);return removeBookEntries(indices);}
+int contactsDeleteAll(){if(!meshPtr)return 0;std::vector<int> indices;for(int i=MAX_ANON_CONTACTS,n=i+chatMesh().getNumContacts();i<n;i++)indices.push_back(i);return removeBookEntries(indices);}
 int contactsCount(int filter,const std::string &query){int n=0;for(int i=0;i<discoveredCount;i++){auto &c=discovered[i];if(matchesFilter(c,filter)&&mm::contactMatches(c.name,query))n++;}return n;}
 std::vector<Node> nodes(int filter,int offset,int limit){std::vector<Node> out;if(offset<0||limit<=0)return out;int index=0;for(int i=0;i<discoveredCount&&int(out.size())<limit;i++){auto &n=discovered[i];if(!matchesFilter(n,filter)||index++<offset)continue;Node node;node.key=n.key;node.name=n.name;node.type=n.type;node.seen=n.seen;node.hops=n.hops;node.rssi=n.rssi;node.snr=n.snr;node.live=n.live;node.lat=n.lat;node.lon=n.lon;out.push_back(node);}return out;}
 // Map pins: nodes whose advert carried a position (MeshCore 1e-6 degrees) inside the box.
@@ -265,23 +311,23 @@ int repeaterPinsForPrefix(const String &prefix,NodePin *out,int capacity,int &ma
 int nodePinsForName(const String &name,NodePin *out,int capacity,int &matches){if(!name.length()){matches=0;return 0;}return nodePinsWhere([](const CachedNode &n,const String &v){return n.type!=ADV_TYPE_REPEATER&&v==n.name;},name,out,capacity,matches);}
 String nodeNameForPrefix(const String &prefix,int &matches,int type){matches=0;String name;if(!prefix.length()||prefix.length()>64)return name;for(int i=0;i<discoveredCount;i++)if((!type||discovered[i].type==type)&&!strncmp(discovered[i].key,prefix.c_str(),prefix.length())){name=discovered[i].name;matches++;}return name;}
 
-bool busy(){return state.ready&&(state.tx||pool.getOutboundTotal()>0||driver.isReceiving());}
+bool busy(){return state.ready&&!state.suspended&&(state.tx||pool.getOutboundTotal()>0||driver.isReceiving());}
 
 bool configure(const Config &cfg,String &reason){
  if(!valid(cfg)){reason="Invalid radio settings";return false;}
  if(radio.sx1268()&&cfg.frequency>810){reason="This T-Deck radio (SX1268) is for 433 MHz";return false;}
  const bool offline=!state.ready;/* no radio (or not started): the settings are saved for the next start */
- if(!storage){reason="Radio unavailable (no SD card)";return false;}
+ if(!storage){reason="SD card not readable: use FAT32, then restart";return false;}
  if(!offline&&busy()){reason="Radio busy, try again";return false;}
  Config old=state.config;bool rfChanged=old.frequency!=cfg.frequency||old.bandwidth!=cfg.bandwidth||old.sf!=cfg.sf||old.cr!=cfg.cr||old.power!=cfg.power;
- if(rfChanged&&!offline){radio.standby();state.config=cfg;if(!initRadio()){state.config=old;state.ready=initRadio();reason="Radio settings rejected";return false;}}
+ if(rfChanged&&state.suspended)state.config=cfg;/* asleep for the companion link: applied when it wakes */else if(rfChanged&&!offline){radio.standby();state.config=cfg;if(!initRadio()){state.config=old;state.ready=initRadio();reason="Radio settings rejected";return false;}}
  File f=storage->open("/mattermesh/radio.tmp","w");
  String row=String(cfg.frequency,3)+"\t"+String(cfg.bandwidth,2)+"\t"+String(cfg.sf)+"\t"+String(cfg.cr)+"\t"+String(cfg.power)+"\t"+cfg.name+"\t"+String(cfg.pathBytes)+"\n";
  const bool opened=bool(f);bool written=opened&&f.print(row)==row.length();if(f){f.flush();f.close();}
  // print() only fills a buffer: the size on the card tells whether the row really got there.
  if(written){File saved=storage->open("/mattermesh/radio.tmp");written=saved&&saved.size()==row.length();if(saved)saved.close();}
  const bool ok=written&&device::sdReplace(*storage,"/mattermesh/radio.tmp","/mattermesh/radio.conf","/mattermesh/radio.bak");
- if(!ok){storage->remove("/mattermesh/radio.tmp");state.config=old;if(rfChanged&&!offline)state.ready=initRadio();reason=String("SD settings save failed: ")+(!opened?"open":!written?"write":"rename");return false;}
+ if(!ok){storage->remove("/mattermesh/radio.tmp");state.config=old;if(rfChanged&&!state.suspended&&!offline)state.ready=initRadio();reason=String("SD settings save failed: ")+(!opened?"open":!written?"write":"rename");return false;}
  state.config=cfg;setOutgoingPathHashBytes(cfg.pathBytes);reason=!offline?String("LoRa settings saved"):state.error==RADIOLIB_ERR_CHIP_NOT_FOUND?String("Saved. Radio not found"):"Saved. Radio error "+String(state.error);return true;
 }
 bool registerScope(const String &scope){if(!scope.length()||scope=="*"||scope=="unknown")return true;for(auto &value:knownScopes)if(value==scope)return true;if(knownScopes.size()>=64)return false;knownScopes.push_back(scope);return true;}
@@ -307,14 +353,15 @@ bool channelSecret(int id,String &out){ChannelDetails ch;if(!meshPtr||id<0||id>=
 void clearChannels(){if(!meshPtr)return;ChannelDetails empty={};for(int i=0;i<CHAT_SLOTS;i++){chatMesh().setChannel(i,empty);channelScopes[i]="*";}}
 bool channel(int id,const String &name,const String &key,const String &scope,String &reason){if(!meshPtr){reason="Mesh memory unavailable";return false;}if(id<0||id>=CHAT_SLOTS){reason="Channel index invalid";return false;}ChannelDetails ch={};if(name.length()>31){reason="Channel name too long";return false;}name.toCharArray(ch.name,sizeof(ch.name));if(key.length()){size_t n=key.length()/2;if((n!=16&&n!=32)||!unhex(key,ch.channel.secret,n)){reason="Use a 16/32-byte hex key";return false;}}else if(name=="Public"){const uint8_t publicKey[]={0x8b,0x33,0x87,0xe9,0xc5,0xcd,0xea,0x6a,0xc9,0xe5,0xed,0xba,0xa1,0x15,0xcd,0x72};memcpy(ch.channel.secret,publicKey,16);}else if(name.startsWith("#")){SHA256 sha;sha.update(name.c_str(),name.length());sha.finalize(ch.channel.secret,16);}else{reason="Channel key required";return false;}chatMesh().setChannel(id,ch);channelScopes[id]=scope;registerScope(scope);reason="Channel ready";return true;}
 size_t textLimit(bool direct){return messageBodyLimit(direct,state.config.name.length());}
-bool send(int id,const String &peer,const String &scope,const String &text,uint32_t token,String &reason){if(text.length()>textLimit(peer.length()!=0)){reason=messageLimitError(textLimit(peer.length()!=0)).c_str();return false;}if(!state.ready){reason="Radio offline";return false;}if(pool.getOutboundTotal()>8){reason="TX queue full";return false;}uint32_t timestamp=clock.getCurrentTimeUnique();struct ScopeGuard {String old;~ScopeGuard(){currentScope=old;}} guard{currentScope};currentScope=scope;if(peer.length()){if(pending.active){reason="Waiting for ACK";return false;}uint8_t key[32];if(!unhex(peer,key,32)){reason="Invalid contact key";return false;}auto c=chatMesh().lookupContactByPubKey(key,32);if(!c){reason="Contact not discovered";return false;}auto mode=dmRouteApply(*c);uint32_t ack,timeout;int result=chatMesh().sendMessage(*c,timestamp,0,text.c_str(),ack,timeout);if(!result){reason="TX queue full";return false;}
+bool send(int id,const String &peer,const String &scope,const String &text,uint32_t token,String &reason){if(state.suspended){reason="Radio off (companion link)";return false;}if(text.length()>textLimit(peer.length()!=0)){reason=messageLimitError(textLimit(peer.length()!=0)).c_str();return false;}if(!state.ready){reason="Radio offline";return false;}if(pool.getOutboundTotal()>8){reason="TX queue full";return false;}uint32_t timestamp=clock.getCurrentTimeUnique();struct ScopeGuard {String old;~ScopeGuard(){currentScope=old;}} guard{currentScope};currentScope=scope;if(peer.length()){if(pending.active){reason="Waiting for ACK";return false;}uint8_t key[32];if(!unhex(peer,key,32)){reason="Invalid contact key";return false;}auto c=chatMesh().lookupContactByPubKey(key,32);if(!c){reason="Contact not discovered";return false;}auto mode=dmRouteApply(*c);uint32_t ack,timeout;int result=chatMesh().sendMessage(*c,timestamp,0,text.c_str(),ack,timeout);if(!result){reason="TX queue full";return false;}
   pending=Pending();pending.active=true;pending.queuedAt=millis();pending.token=token;pending.ack=ack;pending.timeout=timeout;pending.timestamp=timestamp;pending.text=text;pending.scope=scope;memcpy(pending.key,key,32);
   pending.route=dmRouteLabel(result==MSG_SEND_SENT_DIRECT?int(c->out_path_len&63):-1);pending.learned=result==MSG_SEND_SENT_DIRECT&&mode==DmRouteMode::Auto;pending.manual=mode==DmRouteMode::Manual;
   trackTX(token,true);reason=pending.route+": queued, awaiting ACK";}
  else{ChannelDetails ch;if(id<0||!chatMesh().getChannel(id,ch)||!ch.name[0]){reason="Channel key required";return false;}explicitGroupScope=true;bool queued=chatMesh().sendGroupMessage(timestamp,ch.channel,state.config.name.c_str(),text.c_str(),text.length());explicitGroupScope=false;if(!queued){reason="TX queue full";return false;}trackTX(token,false);reason="Queued / no group ACK";}
  return true;
 }
-bool advertise(String &reason){if(!state.ready){reason="Radio offline";return false;}if(pool.getOutboundTotal()>8){reason="TX queue full";return false;}auto pkt=chatMesh().createSelfAdvert(state.config.name.c_str());if(!pkt){reason="TX queue full";return false;}sendMatterFlood(chatMesh(),pkt);reason="Advert queued";return true;}
+bool advertise(String &reason,bool position,double lat,double lon){if(state.suspended){reason="Radio off (companion link)";return false;}if(!state.ready){reason="Radio offline";return false;}if(pool.getOutboundTotal()>8){reason="TX queue full";return false;}auto pkt=position?chatMesh().createSelfAdvert(state.config.name.c_str(),lat,lon):chatMesh().createSelfAdvert(state.config.name.c_str());if(!pkt){reason="TX queue full";return false;}advertEcho.active=true;advertEcho.at=millis();advertEcho.repeaters=RepeaterObserver();pkt->calculatePacketHash(advertEcho.hash);sendMatterFlood(chatMesh(),pkt);reason="Advert queued";return true;}
+AdvertHeard advertHeard(){AdvertHeard h;h.sent=advertEcho.active;h.at=advertEcho.at;h.revision=advertEcho.revision;h.count=advertEcho.repeaters.count;for(int i=0;i<h.count;i++){if(i)h.hashes+=",";h.hashes+=hex(advertEcho.repeaters.hashes[i],advertEcho.repeaters.sizes[i]);}return h;}
 bool syncClock(uint32_t epoch,String &reason){if(epoch<MM_EPOCH_MIN||epoch>MM_EPOCH_END){reason="Invalid UTC epoch";return false;}setenv("TZ",MM_TZ,1);tzset();clock.setCurrentTime(epoch);File f=storage?storage->open("/mattermesh/protocol-clock","w"):File();if(f){f.println(epoch);f.flush();f.close();}reason="Clock synchronized / USB";return true;}
 String ownKey(){return state.identity?hex(chatMesh().self_id.pub_key,32):"";}
 void ChatMesh::recordRx(mesh::Packet *packet,int len){

@@ -1,4 +1,5 @@
 #pragma once
+#include "radio_link_layout.h"
 #include "components.h"
 namespace mm {
 struct NavItem {const char *label;Icon icon;int section;};
@@ -9,11 +10,12 @@ static_assert(sizeof(HomeTabs)/sizeof(HomeTabs[0])==MenuHomeTabCount,"Home catal
 // Donate / Unlock QRs: donations (any amount) and the Extra apps product (its page leads to mattermeshos.com/unlock).
 constexpr const char *DonateUrl="https://ko-fi.com/mattermeshos";
 constexpr const char *UnlockUrl="https://ko-fi.com/s/1f0b36fd8b";
+constexpr uint32_t AppKeepMs=600000;// an open app holds off the lock this long after the last input
 constexpr bool FreeBuild=true;
 // Free image: the Extra apps are not compiled in, the App screen lists the OS apps.
 inline constexpr AppItem Applications[]={{"Maps",PackIcon::Map,9},{"Weather",PackIcon::Weather,10},{"Files",PackIcon::Files,7},{"CLI",PackIcon::Keyboard,30}};
 constexpr int ApplicationCount=sizeof(Applications)/sizeof(Applications[0]);
 // Grouped as theme.h SettingsGroupFirst: radio & mesh, connections, display, keyboard & sound, device, system.
-inline constexpr NavItem SettingsItems[]={{"LoRa",Icon::Radio,2},{"Wi-Fi",Icon::Wifi,4},{"Bluetooth",Icon::Bluetooth,14},{"GPS",Icon::GPS,3},{"Themes",Icon::Mountain,22},{"Home widgets",Icon::Weather,HomeWidgetsSection},{"Text size",Icon::Compose,31},{"Lights",Icon::Flashlight,6},{"Power / timeouts",Icon::Power,20},{"Keyboard languages",Icon::Keyboard,KeyboardSection},{"Accent key",Icon::Keyboard,32},{"Sound",Icon::Messages,21},{"Battery",Icon::Battery,5},{"Date / time",Icon::Clock,16},{"Storage",Icon::Files,24},{"OTA update",Icon::Tools,17},{"Diagnostics",Icon::Terminal,11},{"Donate / Unlock",Icon::Lock,SupportSection},{"About",Icon::Info,8}};
+inline constexpr NavItem SettingsItems[]={{"LoRa",Icon::Radio,2},{"Companion link",Icon::Antenna,RadioLinkSection},{"Wi-Fi",Icon::Wifi,4},{"Bluetooth",Icon::Bluetooth,14},{"GPS",Icon::GPS,3},{"Themes",Icon::Mountain,22},{"Home widgets",Icon::Weather,HomeWidgetsSection},{"Text size",Icon::Compose,31},{"Lights",Icon::Flashlight,6},{"Power / timeouts",Icon::Power,20},{"Keyboard languages",Icon::Keyboard,KeyboardSection},{"Accent key",Icon::Keyboard,32},{"Sound",Icon::Messages,21},{"Battery",Icon::Battery,5},{"Date / time",Icon::Clock,16},{"Storage",Icon::Files,24},{"OTA update",Icon::Tools,17},{"Diagnostics",Icon::Terminal,11},{"Donate / Unlock",Icon::Lock,SupportSection},{"About",Icon::Info,8}};
 static_assert(sizeof(SettingsItems)/sizeof(SettingsItems[0])==SettingsCount,"Settings catalog/layout must agree");
 }

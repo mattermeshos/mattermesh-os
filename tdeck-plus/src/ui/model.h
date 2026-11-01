@@ -7,11 +7,11 @@
 #include "home_widgets.h"
 namespace mm {
 enum class WeatherPhaseView {Closed,WifiOff,Connecting,NoNetwork,WaitingClock,Locating,Fetching,Ready,Error};
-enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Keyboard,Storage,QuickSettings,Cli,ContactPicker,TextSize,AccentKey ,Link,Support,HomeWidgets,BesideClock,MainArea,Note,DmPath};
+enum class Page { Home,Launcher,Messages,Chat,NewChat,Settings,Controls,Mesh,Radio,GPS,Maps,Weather,Info,Files,Wifi,Bluetooth,Terminal,DateTime,Updates,Battery,Power,Audio,Wallpaper,Keyboard,Storage,QuickSettings,Cli,ContactPicker,TextSize,AccentKey ,Link,Support,HomeWidgets,BesideClock,MainArea,Note,DmPath,RadioLink,RadioLinkSettings};
 struct Conversation { std::string name,scope,preview,time="--:--",sender,age="--";bool direct=false;int id=0,unread=0,activity=0; };
 struct Message {std::string sender,time,body,meta;bool mine;std::string path,heard,scope;int hops=-1;uint32_t token=0;int repeaters=-1;Message(std::string s="",std::string t="",std::string b="",std::string m="",bool own=false):sender(s),time(t),body(b),meta(m),mine(own){} };
 struct ContactRow {std::string name,detail;};
-struct Node {std::string name,key;int type=0;bool live=false;uint32_t age=0;float rssi=0,snr=0;int hops=-1;std::string distance;}; // distance: "2.4 km NE" when both positions are known
+struct Node {std::string name,key;int type=0;bool live=false;uint32_t age=0;/* seconds since heard; saved contacts: since their last advert, ~0 unknown */float rssi=0,snr=0;int hops=-1;std::string distance;}; // distance: "2.4 km NE" when both positions are known
 struct MapPin {int x=0,y=0;bool repeater=false;std::string name;int step=-1;}; // step: route stop (0 = sender, 1.. = repeaters)
 struct MapSegment {int x0=0,y0=0,x1=0,y1=0;bool dashed=false;};
 struct State {
@@ -94,10 +94,18 @@ std::string lockRepeater;
  bool messageBodyView=false,quickPending=false;bool messageActions=false,messagePath=false,channelMuted=false;int pathOffset=0,heardOffset=0;Message contextMessage;std::string pathText;std::vector<std::string> heardPeers;
  int filteredNodeCount=0;
  // Contacts page (section 1): search field, keyboard focus, live (heard this boot) count of the filtered list.
- std::string contactQuery;bool contactSearching=false;int contactFocus=0,contactLive=0;
+ std::string contactQuery;bool contactSearching=false;int contactFocus=0;
+ // Contacts menu: contactDialog 0 none, 1 delete oldest, 2 delete all; contactButton 0 amounts, 1 DELETE, 2 CANCEL. contactFocus -1 = the menu button.
+ bool contactMenu=false,contactAddNew=true,contactReplace=false;int contactMenuFocus=0,contactDialog=0,contactButton=2,contactAmount=0,contactSaved=0,contactDeletable=0,contactCapacity=0;
  bool radioPowerEditing=false;std::string radioPowerInput;
  int radioEditField=4,radioPreset=-1,radioBand=868,radioPathBytes=2,radioDeviceFocus=0;bool radioDraftChanged=false,radioDevicePage=false;
  bool radioReady=false,radioTX=false;
+ // Companion link (41 pairing, 42 companion settings): rlEditing 0 none, 1 PIN, 2 name, 3 region.
+ struct RadioLinkPeerRow {std::string name;int rssi=0;};
+ bool rlOn=false,rlSaved=false,rlConnected=false,rlReady=false,rlScanning=false,rlFailed=false;int rlEditing=0,rlFocus=0,rlPathBytes=0,rlContacts=0,rlChannels=0;
+ std::string rlSavedName,rlStatus,rlInput,rlPin,rlName,rlRegion,rlVersion,rlRadio,rlBattery;
+ std::vector<RadioLinkPeerRow> rlPeers;
+ bool advertGps=false;// the adverts carry the position
  int radioError=0,radioSF=8,radioCR=8,radioPower=matter::MAX_TX_POWER,radioFocus=0,radioQueued=0,nodeCount=0,nodeScroll=0;
  uint32_t radioPacketsRX=0,radioPacketsTX=0;
  float radioFrequency=869.618f,radioBW=62.5f;
@@ -107,7 +115,7 @@ std::string lockRepeater;
  int heapKB=0,flashMB=16;
  int keyboardLight=180,displayLight=100,voltage=-1;
  int settingsFocus=0;bool hideFocus=false;int listStart=-1;// touch browsing (Plus): no highlighted row; chat list first row
- int focus=0,scroll=0,filter=0,active=0,field=0,settingsOffset=0,chatOffset=0,chatPixel=0;// chatPixel (Plus): the newest shown message pushed down by this many px
+ int focus=0,scroll=0,filter=0,field=0,settingsOffset=0,chatOffset=0,chatPixel=0;// chatPixel (Plus): the newest shown message pushed down by this many px
  int chatTotal=0,chatPosition=0;// whole thread length and newest-first offset, for the chat scroll bar (0 = use messages/chatOffset)
  std::string chatName,scope;
  std::string newName,newScope="*",newKey;int newForm=0,messageMenuFocus=0;bool searching=false,messageMenu=false;

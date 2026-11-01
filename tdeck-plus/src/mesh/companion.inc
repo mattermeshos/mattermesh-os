@@ -29,8 +29,8 @@ struct Out {uint8_t b[COMPANION_FRAME_MAX];size_t n=0;void u8(uint8_t v){if(n<si
 static void send(const Out &o,CompanionWriter w,void *ctx){if(w)w(ctx,o.b,o.n);}
 static void ok(CompanionWriter w,void *ctx){Out o;o.u8(RESP_OK);send(o,w,ctx);}
 // Preferences MeshCore keeps for the app (CMD_SET_OTHER_PARAMS, CMD_SET_AUTOADD_CONFIG): saved and reported back, so a
-// configuration exported from another companion imports here. The T-Deck does not act on them (manual add, telemetry
-// modes, location in adverts, multi ACKs, auto add).
+// configuration exported from another companion imports here. Manual add and the overwrite bit of auto add also drive
+// the Contacts menu; the rest (telemetry modes, location in adverts, multi ACKs) are not acted on.
 struct AppPrefs {uint8_t manualAdd=0,telemetry=0,locationPolicy=0,multiAcks=0,autoadd=0,autoaddHops=0;};
 static AppPrefs appPrefs;static bool appPrefsLoaded=false;
 static AppPrefs &prefs(){if(!appPrefsLoaded){appPrefsLoaded=true;Preferences p;if(p.begin("mmapp",true)){p.getBytes("prefs",&appPrefs,sizeof(appPrefs));p.end();}}return appPrefs;}
@@ -92,6 +92,8 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
  if(!meshPtr){err(ERR_BAD_STATE,w,ctx);return;}
  const uint8_t cmd=in[0];auto cfg=snapshot().config;Out o;
  auto read32=[&](size_t at){uint32_t v=0;if(at+4<=len)memcpy(&v,in+at,4);return v;};
+ // Radio asleep for the companion link: no transmissions are taken (they would wait and go out as a stale burst).
+ if(state.suspended&&(cmd==CMD_SEND_TXT_MSG||cmd==CMD_SEND_CHANNEL_TXT_MSG||cmd==CMD_SEND_SELF_ADVERT||cmd==CMD_SHARE_CONTACT||cmd==companion_air::CMD_SEND_CONTROL_DATA||cmd==companion_air::CMD_SEND_ANON_REQ)){err(ERR_BAD_STATE,w,ctx);return;}
  switch(cmd){
  case CMD_DEVICE_QUERY:{
   appVersion=len>=2?in[1]:0;s.active=true;s.pushSeq=pushSeq;s.logSeq=logSeq;appBuffers();appSeen=true;// pushes from before this connection are not replayed
@@ -124,11 +126,11 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
   uint32_t lastmod=clock.getCurrentTime();ContactInfo *known=chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE);
   if(known){contactFromFrame(*known,lastmod,in,len);known->lastmod=lastmod;contactsChanged();ok(w,ctx);break;}
   ContactInfo c={};contactFromFrame(c,lastmod,in,len);c.lastmod=lastmod;c.sync_since=0;
-  if(chatMesh().addContact(c)){contactsChanged();ok(w,ctx);}else err(ERR_TABLE_FULL,w,ctx);break;}
+  if(chatMesh().addContact(c)){markInBook(c.id.pub_key,true);contactsChanged();ok(w,ctx);}else err(ERR_TABLE_FULL,w,ctx);break;}
  case CMD_RESET_PATH:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
   if(!c){err(ERR_NOT_FOUND,w,ctx);break;}c->out_path_len=OUT_PATH_UNKNOWN;dmRouteStore(c->id.pub_key,DmRouteMode::Auto,0,nullptr);/* the app's reset also ends Flood only / a manual path */contactsChanged();ok(w,ctx);break;}
  case CMD_REMOVE_CONTACT:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
-  uint8_t pub[PUB_KEY_SIZE];if(c)memcpy(pub,c->id.pub_key,PUB_KEY_SIZE);if(c&&chatMesh().removeContact(*c)){dmRouteStore(pub,DmRouteMode::Auto,0,nullptr);contactsChanged();ok(w,ctx);}else err(ERR_NOT_FOUND,w,ctx);break;}
+  uint8_t pub[PUB_KEY_SIZE];if(c)memcpy(pub,c->id.pub_key,PUB_KEY_SIZE);if(c&&chatMesh().removeContact(*c)){dmRouteStore(pub,DmRouteMode::Auto,0,nullptr);markInBook(pub,false);contactsChanged();ok(w,ctx);}else err(ERR_NOT_FOUND,w,ctx);break;}
  case CMD_SHARE_CONTACT:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
   if(!c)err(ERR_NOT_FOUND,w,ctx);else if(chatMesh().shareContactZeroHop(*c))ok(w,ctx);else err(ERR_TABLE_FULL,w,ctx);break;}
  case CMD_GET_CONTACT_BY_KEY:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
@@ -143,7 +145,7 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
   if(!n||size_t(n)+1>sizeof(o.b)){err(len<1+PUB_KEY_SIZE?ERR_TABLE_FULL:ERR_NOT_FOUND,w,ctx);break;}
   o.u8(RESP_EXPORT_CONTACT);o.put(raw,n);send(o,w,ctx);break;}
  case CMD_IMPORT_CONTACT:{
-  if(len>2+PUB_KEY_SIZE+64&&len<=256&&chatMesh().importContact(in+1,uint8_t(len-1))){contactsChanged();ok(w,ctx);}else err(ERR_ILLEGAL_ARG,w,ctx);break;}
+  if(len>2+PUB_KEY_SIZE+64&&len<=256&&chatMesh().importContact(in+1,uint8_t(len-1))){contactImporting=true;contactsChanged();ok(w,ctx);}else err(ERR_ILLEGAL_ARG,w,ctx);break;}
  case CMD_SYNC_NEXT_MESSAGE:
   if(queueCount){auto &q=queue[queueHead];queueHead=(queueHead+1)%QueueMax;queueCount--;if(w)w(ctx,q.b,q.len);}else{o.u8(RESP_NO_MORE_MESSAGES);send(o,w,ctx);}break;
  case CMD_SEND_TXT_MSG:{
@@ -196,3 +198,7 @@ bool companionPump(CompanionSession &s,CompanionWriter w,void *ctx){
  ContactInfo c;while(chatMesh().getContactByIdx(uint32_t(s.next),c)){s.next++;if(!s.since||c.lastmod>s.since){Out o;/* contacts loaded from the SD have lastmod 0: a full listing sends them all */contactFrame(o,c);send(o,w,ctx);if(c.lastmod>s.mostRecent)s.mostRecent=c.lastmod;return true;}}
  Out o;o.u8(RESP_END_OF_CONTACTS);o.u32(s.mostRecent);send(o,w,ctx);s.listing=false;return true;
 }
+bool contactsAddNew(){return !(companion::prefs().manualAdd&1);}
+bool contactsSetAddNew(bool on){auto p=companion::prefs();p.manualAdd=on?0:1;return companion::savePrefs(p);}
+bool contactsReplaceOldest(){return companion::prefs().autoadd&1;}// MeshCore AUTO_ADD_OVERWRITE_OLDEST
+bool contactsSetReplaceOldest(bool on){auto p=companion::prefs();p.autoadd=on?(p.autoadd|1):(p.autoadd&~1);return companion::savePrefs(p);}

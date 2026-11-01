@@ -17,6 +17,6 @@ SCRIPT
 MM_EMU_KB_OLD=1 timeout 60 artifacts/emu-plus --headless --air off --data "$data" --script "$data/script.emu" < /dev/null > "$data/log.txt" 2>&1 || true
 fail(){ echo "FAIL: $1";grep -a 'PLUS_KEYBOARD\|COMPOSER_TEXT' "$data/log.txt";exit 1; }
 grep -aq 'PLUS_KEYBOARD raw=0 (character firmware)' "$data/log.txt" || fail 'character firmware not detected'
-want=$(printf 'hello world' | od -An -tx1 | tr -d ' \n')
-grep -aq "COMPOSER_TEXT hex=$want " "$data/log.txt" || fail 'composer text is not "hello world"'
-echo 'PASS: first T-Deck keyboard (character firmware): detected on the first keys, "hello world" typed exactly'
+want=$(printf 'Hello world' | od -An -tx1 | tr -d ' \n')
+grep -aq "COMPOSER_TEXT hex=$want " "$data/log.txt" || fail 'composer text is not "Hello world"'
+echo 'PASS: first T-Deck keyboard (character firmware): detected on the first keys, "Hello world" typed exactly (capital first letter)'

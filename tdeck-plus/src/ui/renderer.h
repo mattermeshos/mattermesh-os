@@ -38,6 +38,8 @@ public:
  void channelKey(const State &s);
  void contactPicker(const State &s);
  void weatherTabs(const State &s);void stormsBody(const State &s);void radarBody(const State &s); // Weather tabs (Plus)
+ void radioLinkPages(const State &s);// Settings > Companion link (41, 42)
+ void radioLinkAsk();// over any page: download the companion's messages?
  void cliApp(const State &s);
  int cliLineAt(const State &s,int y); // raw CLI line under y, -1 if none
  int cliMaxScroll(const State &s);

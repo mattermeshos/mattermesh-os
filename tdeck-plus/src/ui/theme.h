@@ -5,7 +5,6 @@ namespace mm {
 // T-Deck Plus ST7789 LCD, landscape 320x240, colour. No vibration motor and no on-device dictation.
 constexpr int W=320,H=240,MaxSection=43;// 43: chat Path (dm_path_layout.h)
 
-constexpr bool Landscape=true;
 // T-Deck Plus colour LCD: the inks are runtime values so the themes (palette + illustrations) share every component.
 // Defaults are "Alpine Light": warm paper background, night-blue ink, alpine green accent, sage / glacier surfaces.
 // Colours are stored in the panel's byte order (RGB565 high byte first in memory), so a frame row goes to the
@@ -22,10 +21,9 @@ constexpr int ThemeCount=3;
 int themeIndex();const Palette &theme(int index);void setTheme(int index);
 // Chat text size (Settings > Text size): Large = ChatText 12/17, Compact = 11/16. Persisted by main.cpp.
 void setChatTextLarge(bool large);bool chatTextLarge();
-constexpr bool Color=true;
 constexpr int Margin=8,Gap=6,Radius=5,StatusH=18,HeaderH=32,FooterH=18;
 constexpr int Top=StatusH+HeaderH,Bottom=H-Margin,FooterY=H-FooterH;
-constexpr int Touch=28,IconStatus=12,IconRow=24;
+constexpr int IconStatus=12,IconRow=24;
 constexpr int StatusTextY=3,StatusIconY=2,StatusClockW=40;
 constexpr int StatusAntennaX=Margin+StatusClockW+5,StatusAntennaW=30;
 constexpr int HoldBannerY=StatusH,HoldBannerH=36;
@@ -72,10 +70,10 @@ constexpr Rect EmojiPopup=(Rect{Margin,ComposerY-162,W-2*Margin,160});
 
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
 // T-Deck Plus: no Antenna row (one LoRa antenna), Wallpaper becomes Themes.
-constexpr int SettingsCount=19,SettingsRowH=36;
+constexpr int SettingsCount=20,SettingsRowH=36;
 // Six groups, each label above its first row (navigation_catalog.h SettingsItems is in this order).
 constexpr int SettingsGroupCount=6;
-inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,1,4,9,12,15};
+inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,2,5,10,13,16};
 inline constexpr const char *SettingsGroupNames[SettingsGroupCount]={"RADIO & MESH","CONNECTIONS","DISPLAY","KEYBOARD & SOUND","DEVICE","SYSTEM"};
 // First-boot welcome (Plus landscape): BACK / NEXT at the bottom, two or three choice cards, preset rows.
 constexpr Rect WelcomeBack={Margin,H-38,92,30},WelcomeNext={W-Margin-128,H-38,128,30};
@@ -85,7 +83,7 @@ inline Rect welcomeRow(int i){return {Margin,WelcomeRowY+i*WelcomeRowH,W-2*Margi
 constexpr Rect WelcomeNameField={Margin,74,W-2*Margin,34};
 // OTA update page: the action button at the bottom (Plus landscape) or under the cards (Max).
 constexpr Rect UpdatesAction=(Rect{Margin,Bottom-34,W-2*Margin,32});
-constexpr int SettingsGpsIndex=3;
+constexpr int SettingsGpsIndex=4;
 // Settings scroll by pixels like the chat: scroll = content pixels above the list top. Rows (and group labels)
 // partly out of the list are drawn and cut by the header, which is painted again on top.
 constexpr int SettingsHeaderH=18,SettingsCardH=34,SettingsListY=Top+4,SettingsViewH=Bottom-SettingsListY;
@@ -210,9 +208,9 @@ constexpr Rect messageMapRect(){return {Margin+8+(W-2*Margin-16)-MessageMapW,Mes
 constexpr Rect messageLinkRect(){return {Margin+8+(W-2*Margin-16)-MessageMapW,MessageActionY+2*MessageActionStep,MessageMapW,MessageActionH};}
 constexpr int receivedMessageAction(int row){return row==0?0:row==1?2:row==2?5:row==3?1:3;}
 constexpr Rect messageActionRect(int index){return {Margin+8,MessageActionY+index*MessageActionStep,W-2*Margin-16,MessageActionH};}
-// Landscape: the options as a 2-column grid (a direct chat adds Path as the fifth) (one column of 44 px rows ran off the 240 px screen).
+// Landscape: the options as a 2-column grid (a direct chat adds Path as the fourth) (one column of 44 px rows ran off the 240 px screen).
 inline Rect chatOptionRect(int index){int w=(W-2*Margin-16-8)/2;return {Margin+8+(index%2)*(w+8),Top+36+(index/2)*46,w,38};}
-constexpr int ChatOptionCount=4;// channels; a direct chat adds Path
+constexpr int ChatOptionCount=3;// channels; a direct chat adds Path
 inline int chatOptionCount(bool direct){return direct?ChatOptionCount+1:ChatOptionCount;}
 
 // Channel options rows: notifications, show key + QR (channels only), delete.
@@ -248,19 +246,25 @@ constexpr Rect LoRaPreset={LoRaInset,LoRaPresetY,LoRaContentW,LoRaPresetH};
 constexpr Rect LoRaPresetPrev={LoRaInset,LoRaPresetY,30,LoRaPresetH},LoRaPresetNext={W-LoRaInset-30,LoRaPresetY,30,LoRaPresetH};
 inline Rect loraFieldRect(int field){return {LoRaInset,LoRaFieldY+field*LoRaFieldStep,LoRaFieldW,LoRaFieldStep-1};}
 constexpr Rect LoRaApply=(Rect{W-LoRaInset-90,LoRaFieldY,90,47});
-constexpr Rect LoRaAdvert=(Rect{W-LoRaInset-90,LoRaFieldY+52,90,47});
+// ADVERT and beside it the GPS switch: the adverts carry the position.
+constexpr Rect LoRaAdvert=(Rect{W-LoRaInset-90,LoRaFieldY+52,60,47}),LoRaAdvertGps=(Rect{W-LoRaInset-26,LoRaFieldY+52,26,47});
 constexpr int LoRaTabW=62,LoRaTabGap=4,LoRaTabY=StatusH+2,LoRaTabH=Top-LoRaTabY+1;
 constexpr Rect LoRaRadio={W-Margin-2*LoRaTabW-LoRaTabGap,LoRaTabY,LoRaTabW,LoRaTabH},LoRaDevice={W-Margin-LoRaTabW,LoRaTabY,LoRaTabW,LoRaTabH};
-// Contacts (Home tab, section 1): ALL / COMP / RPT tabs opening into the LoRa panel, search field, four rows, pager.
-constexpr int ContactTabCount=3,ContactTabGap=2;constexpr int ContactTabWidths[ContactTabCount]={46,62,46};
-inline Rect contactTabRect(int i){int x=W-Margin-Radius;for(int t=ContactTabCount-1;t>=i;t--)x-=ContactTabWidths[t]+(t==ContactTabCount-1?0:ContactTabGap);return {x,LoRaTabY,ContactTabWidths[i],LoRaTabH};}
-// Plus: search field + count on one row, four full-width 36 px rows, finger / trackball scrolling (no pager).
-constexpr Rect ContactSearch=(Rect{Margin,Top+6,W-2*Margin-96,26});
-constexpr Rect ContactCount={W-Margin-90,Top+6,90,26};
-constexpr int ContactRows=4,ContactRowH=36,ContactRowY=Top+38,ContactNoticeY=Bottom-46;
-// Landscape lists keep their four rows as a 2 x 2 grid (read left to right).
-inline Rect contactRowRect(int i){return {Margin,ContactRowY+i*ContactRowH,W-2*Margin-6,ContactRowH-3};}
-constexpr Rect ContactPrevious=(Rect{-100,-100,1,1}),ContactNext=(Rect{-100,-100,1,1});// Plus: no pager buttons
+// Contacts (Home tab, section 1): the header band holds the ALL / COMP / RPT tabs, the count, search and the menu; below
+// it eight one-line rows. Search takes the place of the tabs while it is open.
+constexpr int ContactTabCount=3,ContactTabGap=2;constexpr int ContactTabWidths[ContactTabCount]={40,52,40};
+inline Rect contactTabRect(int i){int x=36;for(int t=0;t<i;t++)x+=ContactTabWidths[t]+ContactTabGap;return {x,LoRaTabY+4,ContactTabWidths[i],LoRaTabH-8};}
+constexpr Rect ContactMenu={W-32,StatusH,32,HeaderH},ContactSearchButton={W-62,StatusH,30,HeaderH};
+constexpr Rect ContactSearch={36,StatusH+3,W-36-34,26};
+constexpr Rect ContactCount={174,StatusH,W-62-174-2,HeaderH};
+constexpr int ContactRows=8,ContactRowH=23,ContactRowY=Top+1;
+inline Rect contactRowRect(int i){return {4,ContactRowY+i*ContactRowH,W-12,ContactRowH-1};}
+// Contacts menu: two switches and two delete rows; delete dialogs use the ChatClear buttons.
+constexpr int ContactMenuRows=4,ContactMenuRowH=40,ContactMenuHeadH=22;
+constexpr Rect ContactPopup={14,Top+2,W-28,ContactMenuHeadH+ContactMenuRows*ContactMenuRowH+2};
+inline Rect contactMenuRow(int i){return {ContactPopup.x+3,ContactPopup.y+ContactMenuHeadH+i*ContactMenuRowH,ContactPopup.w-6,ContactMenuRowH-2};}
+constexpr int ContactDeleteSteps=4;constexpr int ContactDeleteAmounts[ContactDeleteSteps]={50,100,250,500};
+inline Rect contactAmountRect(int i){int w=(W-2*Margin-16-3*6)/4;return {Margin+8+i*(w+6),Top+46,w,28};}
 constexpr Rect LoRaName={LoRaInset,Top+12,LoRaContentW,56};
 constexpr int LoRaBytesY=Top+105;
 constexpr int LoRaByteGap=4,LoRaByteW=(LoRaContentW-2*LoRaByteGap)/3;
@@ -271,9 +275,6 @@ constexpr int MenuHomeRows=2,MenuHomeRowY=74,MenuHomeRowH=58,MenuHomeRowGap=4;
 constexpr int MenuHomeTabCount=4,MenuHomeTabY=(H-42),MenuHomeTabH=38,MenuHomeTabGap=6;
 constexpr int MenuHomeTabW=(W-2*Margin-(MenuHomeTabCount-1)*MenuHomeTabGap)/MenuHomeTabCount,MenuHomeTabIcon=24;
 constexpr Rect MenuHomeClock={Margin,22,112,46};
-constexpr int MenuHomeInfoX=MenuHomeClock.x+MenuHomeClock.w+Gap,MenuHomeInfoW=W-Margin-MenuHomeInfoX;
-constexpr Rect MenuHomeDate={MenuHomeInfoX,MenuHomeClock.y,MenuHomeInfoW,MenuHomeClock.h/2};
-constexpr Rect MenuHomeStatus={MenuHomeInfoX,MenuHomeClock.y+MenuHomeClock.h/2,MenuHomeInfoW,MenuHomeClock.h/2};
 constexpr Rect NotificationBannerHome={6,2,W-12,MenuHomeRowY-8};// Home: covers the big clock too, two text lines
 // Home: the widget box right of the clock, the clock band it sits in.
 constexpr Rect HomeWidgetBox={W/2+4,StatusH+6,W-Margin-(W/2+4),40};// painted from its y; taps: the Wi-Fi button

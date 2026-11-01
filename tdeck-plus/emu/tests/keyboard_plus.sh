@@ -93,7 +93,7 @@ sizes=[int(b) for b in re.findall(r"UI_STATE screen=1 .*?bytes=(\d+)",log)]
 assert sizes==[4,11,18,0,1,2], sizes  # "Èè", " хъж", " créé" (2-byte letters), the send empties the composer; then plain "a" after Backspace and after reopening the chat
 taps=[int(t) for t in re.findall(r"ACCENT_STATUS .*?taps=(\d+)",log)]
 texts=re.findall(r"COMPOSER_TEXT hex=([0-9a-f]*)",log)
-assert texts==["c388c3a820d185d18ad0b6206372c3a9c3a9","6161207065726368c3a8"], texts  # "Èè хъж créé"; "aa perchè" (two taps after ch: è)
+assert texts==["c388c3a820d185d18ad0b6206372c3a9c3a9","4161207065726368c3a8"], texts  # "Èè хъж créé"; "Aa perchè" (two taps after ch: è)
 assert taps==[0,4,0,0], taps  # nothing armed after the send; four taps armed; the fifth disarms; nothing armed after Back and reopening
 b=open(f"{d}/screenshot-1.ppm","rb").read();assert len(b[b.index(b"255\n")+4:])==320*240*3, "frame size"
 PY

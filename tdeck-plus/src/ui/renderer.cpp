@@ -1,3 +1,4 @@
+#include "radio_link_layout.h"
 #include "renderer.h"
 #include "dm_path_layout.h"
 #include <unordered_map>
@@ -33,8 +34,9 @@ std::string keyboardHelp(const State &s,int lang){std::string help=mm_kbd::accen
 std::string upperAscii(std::string text){for(auto &ch:text)if(ch>='a'&&ch<='z')ch-=32;return text;}
 // "42s", "5m", "3h": time since a node was heard.
 static std::string agoText(uint32_t sec){return sec<60?std::to_string(sec)+"s":sec<3600?std::to_string(sec/60)+"m":std::to_string(sec/3600)+"h";}
-// Contact row detail: signal, age and route of a node heard since boot.
-template<class N> static std::string contactLine(const N &n){if(!n.live)return "Saved / not heard since boot";std::string route=n.hops==0?"direct":n.hops>0?std::to_string(n.hops)+(n.hops==1?" hop":" hops"):"via mesh";char text[48];snprintf(text,sizeof(text),"%.0f dBm / %s ago / %s",n.rssi,agoText(n.age).c_str(),route.c_str());return text;}
+// Contact row, right side: distance if known, then age, then the route of a node heard since boot.
+static std::string longAgo(uint32_t sec){return sec==~0u?"":sec<48*3600?agoText(sec):std::to_string(sec/86400)+"d";}
+template<class N> static std::string contactMeta(const N &n){std::string second=!n.distance.empty()?longAgo(n.age):!n.live?"":n.hops==0?"direct":n.hops>0?std::to_string(n.hops)+(n.hops==1?" hop":" hops"):"",first=!n.distance.empty()?n.distance:longAgo(n.age);return first.empty()||second.empty()?first+second:first+" / "+second;}
 // Home: conversations most recent first, as pointers (stable: ties keep list order) instead of a sorted copy per frame.
 struct ConversationOrder{std::vector<const Conversation*> p;const Conversation &operator[](size_t i)const{return *p[i];}size_t size()const{return p.size();}bool empty()const{return p.empty();}};
 static ConversationOrder byActivity(const std::vector<Conversation> &list){ConversationOrder o;o.p.reserve(list.size());for(auto &c:list)o.p.push_back(&c);std::stable_sort(o.p.begin(),o.p.end(),[](const Conversation *a,const Conversation *b){return a->activity>b->activity;});return o;}
@@ -448,7 +450,7 @@ void Renderer::chat(const State &s){
  if(s.accent){auto letters=accentBarText(s);if(!letters.empty()){Rect bar={composer.x,composer.y-32,composer.w,28};c.fillRound(bar.x,bar.y,bar.w,bar.h,8,FG);c.centered(bar.x,bar.y+(bar.h-c.lineHeight(Font::ChatTitle))/2,bar.w,letters,Font::ChatTitle,BG);}
   c.fillRound(ComposerEmoji.x+2,ComposerEmoji.y+2,ComposerEmoji.w-4,ComposerEmoji.h-5,5,FG);c.centered(ComposerEmoji.x,ComposerEmoji.y+(ComposerEmoji.h-c.lineHeight(Font::ChatTitle))/2,ComposerEmoji.w,s.accentTaps>1?"\xc2\xb4"+std::to_string(s.accentTaps):std::string("\xc2\xb4"),Font::ChatTitle,BG);}
  if(s.emojiPicker)emojiPopup(s);
- if(s.messageMenu){Rect info=dialogPanel();c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Add region scope","Clear chat","Send GPS position","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
+ if(s.messageMenu){Rect info=dialogPanel();c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Clear chat","Send GPS position","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
  if(s.scopePicker){
   Rect panel=dialogPanel();c.text(Margin+8,Top+12,s.notice.empty()?"Region scope":s.notice,s.notice.empty()?Font::ChatTitle:Font::ChatMeta,FG,panel.w-16);
   int offset=std::max(0,std::min(s.scopeOffset,std::max(0,int(s.regionScopes.size())-1)));
@@ -696,7 +698,7 @@ void Renderer::settings(const State &s){
   // Detail line by destination section (the row list differs between the Max and the Plus).
   int to=SettingsItems[i].section;
   std::string look=theme(s.wallpaper).name;
-  std::string detail=to==4?(s.wifiConnected?"Connected":s.wifiEnabled?"On, not connected":"Off"):to==14?(s.bleReady?"On":"Off"):to==2?(s.radioReady?"SX1262 ready":"Offline"):to==3?(s.gpsEnabled?"On":"Off"):to==6?("Screen / keyboard light"):to==22?look:to==31?(s.textSize?"Large chat text":"Compact chat text"):to==HomeWidgetsSection?"Beside clock: "+std::string(HomeWidgets[s.homeWidget].name):to==32?(s.accentMode==1?"Right Shift in chats":s.accentMode==2?"Left Shift in chats":"Off"):to==KeyboardSection?keyboardDetail(s):to==21?("Speaker / ringtones"):to==20?"Light timers / auto lock":to==5?(s.status.battery<0?"--%":std::to_string(s.status.battery)+"%"):to==16?s.timeSource:to==24?(s.sd?"SD available":"No SD"):to==17?"Update your firmware":to==SupportSection?"Support the project, Extra apps":to==11?"USB diagnostics":"Version "+s.version;
+  std::string detail=to==4?(s.wifiConnected?"Connected":s.wifiEnabled?"On, not connected":"Off"):to==14?(s.rlOn?"Used by Companion link":s.bleReady?"On":"Off"):to==2?(s.rlOn?"Off: companion radio in use":s.radioReady?"SX1262 ready":"Offline"):to==RadioLinkSection?(!s.rlOn?(s.rlSaved?std::string("Off"):std::string("Use another companion's radio")):(s.rlReady?"In use: "+s.rlSavedName:"Connecting to "+s.rlSavedName)):to==3?(s.gpsEnabled?"On":"Off"):to==6?("Screen / keyboard light"):to==22?look:to==31?(s.textSize?"Large chat text":"Compact chat text"):to==HomeWidgetsSection?"Beside clock: "+std::string(HomeWidgets[s.homeWidget].name):to==32?(s.accentMode==1?"Right Shift in chats":s.accentMode==2?"Left Shift in chats":"Off"):to==KeyboardSection?keyboardDetail(s):to==21?("Speaker / ringtones"):to==20?"Light timers / auto lock":to==5?(s.status.battery<0?"--%":std::to_string(s.status.battery)+"%"):to==16?s.timeSource:to==24?(s.sd?"SD available":"No SD"):to==17?"Update your firmware":to==SupportSection?"Support the project, Extra apps":to==11?"USB diagnostics":"Version "+s.version;
   c.menuRow(r,SettingsItems[i].icon,SettingsItems[i].label,detail,!s.hideFocus&&s.settingsFocus==i);
  }
  // Scroll indicator like the Home conversation list: thin track + 3 px thumb right of the cards.
@@ -719,26 +721,49 @@ void Renderer::section(const State &s){
    if(enabled)c.fillRound(t.x,t.y,t.w,t.h,11,FG);else g.drawRoundRect(t.x,t.y,t.w,t.h,11,FG);c.centered(t.x,t.y+5,t.w,enabled?"ON":"OFF",Font::Bold,enabled?BG:FG);};
   for(int row=0;row<2;row++){int percent=((row?s.keyboardLight:s.displayLight)*100+127)/255;header(ControlFirstY+row*ControlStep,row,names[row],percent,row?s.keyboardLightEnabled:s.displayLightEnabled);c.slider(lightSliderRect(row),percent);}
   {c.text(Margin+2,HapticY+4,"Lights wake on key or touch.",Font::ChatMeta,Muted,W-2*Margin);return;}}else if(s.page==Page::Mesh){
-  // Contacts: ALL / COMP / RPT tabs opening into the panel (LoRa style), search, four rows, pager.
+  // Contacts: tabs, count, search and menu in the header band, eight one-line rows (name, age / route, signal).
   // A companion row opens its chat.
-  g.fillRect(34,StatusH,W-34,HeaderH-1,BG);g.drawFastHLine(0,Top-1,W,BG); // the tabs are the title
-  auto tab=[&](Rect r,const char *label,bool selected){c.tab(r,label,selected,selected);};
-
-  const char *filters[]={"ALL","COMP","RPT"};for(int i=0;i<ContactTabCount;i++)tab(contactTabRect(i),filters[i],s.filter==i);
-  {
-   // Plus: search + count row, full-width rows (type badge, name, detail line, distance, signal), scrollbar.
-   c.card(ContactSearch);auto tail=c.inputTail(s.contactQuery,ContactSearch.w-40,Font::ChatBody);c.text(ContactSearch.x+7,ContactSearch.y+5,s.contactQuery.empty()?(s.contactSearching?"Type a name...":s.filter==2?"Search repeaters":s.filter==1?"Search companions":"Search contacts"):tail,Font::ChatBody,Muted,ContactSearch.w-36);
+  g.fillRect(34,StatusH,W-34,HeaderH-1,BG);g.drawFastHLine(0,Top-1,W,BG);
+  if(s.contactDialog){
+   Rect panel=dialogPanel();
+   if(s.contactDialog==1){int amount=std::min(ContactDeleteAmounts[s.contactAmount],s.contactDeletable);
+    c.text(Margin+8,Top+15,"Delete oldest",Font::ChatTitle,FG,panel.w-16);
+    for(int i=0;i<ContactDeleteSteps;i++)c.tab(contactAmountRect(i),std::to_string(ContactDeleteAmounts[i]),s.contactAmount==i,false);
+    c.text(Margin+8,Top+82,"Removes "+std::to_string(amount)+" of the "+std::to_string(s.contactDeletable)+" contacts that can go.",Font::ChatMeta,FG,panel.w-16);
+    c.text(Margin+8,Top+100,"Chats, favourites and nodes heard now stay.",Font::ChatMeta,Muted,panel.w-16);
+   }else{
+    c.text(Margin+8,Top+15,"Delete all contacts?",Font::ChatTitle,FG,panel.w-16);
+    c.text(Margin+8,Top+56,std::to_string(s.contactSaved)+" saved contacts will be removed.",Font::ChatMeta,FG,panel.w-16);
+    c.text(Margin+8,Top+74,"Chats stay. To write again wait for their advert.",Font::ChatMeta,Muted,panel.w-16);
+   }
+   c.button(ChatClearYes,"DELETE",s.contactButton==1);c.button(ChatClearNo,"CANCEL",s.contactButton==2);return;}
+  if(s.contactSearching||!s.contactQuery.empty()){
+   c.card(ContactSearch);auto tail=c.inputTail(s.contactQuery,ContactSearch.w-40,Font::ChatBody);c.text(ContactSearch.x+7,ContactSearch.y+5,s.contactQuery.empty()?"Type a name...":tail,Font::ChatBody,Muted,ContactSearch.w-36);
    if(s.contactSearching)g.drawFastVLine(ContactSearch.x+8+c.width(tail,Font::ChatBody),ContactSearch.y+5,16,FG);c.icon(Icon::Search,ContactSearch.x+ContactSearch.w-22,ContactSearch.y+5,16,Muted);
-   std::string summary=!s.notice.empty()?s.notice:!s.radioReady?"Radio offline":std::to_string(s.filteredNodeCount)+" / "+std::to_string(s.contactLive)+" live";c.text(ContactCount.x+ContactCount.w-c.width(summary,Font::ChatMeta),ContactCount.y+7,summary,Font::ChatMeta,Muted,ContactCount.w);
-   for(int i=0;i<ContactRows&&i<int(s.nodes.size());i++){auto row=contactRowRect(i);auto &n=s.nodes[i];bool selected=!s.hideFocus&&s.contactFocus==s.nodeScroll+i;c.card(row,selected,8);auto ink=selected?OnAccent:FG;auto soft=selected?OnAccent:Muted;
-    Rect badge={row.x+5,row.y+(row.h-24)/2,24,24};c.fillRound(badge.x,badge.y,badge.w,badge.h,6,selected?OnAccent:n.type==2?Mist:SurfaceAlt);c.icon(n.type==2?Icon::Radio:Icon::Contacts,badge.x+4,badge.y+4,16,selected?Accent:FG);
-    int right=row.x+row.w-6;int distW=n.distance.empty()?0:c.width(n.distance,Font::ChatMeta);if(distW)c.text(right-distW-(n.live?24:0),row.y+3,n.distance,Font::ChatMeta,soft);
-    c.text(badge.x+badge.w+8,row.y+2,n.name.empty()?std::string("Unknown"):n.name,Font::ChatBody,ink,right-badge.x-badge.w-10-(distW?distW+6:0));
-    std::string line=contactLine(n);
-    if(n.live)c.signalBars(right-19,row.y+row.h-7,n.snr,ink);c.text(badge.x+badge.w+8,row.y+18,line,Font::ChatMeta,soft,right-badge.x-badge.w-10-(n.live?24:0));}
-   if(s.nodes.empty()){c.centered(Margin,ContactRowY+40,W-2*Margin,s.contactQuery.empty()?"No contacts yet":"No contact matches",Font::Bold);c.centered(Margin,ContactRowY+60,W-2*Margin,!s.radioReady?"Radio offline / check LoRa":s.contactQuery.empty()?"Waiting for advertisements":"Try another name",Font::ChatMeta,Muted);}
-   if(s.filteredNodeCount>ContactRows){int track=ContactRows*ContactRowH-3,thumb=std::max(12,track*ContactRows/s.filteredNodeCount),max=s.filteredNodeCount-ContactRows;c.fillRound(W-4,ContactRowY+std::min(s.nodeScroll,max)*(track-thumb)/max,3,thumb,1,Muted);}
+  }else{
+   const char *filters[]={"ALL","COMP","RPT"};for(int i=0;i<ContactTabCount;i++)c.tab(contactTabRect(i),filters[i],s.filter==i,true);
+   std::string summary=!s.notice.empty()?s.notice:!s.radioReady?"Offline":std::to_string(s.filteredNodeCount);c.text(ContactCount.x+std::max(0,ContactCount.w-c.width(summary,Font::ChatMeta)),StatusH+10,summary,Font::ChatMeta,Muted,ContactCount.w);
+   c.iconButton(ContactSearchButton,Icon::Search,false);
   }
+  c.iconButton(ContactMenu,Icon::Menu,s.contactMenu||(!s.hideFocus&&s.contactFocus<0));
+  for(int i=0;i<ContactRows&&i<int(s.nodes.size());i++){auto row=contactRowRect(i);auto &n=s.nodes[i];bool selected=!s.hideFocus&&s.contactFocus==s.nodeScroll+i;
+   if(selected)c.fillRound(row.x,row.y,row.w,row.h,5,Accent);else g.drawFastHLine(row.x+24,row.y+row.h,row.w-24,Line);
+   auto ink=selected?OnAccent:FG;auto soft=selected?OnAccent:Muted;
+   c.icon(n.type==2?Icon::Radio:Icon::Contacts,row.x+4,row.y+(row.h-16)/2,16,selected?OnAccent:n.live?Accent:Muted);
+   int right=row.x+row.w-5,textY=row.y+(row.h-c.lineHeight(Font::ChatBody))/2+1;if(n.live){c.signalBars(right-19,row.y+row.h-6,n.snr,ink);right-=24;}
+   std::string meta=contactMeta(n);int metaW=meta.empty()?0:c.width(meta,Font::ChatMeta);if(metaW)c.text(right-metaW,row.y+(row.h-c.lineHeight(Font::ChatMeta))/2+1,meta,Font::ChatMeta,soft);
+   c.text(row.x+25,textY,n.name.empty()?std::string("Unknown"):n.name,Font::ChatBody,ink,right-row.x-25-(metaW?metaW+6:0));}
+  if(s.nodes.empty()){c.centered(Margin,ContactRowY+60,W-2*Margin,s.contactQuery.empty()?"No contacts yet":"No contact matches",Font::Bold);c.centered(Margin,ContactRowY+80,W-2*Margin,!s.radioReady?"Radio offline / check LoRa":s.contactQuery.empty()?(s.contactAddNew?"Waiting for advertisements":"Add new contacts is off"):"Try another name",Font::ChatMeta,Muted);}
+  if(s.filteredNodeCount>ContactRows){int track=ContactRows*ContactRowH-3,thumb=std::max(12,track*ContactRows/s.filteredNodeCount),max=s.filteredNodeCount-ContactRows;c.fillRound(W-4,ContactRowY+std::min(s.nodeScroll,max)*(track-thumb)/max,3,thumb,1,Muted);}
+  if(s.contactMenu){g.fillRect(ContactPopup.x,ContactPopup.y,ContactPopup.w,ContactPopup.h,BG);c.card(ContactPopup);
+   c.text(ContactPopup.x+9,ContactPopup.y+5,std::to_string(s.contactSaved)+" of "+std::to_string(s.contactCapacity)+" contacts saved",Font::ChatMeta,Muted,ContactPopup.w-18);
+   auto item=[&](int i,const char *label,const char *detail,int on){Rect r=contactMenuRow(i);bool focused=s.contactMenuFocus==i;auto ink=focused?OnAccent:FG;if(focused)c.fillRound(r.x,r.y,r.w,r.h,Radius,Accent);int textW=r.w-16;
+    if(on>=0){const char *state=on?"ON":"OFF";int pw=44,px=r.x+r.w-pw-6,py=r.y+(r.h-22)/2;textW-=pw+4;if(on)c.fillRound(px,py,pw,22,11,focused?OnAccent:Accent);else g.drawRoundRect(px,py,pw,22,11,focused?OnAccent:Muted);c.centered(px,py+5,pw,state,Font::Bold,on?(focused?Accent:OnAccent):ink);}
+    c.text(r.x+6,r.y+3,label,Font::ChatBody,ink,textW);c.text(r.x+6,r.y+20,detail,Font::ChatMeta,focused?OnAccent:Muted,textW);};
+   item(0,"Add new contacts",s.contactAddNew?"Nodes that advertise are saved":"Only saved contacts stay",s.contactAddNew);
+   item(1,"Replace oldest when full","Oldest makes room for a new one",s.contactReplace);
+   item(2,"Delete oldest...","Chats and favourites stay",-1);
+   item(3,"Delete all...","Removes every saved contact",-1);}
  }else if(s.page==Page::Radio){
   const char *labels[]={"Frequency","Bandwidth","Spread factor","Coding rate","TX power","Companion name"};
   g.drawFastHLine(0,Top-1,W,BG);
@@ -768,11 +793,10 @@ void Renderer::section(const State &s){
   char frequency[24],bandwidth[24];snprintf(frequency,sizeof(frequency),"%.3f MHz",s.radioFrequency);snprintf(bandwidth,sizeof(bandwidth),"%.2f kHz",s.radioBW);
   const std::string values[]={frequency,bandwidth,"SF"+std::to_string(s.radioSF),"4/"+std::to_string(s.radioCR),std::to_string(s.radioPower)+" dBm"};
   for(int i=0;i<matter::RadioFieldCount;i++){auto row=loraFieldRect(i);bool focus=s.radioFocus==i+1;c.card(row,focus);auto ink=focus?BG:FG;c.text(row.x+6,row.y+(3),labels[i],Font::ChatMeta,ink,LoRaValueX-12);c.text(row.x+LoRaValueX,row.y+(2),values[i],Font::ChatBody,ink,row.w-LoRaValueX-6);}
-  c.button(LoRaApply,s.radioDraftChanged?"APPLY *":"APPLY",s.radioFocus==6);c.button(LoRaAdvert,"ADVERTISE",s.radioFocus==7);
+  c.button(LoRaApply,s.radioDraftChanged?"APPLY *":"APPLY",s.radioFocus==6);c.button(LoRaAdvert,"ADVERT",s.radioFocus==7);c.iconButton(LoRaAdvertGps,Icon::GPS,s.advertGps);
   c.text(LoRaInset,Bottom-17,!s.notice.empty()?s.notice:radioLine+" / "+pathLine,Font::ChatMeta,FG,LoRaContentW);
   }
   if(s.radioPowerEditing){
-   Rect panel=dialogPanel();
    int field=std::max(0,std::min(int(matter::RadioFieldCount),s.radioEditField));
    c.text(Margin+8,Top+15,labels[field],Font::ChatTitle);
    if(field==matter::RadioFieldCount){c.text(Margin+8,Top+46,"1 to 31 bytes / name only",Font::ChatMeta);c.text(Margin+8,Top+62,"Public key stays unchanged",Font::ChatMeta);}
@@ -980,7 +1004,7 @@ void Renderer::section(const State &s){
   if(n){g.fillRect(x0,y0,side,side,qrLight);for(int y=0;y<n;y++)for(int x=0;x<n;x++)if(modules[y*n+x])g.fillRect(x0+(x+2)*scale,y0+(y+2)*scale,scale,scale,qrDark);}
   int x=n?x0+side+12:Margin,w=W-Margin-x,y=SupportQrY+2;
   auto para=[&](const std::string &text,Font f,uint16_t ink,int step){for(auto &line:c.lines(text,w,f)){c.text(x,y,line,f,ink,w);y+=step;}};
-  if(unlock){para("RPT Scanner, RPT Diagnostic, RX Log, Noise Floor.",Font::ChatMeta,Muted,14);
+  if(unlock){para("RPT Scanner, RPT Diagnostic, RX Log, Noise Floor, Trails, Spectrum.",Font::ChatMeta,Muted,14);
    y+=6;c.text(x,y,"Your unlock code",Font::ChatMeta,FG,w);c.text(x,y+15,s.unlockCode,Font::ChatTitle,Accent,w);y+=40;para("Buy on Ko-fi, then redeem at mattermeshos.com/unlock",Font::ChatMeta,Muted,14);}
   else{{para("Support MatterMesh OS",Font::ChatTitle,FG,20);y+=2;}para("MatterMesh OS is free. A donation of any amount on Ko-fi helps hardware and field tests.",Font::ChatMeta,Muted,14);y+=6;para("ko-fi.com/mattermeshos",Font::ChatMeta,FG,14);}
  }else if(s.page==Page::Battery){
@@ -1048,13 +1072,15 @@ void Renderer::section(const State &s){
   c.centered(Margin,Top+80,W-2*Margin,line,Font::Bold);
   if(s.page==Page::Terminal){c.text(Margin,Top+112,"status / shot / home / apps",Font::Body);c.text(Margin,Top+134,"Existing USB commands preserved",Font::Small);}
  }
- if(!s.notice.empty()&&s.page!=Page::Radio&&s.page!=Page::Weather&&s.page!=Page::Wifi&&s.page!=Page::Keyboard&&s.page!=Page::AccentKey){c.footer(s.notice,"");}// Keyboard and Accent key draw their notice above the help
+ if(!s.notice.empty()&&s.page!=Page::Mesh&&s.page!=Page::Radio&&s.page!=Page::Weather&&s.page!=Page::Wifi&&s.page!=Page::Keyboard&&s.page!=Page::AccentKey){c.footer(s.notice,"");}// Keyboard and Accent key draw their notice above the help
 }
 #include "quick_settings_renderer.inc"
 #include "cli_renderer.inc"
 #include "weather_apps_renderer.inc"
 #include "dm_path_renderer.inc"
-void Renderer::draw(const State &s){switch(s.page){case Page::DmPath:dmPathPage(s);break;
+#include "radio_link_renderer.inc"
+void Renderer::radioLinkAsk(){Rect panel=dialogPanel(true);c.text(Margin+8,Top+15,"Companion connected",Font::ChatTitle,FG,panel.w-16);c.text(Margin+8,Top+50,"Download the messages from the companion?",Font::ChatMeta,FG,panel.w-16);c.text(Margin+8,Top+70,"No: they stay on it, new ones too.",Font::ChatMeta,Muted,panel.w-16);c.button(RadioLinkAskNo,"NO");c.button(RadioLinkAskYes,"YES",true);}
+void Renderer::draw(const State &s){switch(s.page){case Page::RadioLink:case Page::RadioLinkSettings:radioLinkPages(s);break;case Page::DmPath:dmPathPage(s);break;
  case Page::Cli:cliApp(s);break;
  case Page::Home:home(s);break;case Page::Launcher:launcher(s);break;case Page::Messages:messages(s);break;case Page::Chat:chat(s);break;case Page::NewChat:form(s);break;case Page::ContactPicker:contactPicker(s);break;case Page::Settings:settings(s);break;case Page::QuickSettings:quickSettings(s);break;default:section(s);}if(s.channelOptions)channelOptions(s);}
 }

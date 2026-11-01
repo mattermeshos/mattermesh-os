@@ -8,6 +8,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <NimBLEDevice.h>
+#include "companion_ble.h"
 #include <time.h>
 #include "ui/build_info.h"
 namespace device {
@@ -18,14 +19,14 @@ static std::atomic<int> networkJobs{0};static std::mutex networkJobLock;
 void networkJobBegin(){std::lock_guard<std::mutex> hold(networkJobLock);if(networkJobs++==0)disableCore0WDT();}
 void networkJobEnd(){std::lock_guard<std::mutex> hold(networkJobLock);if(--networkJobs==0)enableCore0WDT();}
 bool networkJobActive(){return networkJobs.load()>0;}
-static Preferences preferences;static ConnectivityState state;static uint32_t attemptAt=0,retryAt=0;static String savedSSID,savedPassword;static bool bleInitialized=false;static NimBLEServer *server=nullptr;static std::atomic<bool> bleConnected{false},bleRequested{false};
+static Preferences preferences;static ConnectivityState state;static uint32_t attemptAt=0,retryAt=0;static String savedSSID,savedPassword;static bool bleInitialized=false,bleServerPaused=false;static NimBLEServer *server=nullptr;static std::atomic<bool> bleConnected{false},bleRequested{false};
 // MeshCore companion link over BLE: the Nordic UART service of the companion firmware (one write = one frame in,
 // one notification = one frame out), bonded with a 6-digit passkey shown on Settings > Bluetooth.
 static constexpr const char *NusService="6E400001-B5A3-F393-E0A9-E50E24DCCA9E",*NusRx="6E400002-B5A3-F393-E0A9-E50E24DCCA9E",*NusTx="6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 struct BleFrame {uint16_t len;uint8_t data[BLE_COMPANION_FRAME_MAX];};
 static QueueHandle_t bleInbox=nullptr;static NimBLECharacteristic *bleTx=nullptr;static String bleName="MeshCore-MatterMesh";static uint32_t blePin=123456;static std::atomic<bool> bleSubscribed{false};
 class Callbacks:public NimBLEServerCallbacks {
- void onConnect(NimBLEServer *server,NimBLEConnInfo &info)override{if(!bleRequested){server->disconnect(info.getConnHandle());bleConnected=false;}else bleConnected=true;}
+ void onConnect(NimBLEServer *server,NimBLEConnInfo &info)override{if(!bleRequested||bleServerPaused){server->disconnect(info.getConnHandle());bleConnected=false;}else bleConnected=true;}
  void onDisconnect(NimBLEServer*,NimBLEConnInfo&,int)override{bleConnected=false;bleSubscribed=false;}
  uint32_t onPassKeyDisplay()override{return blePin;}
  void onAuthenticationComplete(NimBLEConnInfo &info)override{if(!info.isEncrypted())NimBLEDevice::getServer()->disconnect(info.getConnHandle());}
@@ -55,8 +56,11 @@ static WifiRetryPolicy retryPolicy;static WifiConnectionStart connectionStart;st
 static void wipe(String &value){for(unsigned i=0;i<value.length();i++)value.setCharAt(i,0);value="";}
 
 static bool startBLE(){
+ if(bleServerPaused)return false;// the companion link holds BLE; bleServerPause(false) starts it again
  if(bleInitialized){server->advertiseOnDisconnect(true);return NimBLEDevice::getAdvertising()->start();}
  if(!NimBLEDevice::init(bleName.c_str()))return false;
+ NimBLEDevice::setDeviceName(bleName.c_str());// init() is a no-op when the companion link started the stack
+ if(server){bleInitialized=NimBLEDevice::getAdvertising()->start();return bleInitialized;}// services kept from an earlier start
  NimBLEDevice::setMTU(BLE_COMPANION_FRAME_MAX+3);NimBLEDevice::setSecurityAuth(true,true,true);NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);NimBLEDevice::setSecurityPasskey(blePin);
  if(!bleInbox)bleInbox=xQueueCreate(8,sizeof(BleFrame));
  server=NimBLEDevice::createServer();server->setCallbacks(&callbacks,false);server->advertiseOnDisconnect(true);
@@ -67,9 +71,16 @@ static bool startBLE(){
  // Advertisement: flags + the UART service (what the MeshCore app scans for); the name goes in the scan response.
  auto advertising=NimBLEDevice::getAdvertising();NimBLEAdvertisementData adv,scan;adv.setFlags(BLE_HS_ADV_F_DISC_GEN|BLE_HS_ADV_F_BREDR_UNSUP);adv.addServiceUUID(NusService);scan.setName(bleName.c_str());
  advertising->setAdvertisementData(adv);advertising->setScanResponseData(scan);
- bleInitialized=advertising->start();if(!bleInitialized){NimBLEDevice::deinit(true);server=nullptr;}return bleInitialized;
+ bleInitialized=advertising->start();if(!bleInitialized&&!radioLinkHoldsStack()){NimBLEDevice::deinit(true);server=nullptr;}/* never under the companion link client */return bleInitialized;
 }
+void bleServerPause(bool pause){
+ if(pause==bleServerPaused)return;bleServerPaused=pause;
+ if(pause){if(bleInitialized){server->advertiseOnDisconnect(false);NimBLEDevice::stopAdvertising();for(auto handle:server->getPeerDevices())server->disconnect(handle);}
+  bleConnected=false;bleSubscribed=false;NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY);state.ble=bleRequested;state.bleReady=false;}/* the switch keeps the user choice */
+ else{NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);if(bleRequested){state.bleReady=startBLE();state.ble=state.bleReady;}}
+ state.revision++;}
 void bleEnabled(bool enabled,bool boot){
+ if(bleServerPaused){bleRequested=enabled;state.ble=enabled;if(!boot)preferences.putBool("ble",enabled);state.revision++;return;}/* the link holds BLE: saved, started on resume */
  bleRequested=enabled;if(enabled){state.bleReady=startBLE();state.ble=state.bleReady;}
  else{if(bleInitialized){server->advertiseOnDisconnect(false);NimBLEDevice::stopAdvertising();for(auto handle:server->getPeerDevices())server->disconnect(handle);}bleConnected=false;state.ble=state.bleReady=state.bleClient=false;}
  // From the UI the result is saved, so the switch and NVS agree; at boot nothing is written, so a start that fails
@@ -168,7 +179,7 @@ ConnectivityStatus connectivityStatus(){auto view=state.status();view.reconnectP
 void connectivityLowPower(bool locked){
  static bool suspended=false,oldSleep=false;
  if(locked){oldSleep=WiFi.getSleep();if(state.wifi)WiFi.setSleep(true);if(state.bleReady&&!state.bleClient){NimBLEDevice::getAdvertising()->stop();suspended=true;}}
- else {if(state.wifi)WiFi.setSleep(oldSleep);if(suspended&&state.ble)NimBLEDevice::getAdvertising()->start();suspended=false;}
+ else {if(state.wifi)WiFi.setSleep(oldSleep);if(suspended&&state.ble&&!bleServerPaused)NimBLEDevice::getAdvertising()->start();suspended=false;}
 }
 
 }

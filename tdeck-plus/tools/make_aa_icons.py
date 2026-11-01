@@ -21,11 +21,12 @@ ICONS = [
     ("Battery", "battery-70"), ("Signal", "signal"), ("Wifi", "wifi"), ("Bluetooth", "bluetooth"),
     ("Contacts", "account-group-outline"), ("Keyboard", "keyboard-outline"), ("Flashlight", "flashlight"), ("Clock", "clock-outline"), ("Lock", "lock-outline"), ("Power", "power"),
     ("Back", "chevron-left"), ("Search", "magnify"), ("Compose", "pencil-outline"), ("Menu", "menu"), ("Plus", "plus"), ("ChevronRight", "chevron-right"), ("Mountain", "image-filter-hdr"),
+    ("Antenna", "antenna"),
 ]
 PACK = [
     ("Chat", "forum"), ("Contacts", "account-group"), ("Settings", "cog"), ("Apps", "view-grid"), ("Map", "map"),
     ("Files", "folder"), ("Weather", "weather-partly-cloudy"), ("Signal", "antenna"), ("Tools", "wrench"),
-    ("List", "format-list-bulleted"), ("Radio", "radio"), ("Keyboard", "keyboard"),
+    ("List", "format-list-bulleted"), ("Radio", "radio"), ("Keyboard", "keyboard"), ("Trail", "hiking"), ("Plane", "airplane"), ("Spectrum", "chart-bell-curve"),
 ]
 # order = enum WeatherGlyph (ui/weather_icons.h): Clear, PartlyCloudy, Cloudy, Fog, Drizzle, Rain, Snow, Storm, Unknown
 WEATHER = ["weather-sunny", "weather-partly-cloudy", "weather-cloudy", "weather-fog", "weather-rainy", "weather-pouring",
