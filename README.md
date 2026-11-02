@@ -20,7 +20,7 @@ This repository holds the source of the **Free edition**, released under the GNU
 
 | Folder | Device | Display |
 |---|---|---|
-| [`tdeck-plus/`](tdeck-plus) | T-Deck Plus (ESP32-S3, SX1262) | 320×240 colour LCD, touch |
+| [`tdeck-plus/`](tdeck-plus) | T-Deck Plus (ESP32-S3, SX1262 or SX1268; 433, 868 and 915 MHz) | 320×240 colour LCD, touch |
 | [`tdeck-max/`](tdeck-max) | T-Deck Max (ESP32-S3, SX1262) | 240×320 e-paper, touch |
 
 The two devices are separate code bases (different screens, input and power management); they share the
@@ -31,6 +31,7 @@ MeshCore companion protocol, so they work with the MeshCore apps and with every 
 - Channel and direct chats, contacts, emoji, mentions and quick replies; themes and lock screens (Plus), wallpapers (Max)
 - **Keyboard languages**: Italian, English, German, French, Spanish, Portuguese, Russian and Ukrainian (Settings → Keyboard languages, with search). Alt + Space switches between the enabled languages and the one in use shows in the status bar; the accent key, tapped before a letter, types the letters without a key of their own
 - MeshCore companion over Bluetooth, USB and Wi-Fi
+- **433 MHz networks fully supported on the T-Deck Plus** (the 433 MHz version, SX1262 or SX1268): EU 433 and Portugal 433 presets, 10 dBm default power on 433, alongside the 868 MHz (Europe) and 915 MHz (Americas, Australia) networks
 - Apps: **Maps** (OpenStreetMap tiles with GPS), **Weather** (Open-Meteo; on the Plus also radar and storm alerts), **Files**, **CLI**
 - On the Max: offline Italian dictation (the speech model is loaded from the SD card and is distributed separately)
 
