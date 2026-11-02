@@ -115,8 +115,11 @@ constexpr Rect KeyboardSearch={Margin+6,Top+6,W-2*(Margin+6),26};
 inline Rect keyboardRowRect(int i){return {Margin,Top+36+i*(KeyboardRowH+2),W-2*Margin,KeyboardRowH};}
 constexpr int KeyboardHelpY=Top+38+KeyboardRows*(KeyboardRowH+2);// one how-to line and three help lines fit below the rows
 constexpr int TextSizeSection=31,TextSizeInfoY=Top+126;
-// Date / time (Plus): five spinner boxes DD MM YYYY  HH MM (upper half +, lower half -) and SET at the bottom.
-constexpr int DateTimeBoxY=Top+80,DateTimeBoxH=50;constexpr Rect DateTimeSet={Margin,DateTimeBoxY+DateTimeBoxH+8,W-2*Margin,28};
+// Date / time (Plus): the clock card, the time zone row (it opens the zone list), five spinner boxes DD MM YYYY  HH MM
+// (upper half +, lower half -) and SET at the bottom. The zone list: two-line rows over the whole page.
+constexpr Rect DateTimeZone={Margin,Top+48,W-2*Margin,26};
+constexpr int TimeZoneRows=5,TimeZoneRowH=36;inline Rect timeZoneRow(int i){return {Margin,Top+4+i*TimeZoneRowH,W-2*Margin-6,TimeZoneRowH-3};}
+constexpr int DateTimeBoxY=Top+96,DateTimeBoxH=46;constexpr Rect DateTimeSet={Margin,DateTimeBoxY+DateTimeBoxH+8,W-2*Margin,28};
 inline Rect dateTimeBox(int i){const int w[5]={44,44,66,44,44},gap[5]={0,8,8,24,8};int x=Margin+(W-2*Margin-(44*4+66+48))/2;for(int k=0;k<=i;k++)x+=gap[k]+(k?w[k-1]:0);return {x,DateTimeBoxY,w[i],DateTimeBoxH};}
 inline Rect textSizeCardRect(int i){return settingsHalf(i,Top+6,112);}
 // Accent key page (Plus, section 32): three choice cards (Off / Right Shift / Left Shift), the help lines below.

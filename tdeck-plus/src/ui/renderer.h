@@ -53,7 +53,8 @@ public:
  void quickSlider(int row,bool sun,const std::string &label,int step,bool off);
  void quickTile(int index,const std::string &label,bool on,bool pressed=false);
  void draw(const State &s);
- void welcome(const State &s);// first-boot setup (Plus)
+ void welcome(const State &s);
+ void timeZoneList(const State &s,int rows,Rect (*row)(int));// first-boot setup (Plus)
  void holdBanner(const std::string &label,int progress);
  void unlockTapBanner(int taps);
  void quickCountdownBanner(int dots);// lock screen: ENTER held, the quick reply opens when both dots are full

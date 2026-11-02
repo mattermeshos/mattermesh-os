@@ -64,7 +64,8 @@ bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
  std::string messageTone="Classic",mentionTone="Rising";
  std::string menuDate="Date not set",date="DATE NOT SET",notice,version="0.4.2.9",build="",commit="local",input;
  // First-boot welcome (Plus): step 0 intro, 1 Wi-Fi and clock, 2 band, 3 preset, 4 name, 5 path bytes, 6 summary.
- int dtField[5]={1,1,2026,0,0},dtFocus=0;
+ int dtField[5]={1,1,2026,0,0},dtFocus=0;// dtFocus 5 = the time zone row
+ int timeZoneIndex=0,timeZoneScroll=0;bool timeZonePicking=false;// services/time_zone.h: the zone, first list row, list open
  std::string kbdQuery;bool kbdSearching=false;int kbdFocus=0,kbdLang=0;uint32_t kbdMask=1;// Settings > Keyboard languages
  // Storms app (Plus): status line, one row per event of the next 24 h.
  struct StormRow{std::string title,when,detail;bool thunder=false;};std::vector<StormRow> stormRows;std::string stormHead,stormSub;bool stormAlerts=true,stormBusy=false,stormReady=false;int stormOffset=0,weatherTab=0;// weatherTab: 0 now, 1 storms, 2 radar

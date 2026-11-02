@@ -1,4 +1,5 @@
 #include "radio_link_layout.h"
+#include "services/time_zone.h"
 #include "renderer.h"
 #include "dm_path_layout.h"
 #include "composer_caret.h"
@@ -383,6 +384,7 @@ void Renderer::chat(const State &s){
  auto accentLetters=s.accent?mm_kbd::accentBar(mm_kbd::Lang(s.kbdLang),s.accentTaps,"  "):std::string();
  if(!accentLetters.empty()){Rect bar={composer.x,composer.y-32,composer.w,28};g.fillRoundRect(bar.x,bar.y,bar.w,bar.h,8,FG);c.centered(bar.x,bar.y+(bar.h-c.lineHeight(Font::ChatTitle))/2,bar.w,accentLetters,Font::ChatTitle,BG);
   g.fillRoundRect(ComposerEmoji.x+2,ComposerEmoji.y+2,ComposerEmoji.w-4,ComposerEmoji.h-5,5,FG);c.centered(ComposerEmoji.x,ComposerEmoji.y+(ComposerEmoji.h-c.lineHeight(Font::ChatTitle))/2,ComposerEmoji.w,"\xc3\xa0",Font::ChatTitle,BG);}
+ for(int i=0;i<int(s.holdMenu.size());i++){Rect b=holdMenuButton(i,s.holdMenu.size(),s.holdMenuY);g.fillRoundRect(b.x-3,b.y-3,b.w+6,b.h+6,8,BG);c.button(b,s.holdMenu[i],true);}
  if(s.emojiPicker){
   g.fillRect(0,EmojiPopup.y-3,W,ComposerY-EmojiPopup.y+3,BG);c.card(EmojiPopup,false,6);
   for(int t=0;t<EmojiTabs;t++){Rect r=emojiTabRect(t);bool on=s.emojiTab==t;c.card(r,on,4);auto ink=on?BG:FG;if(t)c.emoji(mm_emoji_picker::glyphs[mm_emoji_picker::categories[t-1].first].code,r.x+(r.w-14)/2,r.y+(r.h-14)/2,14,ink);else c.icon(Icon::Clock,r.x+(r.w-16)/2,r.y+(r.h-16)/2,16,ink);}
@@ -496,11 +498,17 @@ void Renderer::channelKey(const State &s){
  c.centered(Margin,y+74,W-2*Margin,"Key holders can read and send",Font::ChatMeta);
 }
 // First-boot welcome (e-paper portrait): Wi-Fi and clock, radio band, network preset, companion name, path hash size, summary.
+// The time zone list (welcome and Settings > Date / time): name and UTC offset per row, the chosen zone inverted.
+void Renderer::timeZoneList(const State &s,int rows,Rect (*row)(int)){
+ for(int i=0;i<rows&&s.timeZoneScroll+i<device::TIME_ZONE_COUNT;i++){int at=s.timeZoneScroll+i;Rect r=row(i);bool on=at==s.timeZoneIndex;c.card(r,on,6);uint16_t ink=on?BG:FG;
+  c.text(r.x+8,r.y+3,device::TIME_ZONES[at].name,Font::ChatBody,ink,r.w-16);c.text(r.x+8,r.y+20,device::TIME_ZONES[at].offset,Font::ChatMeta,ink,r.w-16);}
+ int n=device::TIME_ZONE_COUNT,track=row(rows-1).y+row(rows-1).h-row(0).y,thumb=std::max(12,track*rows/n),max=n-rows;
+ g.fillRect(W-4,row(0).y+std::min(s.timeZoneScroll,max)*(track-thumb)/max,3,thumb,FG);}
 void Renderer::welcome(const State &s){
  g.fillScreen(BG);c.statusBar(s.status);
- const char *titles[]={"Welcome to MatterMesh","Wi-Fi and clock","Radio band","Network preset","Companion name","Path hash size","Ready"};
- const char *hints[]={"Off-grid chat over LoRa, on the MeshCore network.","Wi-Fi sets the clock, updates and weather.","Pick the LoRa band of your radio and country.","The settings your local mesh uses.","How other nodes will see you.","Bytes used for each repeater in a route.","Check and confirm. You can change it later in LoRa."};
- int step=std::max(0,std::min(6,s.welcomeStep));
+ const char *titles[]={"Welcome to MatterMesh","Wi-Fi and clock","Radio band","Network preset","Companion name","Path hash size","Time zone","Ready"};
+ const char *hints[]={"Off-grid chat over LoRa, on the MeshCore network.","Wi-Fi sets the clock, updates and weather.","Pick the LoRa band of your radio and country.","The settings your local mesh uses.","How other nodes will see you.","Bytes used for each repeater in a route.","GPS and Wi-Fi give UTC: pick where you are.","Check and confirm. You can change it later in Settings."};
+ int step=std::max(0,std::min(7,s.welcomeStep));
  // Word wrap into at most `rows` lines of width w (Components::lines also splits a word wider than w).
  auto wrap=[&](const std::string &text,int w,Font f,int rows){auto out=c.lines(text,w,f);if(int(out.size())>rows)out.resize(rows);return out;};
  c.text(Margin,StatusH+8,titles[step],Font::ChatTitle,FG,W-2*Margin);
@@ -510,7 +518,7 @@ void Renderer::welcome(const State &s){
  if(step==0){
   c.icon(Icon::Radio,W/2-16,WelcomeBodyY+6,32);
   c.centered(Margin,WelcomeBodyY+50,W-2*Margin,"Let's set up your device",Font::ChatBody);
-  int y=WelcomeBodyY+74;for(auto &l:wrap("Wi-Fi, band, preset, name and route bytes. Arrows or touch to choose, ENTER to continue.",W-2*Margin-8,Font::ChatMeta,3)){c.centered(Margin,y,W-2*Margin,l,Font::ChatMeta);y+=14;}
+  int y=WelcomeBodyY+74;for(auto &l:wrap("Wi-Fi, radio, name and time zone. Arrows or touch to choose, ENTER to continue.",W-2*Margin-8,Font::ChatMeta,3)){c.centered(Margin,y,W-2*Margin,l,Font::ChatMeta);y+=14;}
   if(!s.welcomeArchive.empty()){Rect r={Margin,y+6,W-2*Margin,50};c.card(r,false,8);int ty=r.y+5;
    for(auto &l:wrap("Data of a previous installation was moved to "+s.welcomeArchive+" on the microSD. Nothing was deleted.",r.w-16,Font::ChatMeta,3)){c.text(r.x+8,ty,l,Font::ChatMeta);ty+=13;}}
  }else if(step==1){
@@ -527,16 +535,17 @@ void Renderer::welcome(const State &s){
  }else if(step==4){
   Rect f=WelcomeNameField;g.drawRoundRect(f.x,f.y,f.w,f.h,8,FG);g.drawRoundRect(f.x+1,f.y+1,f.w-2,f.h-2,7,FG);auto tail=c.inputTail(s.welcomeName,f.w-24,Font::ChatBody);c.text(f.x+10,f.y+9,tail,Font::ChatBody);g.fillRect(f.x+11+c.width(tail,Font::ChatBody),f.y+8,2,18,FG);
   int y=f.y+f.h+10;for(auto &l:wrap("Letters, digits and spaces; up to 31 bytes. Type on the keyboard, BACKSPACE deletes.",W-2*Margin-4,Font::ChatMeta,3)){c.text(Margin+2,y,l,Font::ChatMeta);y+=14;}
- }else if(step==5){const char *small[]={"Most compatible","Balanced","Fewest clashes"};for(int b=1;b<=3;b++)choice(welcomeCard(b-1,3),std::to_string(b)+(b==1?" byte":" bytes"),small[b-1],s.welcomeBytes==b);}
+ }else if(step==6)timeZoneList(s,WelcomeRows,welcomeRow);
+ else if(step==5){const char *small[]={"Most compatible","Balanced","Fewest clashes"};for(int b=1;b<=3;b++)choice(welcomeCard(b-1,3),std::to_string(b)+(b==1?" byte":" bytes"),small[b-1],s.welcomeBytes==b);}
  else{
-  Rect r={Margin,WelcomeBodyY,W-2*Margin,5*32+6};c.card(r,false,8);
-  const char *labels[]={"WI-FI","BAND","PRESET","NAME","PATH HASH"};std::string values[]={s.wifiConnected?s.wifiSSID:"Not connected",std::to_string(s.welcomeBand)+" MHz",s.welcomePreset,s.welcomeName,std::to_string(s.welcomeBytes)+(s.welcomeBytes==1?" byte":" bytes")};
-  for(int i=0;i<5;i++){int y=r.y+4+i*32;c.text(r.x+10,y,labels[i],Font::ChatMeta);c.text(r.x+10,y+14,values[i],Font::ChatBody,FG,r.w-20);}
+  Rect r={Margin,WelcomeBodyY,W-2*Margin,6*28+6};c.card(r,false,8);
+  const char *labels[]={"WI-FI","BAND","PRESET","NAME","PATH HASH","TIME ZONE"};std::string values[]={s.wifiConnected?s.wifiSSID:"Not connected",std::to_string(s.welcomeBand)+" MHz",s.welcomePreset,s.welcomeName,std::to_string(s.welcomeBytes)+(s.welcomeBytes==1?" byte":" bytes"),device::TIME_ZONES[s.timeZoneIndex].name};
+  for(int i=0;i<6;i++){int y=r.y+3+i*28;c.text(r.x+10,y,labels[i],Font::ChatMeta);c.text(r.x+10,y+14,values[i],Font::ChatBody,FG,r.w-20);}
  }
- for(int i=0;i<7;i++){int x=W/2-3*12+i*12;if(i==step)g.fillCircle(x,WelcomeNext.y-12,4,FG);else if(i<step)g.fillCircle(x,WelcomeNext.y-12,3,FG);else g.drawCircle(x,WelcomeNext.y-12,3,FG);}
+ for(int i=0;i<8;i++){int x=W/2-42+i*12;if(i==step)g.fillCircle(x,WelcomeNext.y-12,4,FG);else if(i<step)g.fillCircle(x,WelcomeNext.y-12,3,FG);else g.drawCircle(x,WelcomeNext.y-12,3,FG);}
  if(!s.notice.empty())c.centered(Margin,WelcomeNext.y-26,W-2*Margin,s.notice,Font::ChatMeta);
  if(step>0)c.button(WelcomeBack,"BACK",false);
- c.button(WelcomeNext,step==0?"START":step==6?"FINISH":step==1&&s.welcomeWifiChoice==0&&!s.wifiConnected?"CONNECT":"NEXT",true);
+ c.button(WelcomeNext,step==0?"START":step==7?"FINISH":step==1&&s.welcomeWifiChoice==0&&!s.wifiConnected?"CONNECT":"NEXT",true);
 }
 void Renderer::holdBanner(const std::string &label){
  // Same shell as unlockTapBanner: the date/header band, a card with the lock icon, the label and six filled dots.
@@ -932,10 +941,13 @@ void Renderer::section(const State &s){
   c.text(Margin+2,Top+172,"h/l field, k/j +/-, type digits",Font::ChatMeta,FG,W-2*Margin);c.text(Margin+2,Top+188,"Enter saves, Back cancels",Font::ChatMeta,FG,W-2*Margin);
   c.button(DateSave,"SAVE",true);c.button(DateCancel,"CANCEL");
  }else if(s.page==Page::DateTime){
-  c.sectionLabel(Top+6,"CLOCK");valueCard({Margin,Top+22,W-2*Margin,40},"TIME",s.status.clock);valueCard({Margin,Top+68,W-2*Margin,40},"DATE",s.date);
-  c.sectionLabel(Top+118,"SOURCE");valueCard({Margin,Top+134,W-2*Margin,40},"SYNCHRONISED FROM",s.timeSource);
+  if(s.timeZonePicking){timeZoneList(s,TimeZoneRows,timeZoneRow);return;}
+  c.sectionLabel(Top+6,"CLOCK");valueCard({Margin,Top+22,W-2*Margin,40},"TIME  -  "+s.timeSource,s.status.clock);valueCard({Margin,Top+68,W-2*Margin,40},"DATE",s.date);
+  c.sectionLabel(Top+118,"TIME ZONE");
+  {Rect z=DateZone;bool on=s.timeZoneFocus;c.card(z,on,6);uint16_t ink=on?BG:FG;c.text(z.x+8,z.y+3,device::TIME_ZONES[s.timeZoneIndex].name,Font::ChatBody,ink,z.w-30);
+   c.text(z.x+8,z.y+20,device::TIME_ZONES[s.timeZoneIndex].offset,Font::ChatMeta,ink,z.w-30);c.text(z.x+z.w-16,z.y+(z.h-c.lineHeight(Font::ChatBody))/2,">",Font::ChatBody,ink);}
   c.text(Margin+2,Top+184,"Set automatically from Wi-Fi or GPS.",Font::ChatMeta,FG,W-2*Margin);
-  c.button(DateManual,"SET MANUALLY");
+  c.button(DateManual,"SET MANUALLY",!s.timeZoneFocus);
  }else if(s.page==Page::Updates){
   c.sectionLabel(Top+6,"INSTALLED");valueCard({Margin,Top+22,W-2*Margin,40},"VERSION",s.version+" / "+s.commit);
   c.sectionLabel(Top+72,"UPDATE SERVER");valueCard({Margin,Top+88,W-2*Margin,40},"STATUS",s.otaStatus);

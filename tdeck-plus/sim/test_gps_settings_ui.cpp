@@ -33,7 +33,8 @@ int main(){
  assert(mm::WifiScan.x+mm::WifiScan.w<=mm::WifiManual.x&&mm::WifiManual.x+mm::WifiManual.w<=mm::WifiDisconnect.x);
  std::vector<std::vector<mm::Rect>> pages={{mm::wifiRowRect(0),mm::wifiRowRect(mm::WifiRows-1)},
   {mm::AudioNotify,mm::AudioSlider,mm::AudioMinus,mm::AudioPlus,mm::AudioToneMessage,mm::AudioToneMention},{mm::wallpaperCardRect(0),mm::wallpaperCardRect(1),mm::wallpaperCardRect(2)},{mm::textSizeCardRect(0),mm::textSizeCardRect(1)},
-  {mm::dateTimeBox(0),mm::dateTimeBox(1),mm::dateTimeBox(2),mm::dateTimeBox(3),mm::dateTimeBox(4),mm::DateTimeSet},
+  {mm::DateTimeZone,mm::dateTimeBox(0),mm::dateTimeBox(1),mm::dateTimeBox(2),mm::dateTimeBox(3),mm::dateTimeBox(4),mm::DateTimeSet},
+  {mm::timeZoneRow(0),mm::timeZoneRow(mm::TimeZoneRows-1)},
   {mm::powerRowRect(0),mm::powerRowRect(1),mm::timeoutOptionRect(0),mm::timeoutOptionRect(5)},{mm::lightToggleRect(0),mm::lightSliderRect(0),mm::lightToggleRect(1),mm::lightSliderRect(1)}};
  for(auto &page:pages)for(size_t i=0;i<page.size();i++){assert(inside(page[i]));for(size_t j=i+1;j<page.size();j++)assert(apart(page[i],page[j]));}
  assert(mm::WifiListY>=mm::Top+8+16&&mm::wifiRowRect(mm::WifiRows-1).y+mm::wifiRowRect(mm::WifiRows-1).h<=mm::WifiScan.y);// status line, then the rows, then the bar

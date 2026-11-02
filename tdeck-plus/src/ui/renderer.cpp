@@ -8,6 +8,7 @@
 #include "services/keyboard_layout.h"
 #include "mesh/radio_parameters.h"
 #include "mesh/radio_presets.h"
+#include "services/time_zone.h"
 #include "emoji_choices.h"
 #include "services/sky.h"
 #include "services/geo.h"
@@ -583,19 +584,25 @@ void Renderer::channelKey(const State &s){
   c.text(x,Top+96,"Scan with MeshCore",Font::ChatMeta,FG,w);c.text(x,Top+112,"Key holders can read and send",Font::ChatMeta,FG,w);
   return;
  }}
-// First-boot welcome: radio band, network preset, companion name, path hash size, summary.
+// The time zone list (welcome and Settings > Date / time): name and UTC offset per row, the chosen zone highlighted.
+void Renderer::timeZoneList(const State &s,int rows,Rect (*row)(int)){
+ for(int i=0;i<rows&&s.timeZoneScroll+i<device::TIME_ZONE_COUNT;i++){int at=s.timeZoneScroll+i;Rect r=row(i);bool on=at==s.timeZoneIndex;c.card(r,on,8);
+  c.text(r.x+10,r.y+2,device::TIME_ZONES[at].name,Font::ChatBody,on?OnAccent:FG,r.w-20);c.text(r.x+10,r.y+17,device::TIME_ZONES[at].offset,Font::ChatMeta,on?OnAccent:Muted,r.w-20);}
+ int n=device::TIME_ZONE_COUNT,track=row(rows-1).y+row(rows-1).h-row(0).y,thumb=std::max(12,track*rows/n),max=n-rows;
+ c.fillRound(W-4,row(0).y+std::min(s.timeZoneScroll,max)*(track-thumb)/max,3,thumb,1,Muted);}
+// First-boot welcome: radio band, network preset, companion name, path hash size, time zone, summary.
 void Renderer::welcome(const State &s){
  g.fillScreen(BG);c.statusBar(s.status);
- const char *titles[]={"Welcome to MatterMesh","Wi-Fi and clock","Radio band","Network preset","Companion name","Path hash size","Ready"};
- const char *hints[]={"Off-grid chat over LoRa, on the MeshCore network.","Wi-Fi sets the clock, updates and weather.","Pick the LoRa band of your radio and country.","The settings your local mesh uses.","How other nodes will see you.","Bytes used for each repeater in a route.","Check and confirm. You can change it later in LoRa."};
- int step=std::max(0,std::min(6,s.welcomeStep));
- for(int i=0;i<7;i++){int x=W-Margin-7*12+i*12;g.fillCircle(x+4,StatusH+12,i==step?4:3,i<=step?Accent:Line);}
+ const char *titles[]={"Welcome to MatterMesh","Wi-Fi and clock","Radio band","Network preset","Companion name","Path hash size","Time zone","Ready"};
+ const char *hints[]={"Off-grid chat over LoRa, on the MeshCore network.","Wi-Fi sets the clock, updates and weather.","Pick the LoRa band of your radio and country.","The settings your local mesh uses.","How other nodes will see you.","Bytes used for each repeater in a route.","GPS and Wi-Fi give UTC: pick where you are.","Check and confirm. You can change it later in Settings."};
+ int step=std::max(0,std::min(7,s.welcomeStep));
+ for(int i=0;i<8;i++){int x=W-Margin-8*11+i*11;g.fillCircle(x+4,StatusH+12,i==step?4:3,i<=step?Accent:Line);}
  c.text(Margin,StatusH+5,titles[step],Font::ChatTitle,FG,W-2*Margin-92);c.text(Margin,StatusH+27,hints[step],Font::ChatMeta,Muted,W-2*Margin);
  auto choice=[&](Rect r,const std::string &big,const std::string &small,bool on){c.card(r,on,10);auto ink=on?OnAccent:FG;c.centered(r.x,r.y+22,r.w,big,Font::ChatTitle,ink);
   auto lines=c.clampLines(small,r.w-16,Font::ChatMeta,2,"..");for(size_t k=0;k<lines.size();k++)c.centered(r.x+4,r.y+52+int(k)*14,r.w-8,lines[k],Font::ChatMeta,on?OnAccent:Muted);};
  if(step==0){
   c.icon(Icon::Radio,W/2-16,70,32,Accent);
-  c.centered(Margin,112,W-2*Margin,"Let's set up your device",Font::ChatBody,FG);c.centered(Margin,132,W-2*Margin,"Wi-Fi, band, preset, name and route bytes.",Font::ChatMeta,Muted);
+  c.centered(Margin,112,W-2*Margin,"Let's set up your device",Font::ChatBody,FG);c.centered(Margin,132,W-2*Margin,"Wi-Fi, radio, name and time zone.",Font::ChatMeta,Muted);
   c.centered(Margin,150,W-2*Margin,"Trackball or touch to choose, ENTER to continue.",Font::ChatMeta,Muted);
   if(!s.welcomeArchive.empty()){Rect r={Margin,163,W-2*Margin,34};c.fillRound(r.x,r.y,r.w,r.h,10,Surface);int ty=r.y+3;
    for(auto &l:c.clampLines("Old data moved to "+s.welcomeArchive+" on the microSD. Nothing was deleted.",r.w-16,Font::ChatMeta,2,".."))
@@ -617,15 +624,16 @@ void Renderer::welcome(const State &s){
  }else if(step==4){
   Rect f=WelcomeNameField;c.fillRound(f.x,f.y,f.w,f.h,10,Surface);g.drawRoundRect(f.x,f.y,f.w,f.h,10,Accent);auto tail=c.inputTail(s.welcomeName,f.w-24,Font::ChatText);c.text(f.x+10,f.y+8,tail,Font::ChatText,FG);g.fillRect(f.x+11+c.width(tail,Font::ChatText),f.y+8,2,18,Accent);
   c.text(Margin+2,f.y+f.h+8,"Letters, digits and spaces; up to 31 bytes.",Font::ChatMeta,Muted,W-2*Margin);c.text(Margin+2,f.y+f.h+24,"Type on the keyboard, BACKSPACE deletes.",Font::ChatMeta,Muted,W-2*Margin);
- }else if(step==5){const char *small[]={"Most compatible","Balanced","Fewest clashes"};for(int b=1;b<=3;b++)choice(welcomeCard(b-1,3),std::to_string(b)+(b==1?" byte":" bytes"),small[b-1],s.welcomeBytes==b);}
+}else if(step==6)timeZoneList(s,WelcomeRows,welcomeRow);
+ else if(step==5){const char *small[]={"Most compatible","Balanced","Fewest clashes"};for(int b=1;b<=3;b++)choice(welcomeCard(b-1,3),std::to_string(b)+(b==1?" byte":" bytes"),small[b-1],s.welcomeBytes==b);}
  else{
-  Rect r={Margin,56,W-2*Margin,124};c.card(r,false,10);
-  const char *labels[]={"WI-FI","BAND","PRESET","NAME","PATH HASH"};std::string values[]={s.wifiConnected?s.wifiSSID:"Not connected",std::to_string(s.welcomeBand)+" MHz",s.welcomePreset,s.welcomeName,std::to_string(s.welcomeBytes)+(s.welcomeBytes==1?" byte":" bytes")};
-  for(int i=0;i<5;i++){int y=r.y+5+i*23;c.text(r.x+10,y+2,labels[i],Font::ChatMeta,Muted);c.text(r.x+96,y,values[i],Font::ChatBody,FG,r.w-106);}
+  Rect r={Margin,58,W-2*Margin,124};c.card(r,false,10);
+  const char *labels[]={"WI-FI","BAND","PRESET","NAME","PATH HASH","TIME ZONE"};std::string values[]={s.wifiConnected?s.wifiSSID:"Not connected",std::to_string(s.welcomeBand)+" MHz",s.welcomePreset,s.welcomeName,std::to_string(s.welcomeBytes)+(s.welcomeBytes==1?" byte":" bytes"),device::TIME_ZONES[s.timeZoneIndex].name};
+  for(int i=0;i<6;i++){int y=r.y+3+i*20;c.text(r.x+10,y+2,labels[i],Font::ChatMeta,Muted);c.text(r.x+96,y,values[i],Font::ChatBody,FG,r.w-106);}
  }
  if(!s.notice.empty())c.centered(Margin,WelcomeNext.y-18,W-2*Margin,s.notice,Font::ChatMeta,Accent);
  if(step>0){c.fillRound(WelcomeBack.x,WelcomeBack.y,WelcomeBack.w,WelcomeBack.h,15,Surface);c.centered(WelcomeBack.x,WelcomeBack.y+8,WelcomeBack.w,"BACK",Font::Bold,FG);}
- c.fillRound(WelcomeNext.x,WelcomeNext.y,WelcomeNext.w,WelcomeNext.h,15,Accent);c.centered(WelcomeNext.x,WelcomeNext.y+8,WelcomeNext.w,step==0?"START":step==6?"FINISH":step==1&&s.welcomeWifiChoice==0&&!s.wifiConnected?"CONNECT":"NEXT",Font::Bold,OnAccent);
+ c.fillRound(WelcomeNext.x,WelcomeNext.y,WelcomeNext.w,WelcomeNext.h,15,Accent);c.centered(WelcomeNext.x,WelcomeNext.y+8,WelcomeNext.w,step==0?"START":step==7?"FINISH":step==1&&s.welcomeWifiChoice==0&&!s.wifiConnected?"CONNECT":"NEXT",Font::Bold,OnAccent);
 }
 void Renderer::holdBanner(const std::string &label,int progress){
  // Same shell as unlockTapBanner: the date/header band, a card with the lock icon, the label and dots on the right.
@@ -1043,8 +1051,10 @@ void Renderer::section(const State &s){
   if(!s.notice.empty())c.text(Margin+2,y,s.notice,Font::ChatMeta,Accent,tw);else c.text(Margin+2,y,keyboardHowto(s),Font::ChatMeta,FG,tw);y+=lh;
   int helpRows=(H-2-y)/lh;if(helpRows>0&&!rows.empty())for(auto &line:c.clampLines(keyboardHelp(s,rows[focus]),tw,Font::ChatMeta,helpRows,"..")){c.text(Margin+2,y,line,Font::ChatMeta,Muted);y+=lh;}
  }else if(s.page==Page::DateTime){
-  valueCard({Margin,Top+6,W-2*Margin,40},"NOW",s.status.clock+"   "+s.date);
-  c.text(Margin+2,Top+49,"Synchronised from: "+s.timeSource,Font::ChatMeta,Muted,W-2*Margin);// ends above the SET BY HAND label
+  if(s.timeZonePicking){timeZoneList(s,TimeZoneRows,timeZoneRow);return;}
+  valueCard({Margin,Top+4,W-2*Margin,40},"NOW  -  "+s.timeSource,s.status.clock+"   "+s.date);
+  {Rect z=DateTimeZone;bool on=s.dtFocus==5;c.card(z,on,8);int ty=z.y+(z.h-c.lineHeight(Font::ChatBody))/2;c.text(z.x+8,z.y+(z.h-c.lineHeight(Font::ChatMeta))/2,"TIME ZONE",Font::ChatMeta,on?OnAccent:Muted);
+   c.text(z.x+86,ty,device::TIME_ZONES[s.timeZoneIndex].name,Font::ChatBody,on?OnAccent:FG,z.w-110);c.text(z.x+z.w-16,ty,">",Font::ChatBody,on?OnAccent:Muted);}
   c.sectionLabel(DateTimeBoxY-16,"SET BY HAND","DD / MM / YYYY  HH:MM");
   for(int i=0;i<5;i++){Rect r=dateTimeBox(i);bool on=i==s.dtFocus;c.card(r,on,8);auto ink=on?OnAccent:FG;char v[8];snprintf(v,sizeof(v),i==2?"%04d":"%02d",s.dtField[i]);
    c.centered(r.x,r.y+(r.h-c.lineHeight(Font::ChatTitle))/2,r.w,v,Font::ChatTitle,ink);int cx=r.x+r.w/2;auto tri=on?OnAccent:Muted;

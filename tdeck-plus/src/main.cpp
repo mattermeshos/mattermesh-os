@@ -54,6 +54,7 @@ SET_LOOP_TASK_STACK_SIZE(UI_TASK_STACK_BYTES);
 #include <soc/soc_memory_layout.h>
 #include "services/location.h"
 #include "services/time_sync.h"
+#include "services/time_zone.h"
 #include "services/battery.h"
 #include "services/power.h"
 #include "services/lock_policy.h"
@@ -174,13 +175,18 @@ bool contactMenu=false;int contactMenuFocus=0,contactDialog=0,contactButton=2,co
 // T-Deck Plus: the "wallpaper" index is the colour theme (palette + lock illustration), same NVS slot.
 #define WALLPAPER_COUNT mm::ThemeCount
 #define WALLPAPER_NAME(i) mm::theme(i).name
-// Settings > Date / time (Plus): manual editor, local time (CET/CEST), applied through matter::syncClock.
-int dtField[5]={1,1,2026,0,0},dtFocus=0;
+// Settings > Date / time: manual editor in the chosen time zone, applied through matter::syncClock. Focus 5 is the
+// zone row; it opens the zone list (tzPicking, first shown row tzScroll).
+int dtField[5]={1,1,2026,0,0},dtFocus=0,tzScroll=0;bool tzPicking=false;
 static int dtDays(int month,int year){static const int d[]={31,28,31,30,31,30,31,31,30,31,30,31};return month==2&&(year%4==0&&(year%100||year%400==0))?29:d[(month+11)%12];}
 void dtLoad(){time_t now=time(nullptr);struct tm tm={};if(now>=MM_EPOCH_MIN)localtime_r(&now,&tm);else{tm.tm_year=2026-1900;tm.tm_mday=1;}
  dtField[0]=tm.tm_mday;dtField[1]=tm.tm_mon+1;dtField[2]=tm.tm_year+1900;dtField[3]=tm.tm_hour;dtField[4]=tm.tm_min;}
 void dtStep(int field,int delta){const int lo[]={1,1,2024,0,0};int hi[]={dtDays(dtField[1],dtField[2]),12,2099,23,59};int span=hi[field]-lo[field]+1;
  dtField[field]=lo[field]+((dtField[field]-lo[field]+delta)%span+span)%span;dtField[0]=min(dtField[0],dtDays(dtField[1],dtField[2]));}
+// The zone list keeps the chosen zone in view; a new zone repaints the clocks and reloads the editor at once.
+static int tzScrollFor(int zone,int rows){return max(0,min(zone-rows/2,device::TIME_ZONE_COUNT-rows));}
+static void tzSet(int zone){device::setTimeZone(zone);dtLoad();lockScreenDirty=true;}
+static void tzOpen(){tzPicking=true;dtFocus=5;tzScroll=tzScrollFor(device::timeZone(),mm::TimeZoneRows);}
 bool dtApply(String &reason){struct tm t={};t.tm_mday=dtField[0];t.tm_mon=dtField[1]-1;t.tm_year=dtField[2]-1900;t.tm_hour=dtField[3];t.tm_min=dtField[4];t.tm_isdst=-1;
  time_t e=mktime(&t);if(e<MM_EPOCH_MIN){reason="Invalid date";return false;}if(!matter::syncClock(uint32_t(e),reason))return false;device::timeSyncManual(uint32_t(e));return true;}
 int supportTab=0;// Settings > Donate / Unlock: 0 Donate, 1 Extra apps
@@ -564,10 +570,10 @@ bool resendBody(String &body){
 void resendContext(){auto payload=device::resendPayload(contextMessage,contextConversation,activeChat,contextRecords());if(!payload.valid){notice=payload.error.c_str();render();return;}String scope=payload.scope.c_str();messageActions=false;if(queueRadioMessage(payload.body.c_str(),payload.scoped?&scope:nullptr))notice="Resent / "+notice;else{showChatError(notice,3000);}render();}
 
 // localtime_r re-reads the time zone on every call (~150 us): a chat frame formats a time per message, so the last
-// minutes formatted are kept (cleared every 10 minutes, so a time zone or DST change shows up).
+// minutes formatted are kept (cleared every 10 minutes for a DST change, and at once for a new time zone).
 String messageTime(uint32_t timestamp){if(timestamp<MM_EPOCH_MIN)return "--:--";
  struct Entry{uint32_t minute=0;char clock[6]="";};static Entry cache[64];static uint32_t clearedAt=0;
- if(millis()-clearedAt>600000){clearedAt=millis();for(auto &e:cache)e.minute=0;}
+ static int zone=-1;if(millis()-clearedAt>600000||device::timeZone()!=zone){clearedAt=millis();zone=device::timeZone();for(auto &e:cache)e.minute=0;}
  uint32_t minute=timestamp/60;Entry &e=cache[minute%64];if(e.minute==minute)return e.clock;
  time_t t=timestamp;struct tm tm;localtime_r(&t,&tm);strftime(e.clock,sizeof(e.clock),"%H:%M",&tm);e.minute=minute;return e.clock;}
 void renderMenu(){auto v=uiState();mm::Renderer r(frame);r.messages(v);if(!messagesMenu){int rows=chatsRows();int start=chatsStart(v.conversations);for(int i=0;i<rows&&start+i<int(v.conversations.size());i++)renderedChannels.push_back({mm::messageListRect(i,searching),v.conversations[start+i].id});}}
@@ -632,7 +638,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
  v.accent=accentContext()&&(accentTaps>0||accentHeld());v.accentTaps=accentTaps;v.accentMode=accentMode;v.accentFocus=accentFocus;v.symbols=keyboardModifiers.symbols();
  v.field=formField;v.newName=newName.c_str();v.newScope=newScope.c_str();v.newKey=newKey.c_str();v.newForm=newForm;v.messageMenuFocus=messageMenuFocus;
  // The manual clock editor: the welcome clock step and Settings > Date / time.
- if(screen==Screen::Welcome||(screen==Screen::Section&&section==16)){for(int i=0;i<5;i++)v.dtField[i]=dtField[i];v.dtFocus=dtFocus;}
+ if(screen==Screen::Welcome||(screen==Screen::Section&&section==16)){for(int i=0;i<5;i++)v.dtField[i]=dtField[i];v.dtFocus=dtFocus;int zone=device::timeZone();v.timeZoneIndex=zone;v.timeZonePicking=tzPicking;v.timeZoneScroll=screen==Screen::Welcome?tzScrollFor(zone,mm::WelcomeRows):tzScroll;}
  if(screen==Screen::Welcome){v.welcomeStep=welcomeStep;v.welcomeWifiChoice=welcomeWifiChoice;v.welcomeBand=welcomeBand;v.welcomeFocus=welcomeFocus;v.welcomeBytes=welcomeBytes;v.welcomeName=welcomeName.c_str();v.welcomeArchive=welcomeArchive.c_str();
   v.welcomeScroll=max(0,min(welcomeFocus-mm::WelcomeRows/2,int(welcomeList.size())-mm::WelcomeRows));
   for(int p:welcomeList){const auto &r=matter::RADIO_PRESETS[p];char d[48];snprintf(d,sizeof(d),"%.3f MHz / %g kHz / SF%d / CR%d",r.frequency,r.bandwidth,r.sf,r.cr);v.welcomePresets.push_back({r.name,d});}
@@ -676,7 +682,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
  auto weather=device::weatherState();v.weatherValid=weather.data.valid;v.weatherBusy=weather.busy;v.temperature=weather.data.temperature;v.humidity=weather.data.humidity;v.pressure=weather.data.pressure;v.wind=weather.data.wind;v.high=weather.data.high;v.low=weather.data.low;v.weatherCode=weather.data.code;v.weatherText=weather.data.valid?device::weatherDescription(weather.data.code):"No weather data";v.weatherUpdated=weather.data.stamp;v.weatherPlace=weather.place.c_str();v.weatherMessage=weather.message.c_str();v.weatherPhase=mm::WeatherPhaseView(int(weather.phase));v.weatherSource=device::weatherSourceLabel(weather.data.source);v.apparent=weather.data.apparent;v.weatherHours=weather.data.hours;for(int i=0;i<device::WeatherHours&&i<4;i++){v.weatherHourCode[i]=weather.data.hourCode[i];v.weatherHourTemp[i]=weather.data.hourTemp[i];v.weatherHourTime[i]=weather.data.hourTime[i];}
  auto location=device::locationState();v.locationValid=location.configured;v.latitude=location.latitude;v.longitude=location.longitude;v.gpsData=location.data;v.gpsNmeaFresh=location.nmeaFresh;v.gpsTimeValid=location.timeValid;v.gpsTemporary=location.timeLease&&!location.userEnabled;v.gpsUsed=location.satellitesUsed;v.gpsVisible=location.satellitesVisible;v.gpsBaud=location.baud;v.gpsFix=location.fix;v.gpsEnabled=location.enabled;v.gpsAvailable=location.available;v.status.gps=location.enabled&&location.available;v.status.acquiringTime=timeState.acquiring&&(location.enabled||connection.connected);if(timeState.acquiring&&!v.status.acquiringTime)v.timeSource="Time not synchronized";v.altitude=location.altitude;
  v.kbdQuery=kbdQuery.c_str();v.kbdSearching=kbdSearching;v.kbdFocus=kbdFocus;v.kbdLang=int(kbdLang);v.kbdMask=kbdMask;if(mm_kbd::enabledCount(kbdMask)>1)v.status.keyboard=mm_kbd::info(kbdLang).code;v.wallpaper=lockWallpaper;v.wallpaperFocus=wallpaperFocus;v.textSize=chatTextSize;v.textSizeFocus=textSizeFocus;auto power=device::powerState();v.displayLightEnabled=power.displayEnabled;v.keyboardLightEnabled=power.keyboardEnabled;v.displayTimeout=power.displaySeconds;v.keyboardTimeout=power.keyboardSeconds;v.powerField=powerField;
- time_t now=time(nullptr);if(now>=MM_EPOCH_MIN){static time_t shownMinute=-1;static char clock[6],date[30],menuDate[20];if(now/60!=shownMinute){shownMinute=now/60;struct tm tm;localtime_r(&now,&tm);strftime(clock,sizeof(clock),"%H:%M",&tm);strftime(date,sizeof(date),"%a, %b %d, %Y",&tm);strftime(menuDate,sizeof(menuDate),"%a, %b %d",&tm);}v.menuDate=menuDate;v.status.clock=clock;v.date=date;}// formatted once a minute, not every frame
+ time_t now=time(nullptr);if(now>=MM_EPOCH_MIN){static time_t shownMinute=-1;static int shownZone=-1;static char clock[6],date[30],menuDate[20];if(now/60!=shownMinute||device::timeZone()!=shownZone){shownMinute=now/60;shownZone=device::timeZone();/* a new zone shows at once */struct tm tm;localtime_r(&now,&tm);strftime(clock,sizeof(clock),"%H:%M",&tm);strftime(date,sizeof(date),"%a, %b %d, %Y",&tm);strftime(menuDate,sizeof(menuDate),"%a, %b %d",&tm);}v.menuDate=menuDate;v.status.clock=clock;v.date=date;}// formatted once a minute, not every frame
  if(!deviceLocked&&(screen==Screen::Home||screen==Screen::Chats))v.conversations=conversationList();
  v.positionShare=positionShare;if(positionShare){auto gps=device::locationState();v.positionCoordinates=device::gpsCoordinateMessage(gps.available,gps.enabled,gps.fix,gps.fixAgeMs,gps.latitude,gps.longitude);v.positionMessage=!gps.available?"GPS receiver unavailable":!gps.enabled?"GPS is off. Enable it to acquire your position.":"Waiting for a fresh GPS fix...";}
  v.channelOptions=channelOptions;v.deleteChannelConfirm=deleteChannelConfirm;v.channelOptionFocus=channelOptionFocus;v.channelKeyView=channelKeyView;if(channelKeyView&&channelOptionTarget>=0&&channelOptionTarget<chatCount){v.channelKeyHex=channelKeyHex.c_str();v.channelKeyScope=chats[channelOptionTarget].scope.c_str();v.qrSize=channelQrSize;v.qrModules=channelQr;}
@@ -807,7 +813,7 @@ void openSection(int id,bool paint){
  if(id==19)settingsScroll=settingsFocus=0;/* Settings opens at the top (BACK from one of its pages keeps the place) */
  closePageDialogs();
  if(navigation.size()<16)navigation.push_back({screen,section});
- section=constrain(id,0,mm::MaxSection);notice="";if(section==1){contactPopupsClose();contactSearching=false;contactQuery="";contactFocus=nodeScroll=0;}if(section==22)wallpaperFocus=lockWallpaper;if(section==mm::KeyboardSection){kbdQuery="";kbdSearching=false;kbdFocus=0;}if(section==mm::TextSizeSection)textSizeFocus=chatTextSize;if(section==mm::BesideClockSection)homeWidgetFocus=homeWidget;if(section==mm::MainAreaSection)homeMainFocus=homeMain;if(section==mm::NoteSection)noteInput=noteText;if(section==mm::AccentKeySection)accentFocus=accentMode;if(section==10)weatherTab=0;if(section==16){dtLoad();dtFocus=0;}if(section==9)mapOpen();if(mm::toolsSection(section))toolsOpen(section);
+ section=constrain(id,0,mm::MaxSection);notice="";if(section==1){contactPopupsClose();contactSearching=false;contactQuery="";contactFocus=nodeScroll=0;}if(section==22)wallpaperFocus=lockWallpaper;if(section==mm::KeyboardSection){kbdQuery="";kbdSearching=false;kbdFocus=0;}if(section==mm::TextSizeSection)textSizeFocus=chatTextSize;if(section==mm::BesideClockSection)homeWidgetFocus=homeWidget;if(section==mm::MainAreaSection)homeMainFocus=homeMain;if(section==mm::NoteSection)noteInput=noteText;if(section==mm::AccentKeySection)accentFocus=accentMode;if(section==10)weatherTab=0;if(section==16){dtLoad();tzPicking=false;dtFocus=0;}if(section==9)mapOpen();if(mm::toolsSection(section))toolsOpen(section);
  radioPowerEditing=false;radioDevicePage=false;radioDeviceFocus=0;if(section==2)loadRadioDraft(false);
  if(section==0){searching=false;searchQuery="";messagesMenu=false;chatsParent=screen==Screen::Launcher?Screen::Launcher:Screen::Home;screen=Screen::Chats;}
  else {sectionParent=screen==Screen::Launcher?Screen::Launcher:Screen::Home;screen=Screen::Section;}
@@ -1004,6 +1010,7 @@ void back() {
  accentReset();
  if(deviceLocked){if(quickReply.active)closeQuickReply();return;}
  if(radioLinkAsking()){radioLinkAnswer(false);return;}
+ if(screen==Screen::Section&&section==16&&tzPicking){tzPicking=false;render();return;}
  if(screen==Screen::Section&&section==mm::KeyboardSection&&kbdSearching){kbdSearching=false;kbdQuery="";kbdFocus=0;render();return;}
  if(screen==Screen::Section&&mm::toolsSection(section)&&toolsBack())return;
  if(dmPathBack())return;
@@ -1168,7 +1175,7 @@ static void welcomeNext(){notice="";
  if(welcomeStep==1&&welcomeWifiChoice==0&&!device::wifiConnected()){welcomeOpenWifi();return;}
  if(welcomeStep==2)welcomeFillPresets();
  if(welcomeStep==4){welcomeName.trim();if(!matter::validCompanionName(welcomeName.c_str())){notice="Name required / max 31 bytes";render();return;}}
- if(welcomeStep==6){finishWelcome();return;}welcomeStep++;render();}
+ if(welcomeStep==7){finishWelcome();return;}welcomeStep++;render();}
 static void welcomeKey(char c){
  if(c=='\b'){if(welcomeStep==4&&welcomeName.length()){eraseLastCodepoint(welcomeName);render();return;}if(welcomeStep>0){welcomeStep--;notice="";render();}return;}
  if(c=='\n'){welcomeNext();return;}
@@ -1178,13 +1185,15 @@ static void welcomeKey(char c){
  else if(welcomeStep==2)welcomeBand=matter::nextBand(welcomeBand);
  else if(welcomeStep==3)welcomeFocus=constrain(welcomeFocus+(next?1:-1),0,max(0,int(welcomeList.size())-1));
  else if(welcomeStep==5)welcomeBytes=constrain(welcomeBytes+(next?1:-1),1,3);
+ else if(welcomeStep==6)tzSet(device::timeZone()+(next?1:-1));
  render();}
 static void welcomeTap(int x,int y){
  if(mm::WelcomeNext.contains(x,y)){welcomeNext();return;}if(welcomeStep>0&&mm::WelcomeBack.contains(x,y)){welcomeKey('\b');return;}
  if(welcomeStep==1){for(int i=0;i<2;i++)if(mm::welcomeCard(i,2).contains(x,y)){welcomeWifiChoice=i;if(i==0&&!device::wifiConnected())welcomeOpenWifi();else render();}}
  else if(welcomeStep==2){const int bands[]={868,900,433};for(int i=0;i<3;i++)if(mm::welcomeCard(i,3).contains(x,y)){welcomeBand=bands[i];render();}}
  else if(welcomeStep==3){int scroll=max(0,min(welcomeFocus-mm::WelcomeRows/2,int(welcomeList.size())-mm::WelcomeRows));for(int i=0;i<mm::WelcomeRows;i++)if(mm::welcomeRow(i).contains(x,y)&&scroll+i<int(welcomeList.size())){welcomeFocus=scroll+i;render();}}
- else if(welcomeStep==5){for(int b=0;b<3;b++)if(mm::welcomeCard(b,3).contains(x,y)){welcomeBytes=b+1;render();}}}
+ else if(welcomeStep==5){for(int b=0;b<3;b++)if(mm::welcomeCard(b,3).contains(x,y)){welcomeBytes=b+1;render();}}
+ else if(welcomeStep==6){int scroll=tzScrollFor(device::timeZone(),mm::WelcomeRows);for(int i=0;i<mm::WelcomeRows;i++)if(mm::welcomeRow(i).contains(x,y)){tzSet(scroll+i);render();}}}
 // Back on the welcome once the Wi-Fi page reports a connection (or the user left it with BACK).
 static void welcomeWifiLoop(){
  if(!welcomeWifi)return;if(screen==Screen::Welcome){welcomeWifi=false;render();return;}
@@ -1253,7 +1262,8 @@ void key(char c) {
   if(section==2&&radioPowerEditing){if(c=='\n'){saveRadioPower();return;}if(radioEditField==CompanionNameField){if(c>=32&&c<=126&&radioPowerInput.length()<matter::COMPANION_NAME_MAX_BYTES)radioPowerInput+=c;}else if(((c>='0'&&c<='9')||c=='-'||c=='+'||c=='.')&&radioPowerInput.length()<12)radioPowerInput+=c;notice="";repaintSettled();return;}
   if(section==21){if(c=='h'){openSection(6);return;}else if(c=='n')device::audioNotifications(!device::audioState().notifications);else if(c=='t'||c=='\n')device::audioNotify(true);else if(c=='m'||c=='r')cycleRingtone(c=='r',1);else if(c=='j'||c=='k')device::audioVolume(device::audioState().volume+(c=='j'?5:-5));render();return;}
   if(section==4&&wifiEditing){if(c=='\n'){if(wifiEditField==0)wifiEditField=1;else{connectWifi();return;}}else if(c=='\t')wifiEditField=1-wifiEditField;else if(c>=32&&c<=126){String &field=wifiEditField==0?wifiTarget:wifiPassword;if(field.length()<(wifiEditField==0?32:63))field+=c;}repaintSettled();return;}
-  if(section==16){if(c=='h'||c=='a')dtFocus=(dtFocus+4)%5;else if(c=='l'||c=='d')dtFocus=(dtFocus+1)%5;else if(c=='k'||c=='w')dtStep(dtFocus,1);else if(c=='j'||c=='s')dtStep(dtFocus,-1);
+  if(section==16&&tzPicking){bool up=c=='k'||c=='w',down=c=='j'||c=='s';if(up||down){tzSet(device::timeZone()+(down?1:-1));tzScroll=tzScrollFor(device::timeZone(),mm::TimeZoneRows);}else if(c=='\n'||c==' ')tzPicking=false;else return;render();return;}
+  if(section==16){if(c=='h'||c=='a')dtFocus=(dtFocus+5)%6;else if(c=='l'||c=='d')dtFocus=(dtFocus+1)%6;else if(dtFocus==5&&(c=='\n'||c=='k'||c=='w'||c=='j'||c=='s'))tzOpen();else if(c=='k'||c=='w')dtStep(dtFocus,1);else if(c=='j'||c=='s')dtStep(dtFocus,-1);
    else if(c=='\n'){String reason;notice=dtApply(reason)?"Date and time set":reason;}else return;render();return;}
   if(section==mm::KeyboardSection){auto rows=keyboardLanguageRows();
    if(kbdSearching){if(c=='\n'){kbdSearching=false;render();return;}if(c>=32&&c<=126&&kbdQuery.length()<15){kbdQuery+=c;kbdFocus=0;notice="";}repaintSettled();return;}
@@ -1411,7 +1421,8 @@ void tap(int x,int y) {
   if(section==17&&mm::UpdatesAction.contains(x,y)){otaAction();return;}
   if(section==3&&mm::GpsToggle.contains(x,y)){notice=device::locationToggleUser()?(device::locationState().enabled?"GPS enabled":"GPS disabled"):"GPS switch failed";render();return;}
   if(section==21){if(mm::AudioNotify.contains(x,y))device::audioNotifications(!device::audioState().notifications);else if(mm::AudioToneMessage.contains(x,y)||mm::AudioToneMention.contains(x,y)){bool mention=mm::AudioToneMention.contains(x,y);cycleRingtone(mention,mm::stepRowTap(mm::AudioToneMessage,x));}else if(mm::AudioMinus.contains(x,y))device::audioVolume(device::audioState().volume-5);else if(mm::AudioPlus.contains(x,y))device::audioVolume(device::audioState().volume+5);else if(mm::AudioSlider.contains(x,y)){int track=mm::AudioSlider.w-16;device::audioVolume((constrain(x-mm::AudioSlider.x-8,0,track)*20+track/2)/track*5);}render();return;}
-  if(section==16){if(mm::DateTimeSet.contains(x,y)){String reason;notice=dtApply(reason)?"Date and time set":reason;render();return;}
+  if(section==16&&tzPicking){for(int i=0;i<mm::TimeZoneRows;i++)if(mm::timeZoneRow(i).contains(x,y)&&tzScroll+i<device::TIME_ZONE_COUNT){tzSet(tzScroll+i);tzPicking=false;render();}return;}
+  if(section==16){if(mm::DateTimeZone.contains(x,y)){tzOpen();render();return;}if(mm::DateTimeSet.contains(x,y)){String reason;notice=dtApply(reason)?"Date and time set":reason;render();return;}
    for(int i=0;i<5;i++){mm::Rect r=mm::dateTimeBox(i);if(r.contains(x,y)){dtFocus=i;dtStep(i,y<r.y+r.h/2?1:-1);notice="";render();return;}}return;}
   if(section==mm::KeyboardSection){if(mm::KeyboardSearch.contains(x,y)){kbdSearching=true;render();return;}
    auto rows=keyboardLanguageRows();int first=mm_kbd::firstRow(kbdFocus,int(rows.size()),mm::KeyboardRows);
@@ -1540,6 +1551,7 @@ void touchScrollRows(int dy){device::activity();uint32_t now=millis();if(uint32_
   if(section==19){beginTouchBrowse();/* pixel scroll like the chat */if(touchScrollAcc){int was=settingsScroll;settingsScroll=constrain(settingsScroll-touchScrollAcc,0,mm::settingsMaxScroll());touchScrollAcc=0;touchScrollSteps++;/* unmoved at an end: flingTick stops */if(settingsScroll!=was)render();}return;}
   if(section==1&&!contactSearching&&!contactMenu&&!contactDialog){beginTouchBrowse();step(mm::ContactRowH,[&](int d){int total=matter::contactsCount(discoverFilter,contactQuery.c_str());nodeScroll=constrain(nodeScroll+d,0,max(0,total-mm::ContactRows));render();});return;}
   if(section==4&&!wifiEditing){step(mm::WifiRowH,[&](int d){wifiOffset=constrain(wifiOffset+d,0,max(0,int(device::connectivityStatus().networkCount)-mm::WifiRows));render();});return;}
+  if(section==16&&tzPicking){step(mm::TimeZoneRowH,[&](int d){tzScroll=constrain(tzScroll+d,0,device::TIME_ZONE_COUNT-mm::TimeZoneRows);render();});return;}
   if(section==7){step(mm::FileRowH,[&](int d){filesScroll=constrain(filesScroll+d,0,max(0,filesCount-mm::FileRows));render();});return;}
   if(section==mm::DmPathSection){step(mm::DmPathRowH,[&](int d){dmPathScroll(d);});return;}
   if(section==mm::CliSection){step(13,[&](int d){auto v=cliState();mm::Renderer r(frame);cliScrollLines=max(0,min(r.cliMaxScroll(v),cliScrollLines-d));render();});return;}
@@ -1558,6 +1570,7 @@ void swipe(int dy) {if(deviceLocked||radioLinkAsking())return;
  if(screen==Screen::Chat){if(chatDetails||clearChatConfirm)return;/* a dialog is over the chat */emojiPicker=false;scrollChat(dy>0?1:-1);return;}
  if(screen==Screen::Section){
   if(mm::toolsSection(section)){toolsScroll(dy);return;}
+  if(section==16&&tzPicking){tzScroll=constrain(tzScroll+(dy<0?mm::TimeZoneRows:-mm::TimeZoneRows),0,device::TIME_ZONE_COUNT-mm::TimeZoneRows);render();return;}
   if(section==2&&!radioPowerEditing&&!radioDevicePage){cycleRadioPreset(dy<0?1:-1);}
   else if(section==4&&!wifiEditing){wifiOffset=constrain(wifiOffset+(dy<0?mm::WifiRows:-mm::WifiRows),0,max(0,int(device::connectivityStatus().networkCount)-mm::WifiRows));render();}
   else if(section==1){if(!contactMenu&&!contactDialog){contactPage(dy<0?1:-1);render();}}
@@ -1890,6 +1903,7 @@ void handle(const String &s) {
  if(s=="map style"||s=="map style light"||s=="map style night"){int want=s.endsWith("night")?1:s.endsWith("light")?0:-1;if(want>=0&&want!=mapStyleIndex)mapToggleStyle();else if(want<0&&screen==Screen::Section&&section==9)mapToggleStyle();Serial.printf("MAP_STYLE style=%d look=%s\n",mapStyleIndex,mapStyleIndex?"night":"light");return;}
  if(s=="storm status"){auto st=device::stormState();Serial.printf("STORM_STATUS phase=%d count=%u updated=%lu alerts=%d message=%s\n",int(st.phase),st.count,(unsigned long)st.updated,st.alerts,st.message.c_str());for(int i=0;i<st.count;i++)Serial.printf("STORM_EVENT %lu %lu kinds=%u gust=%.0f rain=%.1f cape=%.0f\n",(unsigned long)st.events[i].start,(unsigned long)st.events[i].end,st.events[i].kinds,st.events[i].gust,st.events[i].rain,st.events[i].cape);return;}
  if(s=="storm check"){device::stormRefresh();Serial.println("STORM_CHECK queued");return;}
+ if(s=="time zone"||s.startsWith("time zone ")){if(s.length()>10)tzSet(s.substring(10).toInt());time_t now=time(nullptr);struct tm tm={},utc={};localtime_r(&now,&tm);gmtime_r(&now,&utc);Serial.printf("TIME_ZONE index=%d id=%d name=%s tz=%s local=%02d:%02d utc=%02d:%02d picking=%d\n",device::timeZone(),device::TIME_ZONES[device::timeZone()].id,device::TIME_ZONES[device::timeZone()].name,device::timeZonePosix(),tm.tm_hour,tm.tm_min,utc.tm_hour,utc.tm_min,tzPicking);render();return;}
  if(s.startsWith("time set ")){int v[5];if(sscanf(s.c_str()+9,"%d-%d-%d %d:%d",&v[2],&v[1],&v[0],&v[3],&v[4])==5){for(int i=0;i<5;i++)dtField[i]=v[i];String reason;bool ok=dtApply(reason);Serial.printf("TIME_SET ok=%d %s\n",ok,reason.c_str());}else Serial.println("TIME_SET ok=0 use: time set YYYY-MM-DD HH:MM");render();return;}
  if(s.startsWith("accent set ")){bool ok=setAccentMode(s.substring(11).toInt());accentFocus=accentMode;Serial.printf("ACCENT_SET ok=%d mode=%d\n",ok,accentMode);render();return;}
  if(s=="composer text"){Serial.print("COMPOSER_TEXT hex=");for(unsigned i=0;i<input.length();i++)Serial.printf("%02x",uint8_t(input[i]));Serial.printf(" quick=");for(auto ch:quickReply.text)Serial.printf("%02x",uint8_t(ch));Serial.println();return;}

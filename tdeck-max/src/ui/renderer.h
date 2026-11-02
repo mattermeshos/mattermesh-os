@@ -48,6 +48,7 @@ public:
  void quickTile(int index,const std::string &label,bool on,int glyph);
  void draw(const State &s);
  void welcome(const State &s);// first-boot setup
+ void timeZoneList(const State &s,int rows,Rect (*row)(int));// the zone list of the welcome and Date / time
  void holdBanner(const std::string &label);// one-line notice card under the status bar
  void unlockTapBanner(int taps);
  void notificationBanner(Rect r,int clearTo,Icon icon,const std::string &title,const std::string &tag,const std::string &body);// card over the status bar and header, down to clearTo

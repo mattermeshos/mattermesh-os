@@ -16,6 +16,7 @@ struct Node {std::string name,key;int type=0;bool live=false;uint32_t age=0;/* s
 struct MapPin {int x=0,y=0;bool repeater=false;std::string name;int step=-1;}; // step: route stop (0 = sender, 1.. = repeaters)
 struct MapSegment {int x0=0,y0=0,x1=0,y1=0;bool dashed=false;};
 struct State {
+ std::vector<std::string> holdMenu;int holdMenuY=0;// copy / paste buttons over the chat (empty: none)
  // Chat options > Path (43): the route of the DMs to a contact; dmPathMode 0 learned, 1 flood only, 2 set by hand.
  struct DmPathRepeater {std::string name,prefix;};
  std::string dmPathName,dmPathRoute,dmPathOrigin,dmPathDraft,dmPathInput;int dmPathMode=0,dmPathHashBytes=2,dmPathFocus=0;bool dmPathEditing=false;std::vector<DmPathRepeater> dmPathRepeaters;
@@ -72,6 +73,7 @@ bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
  // Updates page (section 17): texts from device::otaState(); otaProgress -1 = no download bar.
  // Date / time page: manual editor (day, month, year, hour, minute) and the field being edited.
  bool dateEditing=false;int dateFocus=0,dateFields[5]={1,1,2026,12,0};
+ int timeZoneIndex=0,timeZoneScroll=0;bool timeZonePicking=false,timeZoneFocus=false;// services/time_zone.h: the zone, first list row, list open, zone row focused
  std::string otaStatus="Not checked",otaDetail,otaAction="CHECK NOW";/* the server address is never shown */int otaProgress=-1;bool otaConfirm=false;std::string timeSource="Acquiring";uint64_t storageTotal=0,storageUsed=0;
  bool emojiPicker=false;int emojiFocus=0,emojiTab=0;bool composerExpanded=false;/* any draft: the composer grows upward so every line can be proofread */size_t inputCursor=std::string::npos;/* byte offset of the caret in input; npos = end */std::vector<int> emojiRecent;std::string receivedChannel="Mesh messages";
  bool quickSent=false;int receivedHops=-1;

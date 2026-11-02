@@ -44,6 +44,10 @@ inline Rect appRect(int index){return {6+(index%3)*(AppW+AppGap),Top+4+(index/3)
 // New-channel form: 0 name, 1 secret key (two lines) or hashtag note, 2 region scope.
 inline Rect formRect(int field){return {Margin,field==0?FormNameY:field==1?FormKeyY:FormScopeY,W-2*Margin,field==1?FormKeyH:30};}
 constexpr Rect ComposerEmoji={W-Margin-32,ComposerY+2,30,30};
+// Chat copy / paste: a finger held on a message (target MessageHoldTarget + its painted index) or on the composer
+// shows a row of buttons over the chat (COPY for a message; COPY ALL and PASTE for the composer).
+constexpr int MessageHoldTarget=2000,ComposerHoldTarget=1999,HoldMenuW=96,HoldMenuH=30,HoldMenuGap=8;
+constexpr Rect holdMenuButton(int i,int count,int y){return {(W-(count*HoldMenuW+(count-1)*HoldMenuGap))/2+i*(HoldMenuW+HoldMenuGap),y,HoldMenuW,HoldMenuH};}
 // Notification card (message, update, chat notice): floats over the status bar and the page header; on Home a taller
 // one covers the clock band too (two text lines). Its shadow ends above Top-1.
 // 8 px down: the top of the status bar shows above the card.
@@ -79,6 +83,9 @@ constexpr Rect GpsToggle=SettingsSwitch;
 constexpr Rect UpdatesAction={Margin,Top+200,W-2*Margin,34};
 // Date / time: SET MANUALLY, then fields day/month/year on one row and hour/minute below, -/+ and SAVE/CANCEL.
 constexpr Rect DateManual={Margin,Top+210,W-2*Margin,34};
+// The time zone row of the Date / time page (it opens the list) and the list: two-line rows over the whole page.
+constexpr Rect DateZone={Margin,Top+134,W-2*Margin,40};
+constexpr int TimeZoneRows=6,TimeZoneRowH=42;inline Rect timeZoneRow(int i){return {Margin,Top+4+i*TimeZoneRowH,W-2*Margin-6,TimeZoneRowH-4};}
 constexpr int DateFieldCount=5;
 constexpr Rect dateFieldRect(int i){return i==0?Rect{Margin,Top+22,60,34}:i==1?Rect{Margin+66,Top+22,60,34}:i==2?Rect{Margin+132,Top+22,W-2*Margin-132,34}:i==3?Rect{Margin,Top+82,(W-2*Margin-6)/2,34}:Rect{W/2+3,Top+82,(W-2*Margin-6)/2,34};}
 constexpr Rect DateMinus={Margin,Top+128,(W-2*Margin-6)/2,34},DatePlus={W/2+3,Top+128,(W-2*Margin-6)/2,34};

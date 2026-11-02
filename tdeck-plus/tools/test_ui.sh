@@ -41,16 +41,18 @@ artifacts/test-keyboard-input
 g++ -std=c++17 -O2 -DARDUINO=10800 -Isim/stubs -Isrc -I'hardware/lib/Adafruit GFX Library' sim/test_master_phase1.cpp src/ui/components.cpp src/ui/artwork.cpp src/ui/renderer.cpp 'hardware/lib/Adafruit GFX Library/Adafruit_GFX.cpp' artifacts/qrcodegen.o -o artifacts/test-master-phase1 -lz
 artifacts/test-master-phase1
 
-g++ -std=c++17 -O2 -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_time_acquisition.cpp src/services/time_sync.cpp -Wl,--wrap=settimeofday -o artifacts/test-time-acquisition
+g++ -std=c++17 -O2 -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_time_acquisition.cpp src/services/time_sync.cpp src/services/time_zone.cpp -Wl,--wrap=settimeofday -o artifacts/test-time-acquisition
+g++ -std=c++17 -O2 -Isim/location-stubs -Isrc sim/test_time_zone.cpp src/services/time_zone.cpp -o artifacts/test-time-zone
+artifacts/test-time-zone
 artifacts/test-time-acquisition
 
 g++ -std=c++17 -O2 -Isim/location-stubs -Isrc sim/test_location_power.cpp src/services/location.cpp -o artifacts/test-location-power
 artifacts/test-location-power
-g++ -std=c++17 -O2 -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_time_sources.cpp src/services/time_sync.cpp -Wl,--wrap=settimeofday -o artifacts/test-time-sources
+g++ -std=c++17 -O2 -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_time_sources.cpp src/services/time_sync.cpp src/services/time_zone.cpp -Wl,--wrap=settimeofday -o artifacts/test-time-sources
 artifacts/test-time-sources
 g++ -std=c++17 -O2 -DARDUINO=10800 -Isim/stubs -Isrc -I'hardware/lib/Adafruit GFX Library' sim/test_wifi.cpp src/ui/components.cpp src/ui/artwork.cpp src/ui/renderer.cpp 'hardware/lib/Adafruit GFX Library/Adafruit_GFX.cpp' artifacts/qrcodegen.o -o artifacts/test-wifi -lz
 artifacts/test-wifi
-g++ -std=c++17 -O2 -DESP32 -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_time_acquisition.cpp src/services/time_sync.cpp -Wl,--wrap=settimeofday -o artifacts/test-time-sntp-guard
+g++ -std=c++17 -O2 -DESP32 -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_time_acquisition.cpp src/services/time_sync.cpp src/services/time_zone.cpp -Wl,--wrap=settimeofday -o artifacts/test-time-sntp-guard
 artifacts/test-time-sntp-guard
 
 g++ -std=c++17 -O2 -Isrc sim/test_gps_nmea.cpp -o artifacts/test-gps-nmea
@@ -62,7 +64,7 @@ artifacts/test-gps-backup
 g++ -std=c++17 -O2 -DARDUINO=10800 -Isim/gps-parser-stubs -Ihardware/lib/TinyGPSPlus/src -Isim/location-stubs -Isrc sim/test_gps_assist.cpp src/services/location.cpp hardware/lib/TinyGPSPlus/src/TinyGPS++.cpp -o artifacts/test-gps-assist
 artifacts/test-gps-assist
 
-g++ -std=c++17 -O2 -DARDUINO=10800 -Isim/gps-parser-stubs -Ihardware/lib/TinyGPSPlus/src -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_gps_parser_time.cpp src/services/location.cpp src/services/time_sync.cpp hardware/lib/TinyGPSPlus/src/TinyGPS++.cpp -Wl,--wrap=settimeofday -o artifacts/test-gps-parser-time
+g++ -std=c++17 -O2 -DARDUINO=10800 -Isim/gps-parser-stubs -Ihardware/lib/TinyGPSPlus/src -Isim/time-stubs -Isim/location-stubs -Isrc sim/test_gps_parser_time.cpp src/services/location.cpp src/services/time_sync.cpp src/services/time_zone.cpp hardware/lib/TinyGPSPlus/src/TinyGPS++.cpp -Wl,--wrap=settimeofday -o artifacts/test-gps-parser-time
 artifacts/test-gps-parser-time
 g++ -std=c++17 -O2 -Isrc sim/test_channel_form.cpp -o artifacts/test-channel-form
 artifacts/test-channel-form

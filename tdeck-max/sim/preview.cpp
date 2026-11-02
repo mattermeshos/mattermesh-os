@@ -54,6 +54,8 @@ int main(int argc,char **argv){
  state.files={"[DIR] maxchat","[DIR] ripple","[DIR] tiles","config.conf"};state.voltage=4156;
  static_assert(sizeof(pages)/sizeof(pages[0])==sizeof(files)/sizeof(files[0]),"one file name per page");
  for(size_t i=0;i<sizeof(pages)/sizeof(pages[0]);i++){state.page=pages[i];renderer.draw(state);save(files[i]);}
+ {auto t=state;t.page=mm::Page::DateTime;t.timeZoneIndex=17;renderer.draw(t);save("time-zone-row");t.timeZoneFocus=true;renderer.draw(t);save("time-zone-focus");t.timeZonePicking=true;t.timeZoneScroll=14;renderer.draw(t);save("time-zone-list");}
+ {auto t=state;t.timeZoneIndex=4;t.timeZoneScroll=2;t.welcomeName="MatterMesh-5DE0";t.welcomePreset="USA";t.welcomeBand=900;for(int st=6;st<8;st++){t.welcomeStep=st;renderer.welcome(t);save("welcome-"+std::to_string(st));}}
  {auto t=state;t.page=mm::Page::DateTime;t.dateEditing=true;t.dateFocus=3;int f[5]={20,10,2026,13,45};for(int i=0;i<5;i++)t.dateFields[i]=f[i];renderer.draw(t);save("time-edit");}
  {auto w=state;w.page=mm::Page::Weather;w.weatherValid=false;w.weatherPhase=mm::WeatherPhaseView::WifiOff;w.weatherMessage="Wi-Fi is off";renderer.draw(w);save("weather-wifi-off");w.weatherPhase=mm::WeatherPhaseView::NoNetwork;renderer.draw(w);save("weather-no-network");
  w.weatherPhase=mm::WeatherPhaseView::Locating;w.weatherMessage="Finding position...";renderer.draw(w);save("weather-locating");

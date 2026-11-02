@@ -21,9 +21,9 @@ cat > "$d/bravo.emu" <<'S'
 12000 serial contacts status
 16000 quit
 S
-# The welcome: Start, Wi-Fi skip, band, preset, name, path hash, Finish.
+# The welcome: Start, Wi-Fi skip, band, preset, name, path hash, time zone, Finish.
 welcome(){ local t=$1;printf '%s serial welcome start\n' $t;printf '%s serial key ENTER\n' $((t+500));printf '%s serial key j\n' $((t+1000))
- for i in 1 2 3 4 5 6;do printf '%s serial key ENTER\n' $((t+1000+i*500));done;printf '%s serial read /mattermesh/radio.conf\n' $((t+5000));printf '%s quit\n' $((t+5500)); }
+ for i in 1 2 3 4 5 6 7;do printf '%s serial key ENTER\n' $((t+1000+i*500));done;printf '%s serial read /mattermesh/radio.conf\n' $((t+5000));printf '%s quit\n' $((t+5500)); }
 welcome 13000 >> "$d/alpha.emu"
 printf '6000 serial radio status\n6200 serial read /mattermesh/radio.conf\n6500 quit\n' > "$d/charlie.emu"
 welcome 4000 > "$d/delta.emu"
