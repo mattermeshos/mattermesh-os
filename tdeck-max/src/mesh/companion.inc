@@ -14,6 +14,7 @@ enum : uint8_t {
  CMD_SEND_SELF_ADVERT=7,CMD_SET_ADVERT_NAME=8,CMD_ADD_UPDATE_CONTACT=9,CMD_SYNC_NEXT_MESSAGE=10,CMD_SET_RADIO_PARAMS=11,CMD_SET_RADIO_TX_POWER=12,
  CMD_RESET_PATH=13,CMD_REMOVE_CONTACT=15,CMD_SHARE_CONTACT=16,CMD_EXPORT_CONTACT=17,CMD_IMPORT_CONTACT=18,CMD_GET_CONTACT_BY_KEY=30,
  CMD_REBOOT=19,CMD_GET_BATT_AND_STORAGE=20,CMD_DEVICE_QUERY=22,CMD_HAS_CONNECTION=28,CMD_GET_CHANNEL=31,CMD_SET_CHANNEL=32,CMD_SET_DEVICE_PIN=37,
+ CMD_SET_ADVERT_LATLON=14,CMD_SET_OTHER_PARAMS=38,CMD_SET_FLOOD_SCOPE_KEY=54,CMD_SET_AUTOADD_CONFIG=58,CMD_GET_AUTOADD_CONFIG=59,RESP_AUTOADD_CONFIG=25,
  CMD_GET_CUSTOM_VARS=40,CMD_GET_TUNING_PARAMS=43,CMD_SET_PATH_HASH_MODE=61,
  RESP_SENT=6,RESP_CONTACT_MSG_RECV=7,RESP_CHANNEL_MSG_RECV=8,RESP_CONTACT_MSG_RECV_V3=16,RESP_CHANNEL_MSG_RECV_V3=17,PUSH_SEND_CONFIRMED=0x82,PUSH_MSG_WAITING=0x83,PUSH_LOG_RX_DATA=0x88,
  TXT_PLAIN=0,ERR_TABLE_FULL=3,
@@ -26,6 +27,14 @@ struct Out {uint8_t b[COMPANION_FRAME_MAX];size_t n=0;void u8(uint8_t v){if(n<si
  void u32(uint32_t v){put(&v,4);}void i32(int32_t v){put(&v,4);}void u16(uint16_t v){put(&v,2);}void text(const char *s,size_t field){uint8_t z[64]={};size_t k=std::min(strlen(s),field-1);memcpy(z,s,k);put(z,field);}};
 static void send(const Out &o,CompanionWriter w,void *ctx){if(w)w(ctx,o.b,o.n);}
 static void ok(CompanionWriter w,void *ctx){Out o;o.u8(RESP_OK);send(o,w,ctx);}
+// Preferences MeshCore keeps for the app (CMD_SET_OTHER_PARAMS, CMD_SET_AUTOADD_CONFIG): saved and reported back, so a
+// configuration exported from another companion imports here. Manual add and the overwrite bit of auto add also drive
+// the Contacts menu; the rest (telemetry modes, location in adverts, multi ACKs) are not acted on.
+struct AppPrefs {uint8_t manualAdd=0,telemetry=0,locationPolicy=0,multiAcks=0,autoadd=0,autoaddHops=0;};
+static AppPrefs appPrefs;static bool appPrefsLoaded=false;
+static AppPrefs &prefs(){if(!appPrefsLoaded){appPrefsLoaded=true;Preferences p;if(p.begin("mmapp",true)){p.getBytes("prefs",&appPrefs,sizeof(appPrefs));p.end();}}return appPrefs;}
+// Saved first, kept in RAM only when saved: an error answer leaves the reported values as they were.
+static bool savePrefs(const AppPrefs &next){Preferences p;if(!p.begin("mmapp",false))return false;bool saved=p.putBytes("prefs",&next,sizeof(next))==sizeof(next);p.end();if(saved)appPrefs=next;return saved;}
 static void err(uint8_t code,CompanionWriter w,void *ctx){Out o;o.u8(RESP_ERR);o.u8(code);send(o,w,ctx);}
 // Apply a changed radio / identity setting through the normal path (saved to the SD, radio reconfigured).
 static void apply(Config c,CompanionWriter w,void *ctx){String reason;if(configure(c,reason))ok(w,ctx);else err(ERR_ILLEGAL_ARG,w,ctx);}
@@ -85,6 +94,7 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
  if(!meshPtr){err(ERR_BAD_STATE,w,ctx);return;}
  const uint8_t cmd=in[0];auto cfg=snapshot().config;Out o;
  auto read32=[&](size_t at){uint32_t v=0;if(at+4<=len)memcpy(&v,in+at,4);return v;};
+ if(state.suspended&&(cmd==CMD_SEND_TXT_MSG||cmd==CMD_SEND_CHANNEL_TXT_MSG||cmd==CMD_SEND_SELF_ADVERT||cmd==CMD_SHARE_CONTACT||cmd==companion_air::CMD_SEND_CONTROL_DATA||cmd==companion_air::CMD_SEND_ANON_REQ)){err(ERR_BAD_STATE,w,ctx);return;}
  switch(cmd){
  case CMD_DEVICE_QUERY:{
   appVersion=len>=2?in[1]:0;s.active=true;s.pushSeq=pushSeq;s.logSeq=logSeq;appSeen=true;queueBuffer();logBuffer();// pushes from before this connection are not replayed
@@ -94,7 +104,7 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
  case CMD_APP_START:{
   s.listing=false;int32_t lat=0,lon=0;if(hooks.location)hooks.location(lat,lon);
   o.u8(RESP_SELF_INFO);o.u8(ADV_TYPE_CHAT);o.u8(uint8_t(cfg.power));o.u8(uint8_t(MAX_TX_POWER));o.put(chatMesh().self_id.pub_key,PUB_KEY_SIZE);o.i32(lat);o.i32(lon);
-  o.u8(0);o.u8(0);o.u8(0);o.u8(0);// multi acks, advert location policy, telemetry modes, manual add contacts
+  {auto &p=prefs();o.u8(p.multiAcks);o.u8(p.locationPolicy);o.u8(p.telemetry);o.u8(p.manualAdd);}// multi acks, advert location policy, telemetry modes, manual add contacts
   o.u32(uint32_t(lroundf(cfg.frequency*1000)));o.u32(uint32_t(lroundf(cfg.bandwidth*1000)));o.u8(cfg.sf);o.u8(cfg.cr);o.put(cfg.name.c_str(),cfg.name.length());
   send(o,w,ctx);break;}
  case CMD_GET_CONTACTS:{
@@ -117,11 +127,11 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
   uint32_t lastmod=clock.getCurrentTime();ContactInfo *known=chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE);
   if(known){contactFromFrame(*known,lastmod,in,len);known->lastmod=lastmod;contactsChanged();ok(w,ctx);break;}
   ContactInfo c={};contactFromFrame(c,lastmod,in,len);c.lastmod=lastmod;c.sync_since=0;
-  if(chatMesh().addContact(c)){contactsChanged();ok(w,ctx);}else err(ERR_TABLE_FULL,w,ctx);break;}
+  if(chatMesh().addContact(c)){markInBook(c.id.pub_key,true);contactsChanged();ok(w,ctx);}else err(ERR_TABLE_FULL,w,ctx);break;}
  case CMD_RESET_PATH:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
-  if(!c){err(ERR_NOT_FOUND,w,ctx);break;}c->out_path_len=OUT_PATH_UNKNOWN;contactsChanged();ok(w,ctx);break;}
+  if(!c){err(ERR_NOT_FOUND,w,ctx);break;}c->out_path_len=OUT_PATH_UNKNOWN;dmRouteStore(c->id.pub_key,DmRouteMode::Auto,0,nullptr);/* the app's reset also ends Flood only / a manual path */contactsChanged();ok(w,ctx);break;}
  case CMD_REMOVE_CONTACT:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
-  if(c&&chatMesh().removeContact(*c)){contactsChanged();ok(w,ctx);}else err(ERR_NOT_FOUND,w,ctx);break;}
+  uint8_t pub[PUB_KEY_SIZE];if(c)memcpy(pub,c->id.pub_key,PUB_KEY_SIZE);if(c&&chatMesh().removeContact(*c)){dmRouteStore(pub,DmRouteMode::Auto,0,nullptr);markInBook(pub,false);contactsChanged();ok(w,ctx);}else err(ERR_NOT_FOUND,w,ctx);break;}
  case CMD_SHARE_CONTACT:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
   if(!c)err(ERR_NOT_FOUND,w,ctx);else if(chatMesh().shareContactZeroHop(*c))ok(w,ctx);else err(ERR_TABLE_FULL,w,ctx);break;}
  case CMD_GET_CONTACT_BY_KEY:{ContactInfo *c=len>=1+PUB_KEY_SIZE?chatMesh().lookupContactByPubKey(in+1,PUB_KEY_SIZE):nullptr;
@@ -136,14 +146,14 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
   if(!n||size_t(n)+1>sizeof(o.b)){err(len<1+PUB_KEY_SIZE?ERR_TABLE_FULL:ERR_NOT_FOUND,w,ctx);break;}
   o.u8(RESP_EXPORT_CONTACT);o.put(raw,n);send(o,w,ctx);break;}
  case CMD_IMPORT_CONTACT:{
-  if(len>2+PUB_KEY_SIZE+64&&len<=256&&chatMesh().importContact(in+1,uint8_t(len-1))){contactsChanged();ok(w,ctx);}else err(ERR_ILLEGAL_ARG,w,ctx);break;}
+  if(len>2+PUB_KEY_SIZE+64&&len<=256&&chatMesh().importContact(in+1,uint8_t(len-1))){contactImporting=true;contactsChanged();ok(w,ctx);}else err(ERR_ILLEGAL_ARG,w,ctx);break;}
  case CMD_SYNC_NEXT_MESSAGE:
   if(queueCount){auto &q=queue[queueHead];queueHead=(queueHead+1)%QueueMax;queueCount--;if(w)w(ctx,q.b,q.len);}else{o.u8(RESP_NO_MORE_MESSAGES);send(o,w,ctx);}break;
  case CMD_SEND_TXT_MSG:{
   if(len<14){err(ERR_ILLEGAL_ARG,w,ctx);break;}uint8_t type=in[1],attempt=in[2];uint32_t ts=read32(3);ContactInfo *to=chatMesh().lookupContactByPubKey(in+7,6);
   if(!to){err(ERR_NOT_FOUND,w,ctx);break;}if(type!=TXT_PLAIN){err(ERR_UNSUPPORTED,w,ctx);break;}
   char body[COMPANION_FRAME_MAX];size_t n=std::min(len-13,sizeof(body)-1);memcpy(body,in+13,n);body[n]=0;uint32_t ack=0,timeout=0;
-  int result=chatMesh().sendMessage(*to,ts,attempt,body,ack,timeout);if(result==MSG_SEND_FAILED){err(ERR_TABLE_FULL,w,ctx);break;}
+  dmRouteApply(*to);/* the T-Deck route (Flood only / set by hand) also for the app's sends */int result=chatMesh().sendMessage(*to,ts,attempt,body,ack,timeout);if(result==MSG_SEND_FAILED){err(ERR_TABLE_FULL,w,ctx);break;}
   if(ack){acks[nextAck].ack=ack;acks[nextAck].sentMs=millis();nextAck=(nextAck+1)%AckMax;}
   o.u8(RESP_SENT);o.u8(result==MSG_SEND_SENT_FLOOD?1:0);o.u32(ack);o.u32(timeout);send(o,w,ctx);break;}
  case CMD_SEND_CHANNEL_TXT_MSG:{
@@ -159,6 +169,17 @@ void companionFrame(CompanionSession &s,const uint8_t *in,size_t len,CompanionWr
   if(len<2+32+16||!hooks.setChannel){err(ERR_ILLEGAL_ARG,w,ctx);break;}
   char name[33]={};memcpy(name,in+2,32);int slot=meshSlot(in[1]);uint8_t code=hooks.setChannel(slot<0?0xFF:uint8_t(slot),name,in+2+32);if(code)err(code,w,ctx);else ok(w,ctx);break;}
  case CMD_REBOOT:if(len>=7&&!memcmp(in+1,"reboot",6)&&hooks.reboot){ok(w,ctx);hooks.reboot();}else err(ERR_ILLEGAL_ARG,w,ctx);break;
+ case CMD_SET_ADVERT_LATLON:{int32_t lat=int32_t(read32(1)),lon=int32_t(read32(5));
+  if(len<9||lat<-90000000||lat>90000000||lon<-180000000||lon>180000000)err(ERR_ILLEGAL_ARG,w,ctx);
+  else if((!lat&&!lon)||(hooks.setLocation&&hooks.setLocation(lat,lon)))ok(w,ctx);/* 0,0: the app's "no position", the saved one stays */else err(ERR_ILLEGAL_ARG,w,ctx);break;}
+ case CMD_SET_OTHER_PARAMS:{if(len<2){err(ERR_ILLEGAL_ARG,w,ctx);break;}auto p=prefs();p.manualAdd=in[1];if(len>=3)p.telemetry=in[2]&0x3F;/* base, location, environment: 2 bits each */if(len>=4)p.locationPolicy=in[3];if(len>=5)p.multiAcks=in[4];
+  if(savePrefs(p))ok(w,ctx);else err(ERR_BAD_STATE,w,ctx);break;}
+ case CMD_SET_AUTOADD_CONFIG:{if(len<2){err(ERR_ILLEGAL_ARG,w,ctx);break;}auto p=prefs();p.autoadd=in[1];if(len>=3)p.autoaddHops=std::min<uint8_t>(in[2],64);
+  if(savePrefs(p))ok(w,ctx);else err(ERR_BAD_STATE,w,ctx);break;}
+ case CMD_GET_AUTOADD_CONFIG:o.u8(RESP_AUTOADD_CONFIG);o.u8(prefs().autoadd);o.u8(prefs().autoaddHops);send(o,w,ctx);break;
+ // The app resets the send scope override on connect (sub-command 0 without a key): app sends use the T-Deck's own
+ // region settings, so only the reset is taken.
+ case CMD_SET_FLOOD_SCOPE_KEY:if(len>=2&&in[1]==0&&len<2+16)ok(w,ctx);else err(ERR_UNSUPPORTED,w,ctx);break;
  case CMD_SET_DEVICE_PIN:{uint32_t pin=read32(1);if(len<5||(pin&&(pin<100000||pin>999999))||!hooks.setPin||!hooks.setPin(pin))err(ERR_ILLEGAL_ARG,w,ctx);else ok(w,ctx);break;}
  case CMD_GET_CUSTOM_VARS:o.u8(RESP_CUSTOM_VARS);send(o,w,ctx);break;
  case CMD_GET_TUNING_PARAMS:o.u8(RESP_TUNING_PARAMS);o.u32(0);o.u32(1000);send(o,w,ctx);break;// MeshCore defaults: rx delay 0, airtime factor 1.0
@@ -178,3 +199,7 @@ bool companionPump(CompanionSession &s,CompanionWriter w,void *ctx){
  ContactInfo c;while(chatMesh().getContactByIdx(uint32_t(s.next),c)){s.next++;if(!s.since||c.lastmod>s.since){Out o;/* contacts loaded from the SD have lastmod 0: a full listing sends them all */contactFrame(o,c);send(o,w,ctx);if(c.lastmod>s.mostRecent)s.mostRecent=c.lastmod;return true;}}
  Out o;o.u8(RESP_END_OF_CONTACTS);o.u32(s.mostRecent);send(o,w,ctx);s.listing=false;return true;
 }
+bool contactsAddNew(){return !(companion::prefs().manualAdd&1);}
+bool contactsSetAddNew(bool on){auto p=companion::prefs();p.manualAdd=on?0:1;return companion::savePrefs(p);}
+bool contactsReplaceOldest(){return companion::prefs().autoadd&1;}// MeshCore AUTO_ADD_OVERWRITE_OLDEST
+bool contactsSetReplaceOldest(bool on){auto p=companion::prefs();p.autoadd=on?(p.autoadd|1):(p.autoadd&~1);return companion::savePrefs(p);}

@@ -1,4 +1,5 @@
 #pragma once
+#include "radio_link_layout.h"
 #include "components.h"
 namespace mm {
 struct NavItem {const char *label;Icon icon;int section;};
@@ -11,7 +12,9 @@ constexpr const char *UnlockUrl="https://ko-fi.com/s/1f0b36fd8b";
 constexpr bool FreeBuild=true;
 // Free image: the Extra apps are not compiled in, the App screen lists the OS apps.
 inline constexpr AppItem Applications[]={{"Maps",PackIcon::Map,9},{"Weather",PackIcon::Weather,10},{"Files",PackIcon::Files,7},{"CLI",PackIcon::Keyboard,30}};
+constexpr uint32_t AppKeepMs=600000;// an open app holds off the lock this long after the last input
 constexpr int ApplicationCount=sizeof(Applications)/sizeof(Applications[0]);
-inline constexpr NavItem SettingsItems[]={{"Wi-Fi",Icon::Wifi,4},{"Bluetooth",Icon::Bluetooth,14},{"LoRa",Icon::Radio,2},{"Antenna",Icon::Signal,23},{"GPS",Icon::GPS,3},{"Lights / vibration",Icon::Vibration,6},{"Wallpaper",Icon::Mountain,22},{"Home widgets",Icon::Weather,HomeWidgetsSection},{"Keyboard languages",Icon::Keyboard,KeyboardSection},{"Accent key",Icon::Keyboard,AccentKeySection},{"Sound / dictation",Icon::Messages,21},{"Power / timeouts",Icon::Power,20},{"Battery",Icon::Battery,5},{"Date / time",Icon::Clock,16},{"Storage",Icon::Files,24},{"Diagnostics",Icon::Terminal,11},{"OTA update",Icon::Tools,17},{"Donate / Unlock",Icon::Lock,SupportSection},{"About",Icon::Info,8}};
+// Grouped as theme.h SettingsGroupFirst: radio & mesh, connections, display, keyboard & sound, device, system.
+inline constexpr NavItem SettingsItems[]={{"LoRa",Icon::Radio,2},{"Antenna",Icon::Signal,23},{"Companion link",Icon::Radio,RadioLinkSection},{"Wi-Fi",Icon::Wifi,4},{"Bluetooth",Icon::Bluetooth,14},{"GPS",Icon::GPS,3},{"Wallpaper",Icon::Mountain,22},{"Home widgets",Icon::Weather,HomeWidgetsSection},{"Lights / vibration",Icon::Vibration,6},{"Power / timeouts",Icon::Power,20},{"Keyboard languages",Icon::Keyboard,KeyboardSection},{"Accent key",Icon::Keyboard,AccentKeySection},{"Sound / dictation",Icon::Messages,21},{"Battery",Icon::Battery,5},{"Date / time",Icon::Clock,16},{"Storage",Icon::Files,24},{"OTA update",Icon::Tools,17},{"Diagnostics",Icon::Terminal,11},{"Donate / Unlock",Icon::Lock,SupportSection},{"About",Icon::Info,8}};
 static_assert(sizeof(SettingsItems)/sizeof(SettingsItems[0])==SettingsCount,"Settings catalog/layout must agree");
 }

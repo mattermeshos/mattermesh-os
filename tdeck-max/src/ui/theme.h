@@ -9,7 +9,7 @@ namespace mm {
 #ifndef MM_HEIGHT
 #define MM_HEIGHT 320
 #endif
-constexpr int W=MM_WIDTH,H=MM_HEIGHT,MaxSection=35;
+constexpr int W=MM_WIDTH,H=MM_HEIGHT,MaxSection=43;// 43: chat Path (dm_path_layout.h)
 constexpr uint16_t BG=0,FG=1; // GFXcanvas1 ink semantics; white=0, black=1.
 constexpr int Margin=8,Gap=6,Radius=5,StatusH=18,HeaderH=32,FooterH=18;
 constexpr int Top=StatusH+HeaderH,Bottom=H-Margin,FooterY=H-FooterH;
@@ -52,13 +52,17 @@ constexpr Rect EmojiPopup={Margin,ComposerY-198,W-2*Margin,196};
 constexpr Rect emojiTabRect(int index){return {EmojiPopup.x+4+index*36,EmojiPopup.y+4,34,26};}
 constexpr Rect emojiChoiceRect(int index){return {EmojiPopup.x+4+(index%6)*36,EmojiPopup.y+34+(index/6)*36,34,34};}
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
-constexpr int SettingsCount=19,SettingsRowH=36,SettingsDeviceFirst=5,SettingsSystemFirst=13;// Home widgets after Wallpaper
-constexpr int SettingsGpsIndex=4;
+constexpr int SettingsCount=20,SettingsRowH=36;
+// Six groups, each label above its first row (navigation_catalog.h SettingsItems is in this order).
+constexpr int SettingsGroupCount=6;
+inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,3,6,10,13,16};
+inline constexpr const char *SettingsGroupNames[SettingsGroupCount]={"RADIO & MESH","CONNECTIONS","DISPLAY","KEYBOARD & SOUND","DEVICE","SYSTEM"};
+constexpr int SettingsGpsIndex=5;// CONNECTIONS
 // Settings scroll by whole rows: scroll = first visible row, its group label above it
 // when it opens a group. Rows outside the viewport get a y off screen and are not drawn.
 constexpr int SettingsHeaderH=18,SettingsCardH=34,SettingsListY=Top+4;
-inline bool settingsGroupFirst(int index){return index==0||index==SettingsDeviceFirst||index==SettingsSystemFirst;}
-inline int settingsContentY(int index){return SettingsHeaderH+index*SettingsRowH+(index>=SettingsDeviceFirst?SettingsHeaderH:0)+(index>=SettingsSystemFirst?SettingsHeaderH:0);}
+inline bool settingsGroupFirst(int index){for(int f:SettingsGroupFirst)if(f==index)return true;return false;}
+inline int settingsContentY(int index){int groups=0;for(int f:SettingsGroupFirst)if(f<=index)groups++;return index*SettingsRowH+groups*SettingsHeaderH;}
 inline int settingsSnapY(int first){return settingsContentY(first)-(settingsGroupFirst(first)?SettingsHeaderH:0);}
 inline Rect settingsRect(int index,int scroll){return {Margin,SettingsListY+settingsContentY(index)-settingsSnapY(scroll),W-2*Margin,SettingsCardH};}
 inline bool settingsVisible(int index,int scroll){auto r=settingsRect(index,scroll);return index>=scroll&&r.y+r.h<=Bottom;}
@@ -138,7 +142,8 @@ constexpr Rect messageMapRect(){return {Margin+8+(W-2*Margin-16)-MessageMapW,Top
 constexpr int receivedMessageAction(int row){return row==0?0:row==1?2:row==2?5:row==3?1:3;}
 constexpr Rect messageActionRect(int index){return {Margin+8,Top+40+index*32,W-2*Margin-16,28};}
 inline Rect chatOptionRect(int index){return {Margin+8,Top+36+index*44,W-2*Margin-16,38};}
-constexpr int ChatOptionCount=4;
+constexpr int ChatOptionCount=3;// channels; a direct chat adds Path
+inline int chatOptionCount(bool direct){return direct?ChatOptionCount+1:ChatOptionCount;}
 // Channel options rows: notifications, show key + QR (channels only), delete.
 inline Rect channelOptionRect(int slot){return {Margin+8,Top+78+slot*48,W-2*Margin-16,38};}
 constexpr Rect ChannelAction={Margin+8,Top+78,W-2*Margin-16,38};
@@ -160,13 +165,19 @@ constexpr Rect LoRaBand868={LoRaInset,Top+18,(LoRaContentW-Gap)/2,24},LoRaBand90
 constexpr Rect LoRaPreset={LoRaInset,Top+48,LoRaContentW,50};
 constexpr Rect LoRaPresetPrev={LoRaInset,Top+48,30,50},LoRaPresetNext={W-LoRaInset-30,Top+48,30,50};
 inline Rect loraFieldRect(int field){return {LoRaInset,Top+102+field*22,LoRaContentW,21};}
-constexpr Rect LoRaApply={LoRaInset,Top+214,(LoRaContentW-Gap)/2,28},LoRaAdvert={W/2+Gap/2,Top+214,(LoRaContentW-Gap)/2,28};
+constexpr Rect LoRaApply={LoRaInset,Top+214,(LoRaContentW-Gap)/2,28};
+// ADVERT and beside it the GPS switch: the adverts carry the position.
+constexpr Rect LoRaAdvert={W/2+Gap/2,Top+214,(LoRaContentW-Gap)/2-30,28},LoRaAdvertGps={W-LoRaInset-26,Top+214,26,28};
 constexpr int LoRaTabW=62,LoRaTabGap=4,LoRaTabY=StatusH+2,LoRaTabH=Top-LoRaTabY+1;
 constexpr Rect LoRaRadio={W-Margin-2*LoRaTabW-LoRaTabGap,LoRaTabY,LoRaTabW,LoRaTabH},LoRaDevice={W-Margin-LoRaTabW,LoRaTabY,LoRaTabW,LoRaTabH};
 // Contacts (Home tab, section 1): ALL / COMP / RPT tabs opening into the LoRa panel, search field, four rows, pager.
-constexpr int ContactTabCount=3,ContactTabGap=2;constexpr int ContactTabWidths[ContactTabCount]={46,62,46};
-inline Rect contactTabRect(int i){int x=W-Margin-Radius;for(int t=ContactTabCount-1;t>=i;t--)x-=ContactTabWidths[t]+(t==ContactTabCount-1?0:ContactTabGap);return {x,LoRaTabY,ContactTabWidths[i],LoRaTabH};}
-constexpr Rect ContactSearch={LoRaInset,Top+6,LoRaContentW,26};
+// Contacts (Home tab, section 1): the header band holds the ALL / COMP / RPT tabs, the count, search and the menu; below
+// it one-line rows, as many as the portrait screen takes.
+constexpr int ContactTabCount=3,ContactTabGap=2;constexpr int ContactTabWidths[ContactTabCount]={34,42,34};
+inline Rect contactTabRect(int i){int x=36;for(int t=0;t<i;t++)x+=ContactTabWidths[t]+ContactTabGap;return {x,LoRaTabY+4,ContactTabWidths[i],LoRaTabH-8};}
+constexpr Rect ContactMenu={W-32,StatusH,32,HeaderH},ContactSearchButton={W-62,StatusH,30,HeaderH};
+constexpr Rect ContactSearch={36,StatusH+3,W-36-34,26};
+constexpr Rect ContactCount={152,StatusH,W-62-152-2,HeaderH};
 // Settings > Keyboard languages: search, KeyboardRows language rows with a switch (toggleRow needs 40 px for its two
 // lines), help under the list: up to 7 lines, enough for the two-line how-to plus the longest accent help.
 constexpr int KeyboardSection=12,KeyboardRows=3,KeyboardRowH=40;
@@ -177,9 +188,14 @@ constexpr int KeyboardHelpY=Top+40+KeyboardRows*(KeyboardRowH+2);
 constexpr int AccentKeySection=13,AccentRowH=38;
 inline Rect accentRowRect(int i){return {Margin,Top+6+i*(AccentRowH+2),W-2*Margin,AccentRowH};}
 constexpr int AccentInfoY=Top+6+3*(AccentRowH+2)+4;
-constexpr int ContactRows=4,ContactRowH=44,ContactRowY=Top+38,ContactNoticeY=Bottom-46;
-inline Rect contactRowRect(int i){return {LoRaInset,ContactRowY+i*ContactRowH,LoRaContentW,ContactRowH-3};}
-constexpr Rect ContactPrevious={LoRaInset,Bottom-28,40,22},ContactNext={W-LoRaInset-40,Bottom-28,40,22};
+constexpr int ContactRowH=23,ContactRowY=Top+1,ContactRows=(H-2-ContactRowY)/ContactRowH;
+inline Rect contactRowRect(int i){return {4,ContactRowY+i*ContactRowH,W-12,ContactRowH-1};}
+// Contacts menu: two switches and two delete rows; delete dialogs use the ChatClear buttons.
+constexpr int ContactMenuRows=4,ContactMenuRowH=40,ContactMenuHeadH=22;
+constexpr Rect ContactPopup={10,Top+6,W-20,ContactMenuHeadH+ContactMenuRows*ContactMenuRowH+2};
+inline Rect contactMenuRow(int i){return {ContactPopup.x+3,ContactPopup.y+ContactMenuHeadH+i*ContactMenuRowH,ContactPopup.w-6,ContactMenuRowH-2};}
+constexpr int ContactDeleteSteps=4;constexpr int ContactDeleteAmounts[ContactDeleteSteps]={50,100,250,500};
+inline Rect contactAmountRect(int i){int w=(W-2*Margin-16-3*6)/4;return {Margin+8+i*(w+6),Top+46,w,28};}
 constexpr Rect LoRaName={LoRaInset,Top+12,LoRaContentW,56};
 constexpr int LoRaBytesY=Top+105;
 constexpr int LoRaByteGap=4,LoRaByteW=(LoRaContentW-2*LoRaByteGap)/3;

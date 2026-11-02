@@ -9,7 +9,7 @@
 #include "services/keyboard_modifiers.h"
 static int ink(GFXcanvas1 &canvas,mm::Rect rect){int n=0;for(int y=rect.y;y<rect.y+rect.h;y++)for(int x=rect.x;x<rect.x+rect.w;x++)n+=canvas.getPixel(x,y);return n;}
 int main(){
- assert(mm::SettingsGpsIndex<mm::SettingsDeviceFirst);assert(mm::SettingsItems[mm::SettingsGpsIndex].section==3);assert(std::string(mm::SettingsItems[2].label)=="LoRa");
+ assert(mm::SettingsGpsIndex<mm::SettingsGroupFirst[2]);assert(mm::SettingsItems[mm::SettingsGpsIndex].section==3);assert(std::string(mm::SettingsItems[0].label)=="LoRa");
  assert(matter::RADIO_PRESET_COUNT==23);std::set<int> visited;
  for(int band:{868,900}){int index=-1,first=-1;for(int i=0;i<23;i++){index=matter::nextRadioPreset(index,band,1);assert(index>=0);if(first<0)first=index;else if(index==first)break;visited.insert(index);assert(matter::radioBand(matter::RADIO_PRESETS[index].frequency)==band);}assert(matter::nextRadioPreset(matter::nextRadioPreset(first,band,-1),band,1)==first);}
  assert(visited.size()==23);for(auto preset:matter::RADIO_PRESETS)assert(matter::validRadioParameters(preset.frequency,preset.bandwidth,preset.sf,preset.cr,22));

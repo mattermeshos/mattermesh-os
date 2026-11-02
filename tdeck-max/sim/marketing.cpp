@@ -20,7 +20,7 @@ int main(int argc,char **argv){
  renderer.home(s);save("03-home");
  s.page=mm::Page::Messages;renderer.draw(s);save("04-messages");
  // Conversation: received bubbles with hops/scope, own messages with Heard xN.
- s.page=mm::Page::Chat;s.chatName="Trail Team";s.scope="it-vda";s.active=0;s.chatRadio=true;
+ s.page=mm::Page::Chat;s.chatName="Trail Team";s.scope="it-vda";s.active=0;
  auto rx=[&](const char *who,const char *t,const char *body,int hops){mm::Message m{who,t,body,std::to_string(hops)+" hop | it-vda",false};m.hops=hops;m.scope="it-vda";s.messages.push_back(m);};
  auto tx=[&](const char *t,const char *body,int heard){mm::Message m{"YOU",t,body,"Sent",true};m.repeaters=heard;m.heard=heard>1?"a1,b2":"a1";s.messages.push_back(m);};
  rx("Marta","09:30","Starting from the car park now",2);tx("09:32","On my way, 20 min behind you",2);rx("Luca","09:35","Fog lifting on the ridge",3);rx("Marta","09:38","Rifugio at 12:30, all good?",2);tx("09:40","Perfect, see you there",3);
@@ -36,6 +36,6 @@ int main(int argc,char **argv){
  // Weather and LoRa radio pages.
  mm::State w=s;w.page=mm::Page::Weather;w.weatherValid=true;w.weatherCode=1;w.temperature=17;w.humidity=58;w.pressure=1019;w.wind=12;w.high=21;w.low=11;w.weatherText="Mainly clear";w.weatherPlace="Portofino";w.weatherUpdated="2026-10-18T09:30";
  renderer.draw(w);save("09-weather");
- mm::State r=s;r.page=mm::Page::Radio;r.radioPreset=8;r.radioBand=868;r.radioFrequency=869.618f;r.radioBW=62.5f;r.radioSF=8;r.radioCR=8;r.radioPower=22;r.radioName="Trail-Alpine";r.radioPathBytes=2;r.radioRX=true;r.radioPacketsRX=1284;r.radioPacketsTX=96;r.radioRSSI=-88;r.radioSNR=6;
+ mm::State r=s;r.page=mm::Page::Radio;r.radioPreset=8;r.radioBand=868;r.radioFrequency=869.618f;r.radioBW=62.5f;r.radioSF=8;r.radioCR=8;r.radioPower=22;r.radioName="Trail-Alpine";r.radioPathBytes=2;r.radioPacketsRX=1284;r.radioPacketsTX=96;
  renderer.draw(r);save("10-lora");
 }

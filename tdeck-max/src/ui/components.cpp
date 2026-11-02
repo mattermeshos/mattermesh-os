@@ -184,14 +184,16 @@ void Components::statusBar(const Status &s){
  text(Margin,StatusTextY,s.clock,Font::ChatBody,FG,StatusClockW);
  text(StatusAntennaX,StatusAntennaY,s.antennaInternal?"INT":"EXT",Font::ChatMeta,FG,StatusAntennaW);
  if(!s.keyboard.empty())text(StatusAntennaX+StatusAntennaW+2,StatusAntennaY,s.keyboard,Font::ChatMeta,FG,22);// keyboard language (Alt + Space)
- const Icon indicators[]={Icon::Messages,Icon::GPS,Icon::Wifi,Icon::Bluetooth};
- const bool active[]={s.unread>0,s.gps,s.wifi,s.bt};
+ // The companion link on: its antenna in the Bluetooth place.
+ const Icon indicators[]={Icon::Messages,Icon::GPS,Icon::Wifi,s.companion?Icon::Radio:Icon::Bluetooth};
+ const bool active[]={s.unread>0,s.gps,s.wifi,s.bt||s.companion};
  int count=0;for(bool on:active)if(on)count++;
  auto layout=statusLayout(s);
  int first=layout.iconsRight-(count?(count-1)*StatusIconStep+IconStatus:0),visible=0;
  // Center the actual ink bounds, not each asset's transparent padding.
  GFXcanvas1 glyph(IconStatus,IconStatus);Components glyphComponents(glyph);
- for(int i=0;i<4;i++){
+ // on but not connected (Wi-Fi without a network, a companion not reached). Connected: the icon is drawn dithered (1 bit: no red), connected: solid.
+ const bool waiting[]={false,false,!s.wifiLinked,s.companion&&!s.companionLinked};for(int i=0;i<4;i++){
   if(!active[i])continue;
   glyph.fillScreen(BG);if(i==0){glyph.drawRect(0,2,12,8,FG);glyph.drawLine(0,2,5,6,FG);glyph.drawLine(11,2,6,6,FG);}else glyphComponents.icon(indicators[i],0,0,IconStatus);
   int left=IconStatus,right=-1,top=IconStatus,bottom=-1;
@@ -199,7 +201,7 @@ void Components::statusBar(const Status &s){
   if(right<left)continue;
   int dx=first+visible++*StatusIconStep+(IconStatus-(right-left+1))/2-left;
   int dy=StatusIconY+(IconStatus-(bottom-top+1))/2-top;
-  for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++)if(glyph.getPixel(x,y))g.drawPixel(dx+x,dy+y,FG);
+  for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++)if(glyph.getPixel(x,y)&&(!waiting[i]||((x+y)&1)))g.drawPixel(dx+x,dy+y,FG);
  }
  text(layout.percentX,StatusTextY,layout.percent,Font::ChatBody);
  if(s.charging){int x=layout.batteryX+1;g.fillTriangle(x+7,StatusIconY,x+1,StatusIconY+7,x+7,StatusIconY+7,FG);g.fillTriangle(x+5,StatusIconY+4,x+5,StatusIconY+12,x+11,StatusIconY+4,FG);}

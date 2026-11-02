@@ -12,6 +12,8 @@ int main(){using namespace device;
  for(int code:{-1,31,35})for(int context=0;context<2;context++)for(int key:{31,35}){KeyboardModifiers k;k.update(key,true);
   bool chosen=context&&code==key;assert(k.accentHeld(code,context)==chosen&&k.capitals(code,context)==!chosen);}
  {KeyboardModifiers k;assert(!k.capitals(35,false)&&!k.accentHeld(35,true));k.update(35,true);k.update(31,true);assert(k.accentHeld(35,true)&&k.capitals(35,true));}
+ assert(messageOpening("")&&messageOpening("@[Mario] ")&&messageOpening("@[Mario] @[Anna K] ")&&!messageOpening("ciao")&&!messageOpening("@[Mario] ciao ")&&!messageOpening("@[Mar"));
+ assert(accented('e',"@[Mario] ",false)=="\xc3\x88");
  assert(accented('e',"perch",false)=="\xc3\xa9"&&accented('e',"",false)=="\xc3\x88"&&accented('e',"lui ",false)=="\xc3\xa8"&&accented('a',"citt",false)=="\xc3\xa0"&&accented('O',"per",true)=="\xc3\x92"&&accented('x',"",false).empty());
  m.update(32,true);assert(m.symbols());m.update(32,false);assert(!m.symbols());
  std::cout<<"PASS: case-sensitive password/CLI/name editors, case-insensitive menus, Alt/Sym/Shift, accent key rules per mode and context\n";

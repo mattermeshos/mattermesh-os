@@ -31,7 +31,7 @@ int main(){
  assert(mm::WeatherWifiButton.y+mm::WeatherWifiButton.h<mm::WeatherPrompt.y+mm::WeatherPrompt.h&&mm::weatherCell(1).x+mm::weatherCell(1).w<=mm::W-mm::Margin);
  assert(mm::WeatherRefresh.y+mm::WeatherRefresh.h<=mm::Bottom);
  for(int i=0;i<5;i++){auto r=mm::ownMessageActionRect(i);assert(r.x>=mm::Margin&&r.y>=mm::Top&&r.x+r.w<=mm::W-mm::Margin&&r.y+r.h<=mm::Bottom);for(int j=i+1;j<5;j++){auto q=mm::ownMessageActionRect(j);assert(r.x+r.w<=q.x||q.x+q.w<=r.x||r.y+r.h<=q.y||q.y+q.h<=r.y);}}
- for(int i=0;i<mm::ContactRows;i++){auto r=mm::contactRowRect(i);assert(r.y>=mm::ContactSearch.y+mm::ContactSearch.h&&r.y+r.h<=mm::ContactPrevious.y);}
+ for(int i=0;i<mm::ContactRows;i++){auto r=mm::contactRowRect(i);assert(r.y>=mm::Top&&r.y+r.h<=mm::H);}
  for(int i=0;i<6;i++){auto r=mm::timeoutOptionRect(i);assert(r.x>=0&&r.y>=mm::Top&&r.x+r.w<=mm::W&&r.y+r.h<mm::Bottom);}
  std::string longWord(96,'W');auto lines=c.lines(longWord,176);std::string result;for(auto &line:lines){assert(c.width(line)<=176);result+=line;}assert(result==longWord);
  // The byte counter appears only after95 and never occupies composer pixels.

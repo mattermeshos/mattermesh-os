@@ -7,8 +7,10 @@ class Renderer {
  Adafruit_GFX &g;Components c;uint8_t *bits=nullptr;// the canvas pixels, when drawing on a GFXcanvas1 (fast paths)
  std::vector<std::pair<Rect,int>> bubbleHits;std::vector<std::pair<Rect,int>> senderHits;
 public:
+  Rect dmPathLineOut{0,0,0,0};// direct chat: the "DM path" line drawn above the composer (a tap opens Path)
  int chatComposerTop=ComposerY;// top of the composer card painted by chat(): ComposerY unless a draft expanded it
 private:
+ void dmPathPage(const State &s);// Chat options > Path (43)
  void homeHeader(const State &s,int dy,int id);// Home clock band (Classic, or a smaller clock and the widget box), moved down by dy (previews)
  void homeWidget(const State &s,int id,int x,int top,int w);// one Home widget in the box right of the clock
  void homeChats(const State &s,int dy);// Home chat cards, moved down by dy
@@ -30,6 +32,8 @@ public:
  void channelOptions(const State &s);
  void channelKey(const State &s);
  void contactPicker(const State &s);
+ void radioLinkPages(const State &s);// Settings > Companion link (41, 42)
+ void radioLinkAsk();// over any page: download the companion's messages?
  void cliApp(const State &s);
  int cliLineAt(const State &s,int y); // raw CLI line under y, -1 if none
  int cliMaxScroll(const State &s);

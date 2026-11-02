@@ -9,7 +9,7 @@ enum class Font { Small,Body,Bold,Title,Brand,Clock,Tiny,HomeClock,LockText,Chat
 enum class Icon { Messages,Mesh,Weather,Radio,Files,Terminal,Notes,Tools,Settings,GPS,Info,Battery,Signal,Wifi,Bluetooth,Contacts,Keyboard,Clock,Lock,Power,Back,Search,Menu,Plus,ChevronRight,Mountain,Vibration };
 // MatterMesh OS e-ink icon pack (tools/import_icon_pack.py); order = mm_assets::pack_icons_*.
 enum class PackIcon { Chat,Contacts,Settings,Apps,Map,Files,Weather,Signal,Tools,List,Radio,Keyboard };
-struct Status { std::string clock="--:--";int battery=-1,unread=0;bool mesh=false,wifi=false,bt=false,gps=false,acquiringTime=false,charging=false,antennaInternal=true;std::string keyboard;/* language code, only with 2+ keyboard languages */ };
+struct Status { std::string clock="--:--";int battery=-1,unread=0;bool mesh=false,wifi=false,bt=false,gps=false,acquiringTime=false,charging=false,antennaInternal=true,companion=false,wifiLinked=false,companionLinked=false;/* companion: the link is on, its radio in use once companionLinked; wifiLinked: on a network */std::string keyboard;/* language code, only with 2+ keyboard languages */ };
 struct StatusLayout {std::string percent;int percentX,percentWidth,batteryX,iconsRight;};
 class Components {
  Adafruit_GFX &g;
