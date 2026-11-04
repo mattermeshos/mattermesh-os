@@ -3,6 +3,8 @@
 #include "services/ota.h"
 #include <Arduino.h>
 #include <driver/gpio.h>
+#include "sd_diskio.h"
+unsigned char ff_sd_initialize(uint8_t pdrv);// sd_diskio.cpp (C++ linkage): sends CMD0 and brings the card up
 #include "board/device_model.h"
 #include <nvs.h>
 #include <algorithm>
@@ -170,6 +172,8 @@ bool radioPowerEditing=false,radioDevicePage=false;int radioDeviceFocus=0;conste
 matter::Config radioDraft;bool radioDraftLoaded=false;int radioEditField=matter::TxPower,radioPresetSelection=-1,radioBandSelection=868;
 bool advertGps=false;// off by default: on, every advert tells the mesh where this T-Deck is
 int radioFocus=3,nodeScroll=0,powerField=0,wifiOffset=0,wifiFocus=0;
+// Wi-Fi > SAVED: the known networks; FORGET arms a row (wifiForgetArmed), a second tap within WifiForgetMs forgets it.
+bool wifiSavedOpen=false;int wifiSavedOffset=0,wifiSavedFocus=0,wifiForgetArmed=-1;uint32_t wifiForgetAt=0;constexpr uint32_t WifiForgetMs=4000;void wifiSavedShow(bool open);
 String contactQuery;bool contactSearching=false;int contactFocus=0; // Contacts page search / keyboard focus (-1: the menu button)
 bool contactMenu=false;int contactMenuFocus=0,contactDialog=0,contactButton=2,contactAmount=1,contactDeletable=0;uint32_t contactDialogAt=0;static void contactPopupsClose(){contactMenu=false;contactDialog=0;} // Contacts menu; contactDialog 1 delete oldest, 2 delete all; contactButton 0 amounts, 1 DELETE, 2 CANCEL
 // T-Deck Plus: the "wallpaper" index is the colour theme (palette + lock illustration), same NVS slot.
@@ -678,6 +682,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
  }
  auto battery=device::batteryState();v.status.battery=battery.percent;v.status.charging=battery.charging;v.voltage=battery.voltage;v.batteryEstimated=battery.estimated;v.batteryCharging=battery.charging;v.batteryFull=battery.full;
  auto connection=device::connectivityStatus();v.status.wifi=connection.wifi;v.status.wifiLinked=connection.connected;v.status.bt=connection.ble&&connection.bleReady;v.rlOn=radioLinkActive();v.status.companion=v.rlOn;v.status.companionLinked=radioLinkConnected();v.wifiEnabled=connection.wifi;v.wifiConnected=connection.connected;v.wifiConnecting=connection.connecting;v.wifiScanning=connection.scanning;v.wifiMessage=connection.message.c_str();v.wifiSSID=wifiEditing?wifiTarget.c_str():connection.ssid.c_str();v.wifiIP=connection.address.c_str();v.wifiEditing=wifiEditing;v.wifiPasswordMask=device::wifiInputDisplay(wifiPassword.c_str(),wifiShowPassword);v.wifiHidden=wifiHidden;v.wifiShowPassword=wifiShowPassword;v.wifiEditField=wifiEditField;v.wifiOffset=wifiOffset;v.wifiFocus=wifiFocus;v.bleEnabled=connection.ble;v.bleReady=connection.bleReady;
+ if(!deviceLocked&&screen==Screen::Section&&section==4){v.wifiSavedOpen=wifiSavedOpen;v.wifiSavedOffset=wifiSavedOffset;v.wifiSavedFocus=wifiSavedFocus;v.wifiForgetArmed=wifiForgetArmed>=0&&millis()-wifiForgetAt<WifiForgetMs?wifiForgetArmed:-1;for(auto &name:device::savedNetworks())v.wifiSaved.push_back(name.c_str());}
  if(!deviceLocked&&screen==Screen::Section&&section==4)for(auto &network:device::connectivityState().networks){mm::State::Network n;n.ssid=network.ssid.c_str();n.rssi=network.rssi;n.secured=network.protectedNetwork;n.saved=network.saved;v.networks.push_back(n);}
  auto weather=device::weatherState();v.weatherValid=weather.data.valid;v.weatherBusy=weather.busy;v.temperature=weather.data.temperature;v.humidity=weather.data.humidity;v.pressure=weather.data.pressure;v.wind=weather.data.wind;v.high=weather.data.high;v.low=weather.data.low;v.weatherCode=weather.data.code;v.weatherText=weather.data.valid?device::weatherDescription(weather.data.code):"No weather data";v.weatherUpdated=weather.data.stamp;v.weatherPlace=weather.place.c_str();v.weatherMessage=weather.message.c_str();v.weatherPhase=mm::WeatherPhaseView(int(weather.phase));v.weatherSource=device::weatherSourceLabel(weather.data.source);v.apparent=weather.data.apparent;v.weatherHours=weather.data.hours;for(int i=0;i<device::WeatherHours&&i<4;i++){v.weatherHourCode[i]=weather.data.hourCode[i];v.weatherHourTemp[i]=weather.data.hourTemp[i];v.weatherHourTime[i]=weather.data.hourTime[i];}
  auto location=device::locationState();v.locationValid=location.configured;v.latitude=location.latitude;v.longitude=location.longitude;v.gpsData=location.data;v.gpsNmeaFresh=location.nmeaFresh;v.gpsTimeValid=location.timeValid;v.gpsTemporary=location.timeLease&&!location.userEnabled;v.gpsUsed=location.satellitesUsed;v.gpsVisible=location.satellitesVisible;v.gpsBaud=location.baud;v.gpsFix=location.fix;v.gpsEnabled=location.enabled;v.gpsAvailable=location.available;v.status.gps=location.enabled&&location.available;v.status.acquiringTime=timeState.acquiring&&(location.enabled||connection.connected);if(timeState.acquiring&&!v.status.acquiringTime)v.timeSource="Time not synchronized";v.altitude=location.altitude;
@@ -806,7 +811,7 @@ void renderSection(){
 
 void loadRadioDraft(bool keepSelection);
 // Confirmations and pickers of the current page, closed before another page opens.
-static void closePageDialogs(){contactPopupsClose();otaConfirm=false;emojiPicker=false;scopePicker=scopeEditing=clearChatConfirm=channelOptions=deleteChannelConfirm=positionShare=false;}
+static void closePageDialogs(){wifiSavedOpen=false;wifiForgetArmed=-1;contactPopupsClose();otaConfirm=false;emojiPicker=false;scopePicker=scopeEditing=clearChatConfirm=channelOptions=deleteChannelConfirm=positionShare=false;}
 void openSection(int id,bool paint){
  
  if(id==mm::SupportSection)supportTab=0;// Settings > Donate / Unlock opens on Donate
@@ -1021,6 +1026,7 @@ void back() {
  if(screen==Screen::Chat&&positionShare){positionShare=false;notice="";render();return;}
  if(screen==Screen::Chat&&scopeEditing){scopeEditing=false;scopeInput="";notice="";render();return;}
  if(screen==Screen::Chat&&(scopePicker||clearChatConfirm)){scopePicker=clearChatConfirm=false;notice="";render();return;}
+ if(screen==Screen::Section&&section==4&&wifiSavedOpen){wifiSavedShow(false);return;}
  if(screen==Screen::Section&&section==4&&wifiEditing){wifiEditing=false;wifiShowPassword=false;wifiPassword="";notice="";render();return;}
  if(screen==Screen::Section&&section==14&&bleNameEditing){bleNameEditing=false;bleNameInput="";notice="";render();return;}
  if(screen==Screen::Chat&&emojiPicker){emojiPicker=false;render();return;}
@@ -1043,6 +1049,14 @@ void back() {
  else screen=Screen::Home;
  input="";inputCursor=-1;wifiPassword="";wifiEditing=false;notice="";selected=activeChat;render();
 }
+void wifiSavedShow(bool open){wifiSavedOpen=open;wifiSavedOffset=wifiSavedFocus=0;wifiForgetArmed=-1;notice="";render();}
+static void wifiSavedMove(int focus){wifiForgetArmed=-1;int n=device::savedNetworks().size();wifiSavedFocus=constrain(focus,0,max(0,n-1));wifiSavedOffset=wifiSavedFocus/mm::WifiRows*mm::WifiRows;render();}
+// FORGET: the first tap arms the row (CONFIRM), a second one within WifiForgetMs forgets the network and its password.
+static void wifiForget(int index){
+ auto names=device::savedNetworks();if(index<0||index>=int(names.size()))return;notice="";wifiSavedFocus=index;
+ if(wifiForgetArmed!=index||millis()-wifiForgetAt>=WifiForgetMs){wifiForgetArmed=index;wifiForgetAt=millis();render();return;}
+ wifiForgetArmed=-1;notice=device::forgetNetwork(names[index])?"Forgotten: "+names[index]:"Could not save the change";
+ int left=names.size()-1;wifiSavedFocus=constrain(wifiSavedFocus,0,max(0,left-1));wifiSavedOffset=constrain(wifiSavedOffset,0,max(0,left-mm::WifiRows));render();}
 void selectWifi(int index){auto networks=device::connectivityState().networks;if(index<0||index>=int(networks.size()))return;wifiFocus=index;wifiTarget=networks[index].ssid;wifiPassword="";wifiHidden=false;wifiShowPassword=false;wifiEditField=1;String known;if(networks[index].protectedNetwork&&!device::knownNetwork(wifiTarget,known))wifiEditing=true;else{device::connect(wifiTarget,known);notice="Connecting...";}/* a network joined before connects with its saved password */for(unsigned i=0;i<known.length();i++)known.setCharAt(i,0);render();}
 void hiddenWifi(){wifiEditing=wifiHidden=true;wifiShowPassword=false;wifiEditField=0;wifiTarget=wifiPassword="";notice="";render();}
 void connectWifi(){if(device::connect(wifiTarget,wifiPassword)){wifiPassword="";wifiEditing=false;wifiShowPassword=false;notice="Connecting...";}else notice="Check SSID/password";render();}
@@ -1280,7 +1294,8 @@ void key(char c) {
   if(section==mm::TextSizeSection){if(c=='j'||c=='l'||c=='k'||c=='h'){textSizeFocus=1-textSizeFocus;render();}else if(c=='\n'||c==' '){bool ok=setTextSize(textSizeFocus);notice=ok?"Text size applied":"Save failed";if(!ok)textSizeFocus=chatTextSize;render();}return;}
   if(section==22){if(c=='j'||c=='l'){wallpaperFocus=(wallpaperFocus+1)%WALLPAPER_COUNT;render();}else if(c=='k'||c=='h'){wallpaperFocus=(wallpaperFocus+WALLPAPER_COUNT-1)%WALLPAPER_COUNT;render();}else if(c=='\n'||c==' '){notice=setWallpaper(wallpaperFocus)?("Theme applied"):"Save failed";render();}return;}
   if(section==20){if(c=='j'||c=='k'){powerField=1-powerField;render();}else if(c=='\n'||c==' '){auto power=device::powerState();uint32_t current=powerField?power.keyboardSeconds:power.displaySeconds;int i=0;while(i<6&&device::TIMEOUT_VALUES[i]!=current)i++;device::timeout(powerField!=0,device::TIMEOUT_VALUES[(i+1)%6]);render();}return;}
-  if(section==4){auto connection=device::connectivityStatus();if(c=='h'){hiddenWifi();return;}else if(c=='x'){device::disconnect();render();return;}else if(c=='r'){device::reconnect();render();return;}else if(c=='f'){device::scan();render();}else if(c==' '){device::wifiEnabled(!connection.wifi);render();}else if(c=='j'||c=='k'||c=='w'||c=='s'){wifiFocus=constrain(wifiFocus+((c=='j'||c=='s')?1:-1),0,max(0,int(connection.networkCount)-1));wifiOffset=wifiFocus/mm::WifiRows*mm::WifiRows;render();}else if(c=='\n'||c=='d')selectWifi(wifiFocus);return;}
+  if(section==4&&wifiSavedOpen){if(c=='j'||c=='k'||c=='w'||c=='s')wifiSavedMove(wifiSavedFocus+((c=='j'||c=='s')?1:-1));else if(c=='\n'||c=='d')wifiForget(wifiSavedFocus);return;}
+  if(section==4){auto connection=device::connectivityStatus();if(c=='v'){wifiSavedShow(true);return;}if(c=='h'){hiddenWifi();return;}else if(c=='x'){device::disconnect();render();return;}else if(c=='r'){device::reconnect();render();return;}else if(c=='f'){device::scan();render();}else if(c==' '){device::wifiEnabled(!connection.wifi);render();}else if(c=='j'||c=='k'||c=='w'||c=='s'){wifiFocus=constrain(wifiFocus+((c=='j'||c=='s')?1:-1),0,max(0,int(connection.networkCount)-1));wifiOffset=wifiFocus/mm::WifiRows*mm::WifiRows;render();}else if(c=='\n'||c=='d')selectWifi(wifiFocus);return;}
   if(section==14&&bleNameEditing){if(c=='\n')saveBleName();else if(c>=32&&c<=126&&bleNameInput.length()<device::BLE_NAME_MAX_BYTES){bleNameInput+=c;repaintSettled();}return;}
   if(section==14&&c=='n'){startBleNameEdit();return;}
   if(section==14&&(c=='\n'||c==' ')){device::bleEnabled(!device::connectivityStatus().ble);render();return;}
@@ -1436,7 +1451,7 @@ void tap(int x,int y) {
   if(section==mm::TextSizeSection){for(int i=0;i<2;i++)if(mm::textSizeCardRect(i).contains(x,y)){bool ok=setTextSize(i);notice=ok?"Text size applied":"Save failed";textSizeFocus=ok?i:chatTextSize;render();return;}return;}
   if(section==22){for(int i=0;i<WALLPAPER_COUNT&&i<mm::WallpaperCardCount;i++)if(mm::wallpaperCardRect(i).contains(x,y)){wallpaperFocus=i;notice=setWallpaper(i)?("Theme applied"):"Save failed";render();return;}return;}
   if(section==20){for(int i=0;i<2;i++)if(mm::powerRowRect(i).contains(x,y)){powerField=i;render();return;}for(int i=0;i<6;i++)if(mm::timeoutOptionRect(i).contains(x,y)){notice=device::timeout(powerField!=0,device::TIMEOUT_VALUES[i])?"Timeout saved":"Save failed";render();return;}return;}
-  if(section==4){if(wifiEditing){if(mm::WifiEye.contains(x,y)){wifiShowPassword=!wifiShowPassword;render();return;}if(mm::WifiSSIDInput.contains(x,y)&&wifiHidden){wifiEditField=0;render();return;}if(mm::WifiPassword.contains(x,y)){wifiEditField=1;render();return;}if(mm::WifiConnect.contains(x,y)){connectWifi();return;}if(mm::WifiCancel.contains(x,y)){wifiPassword="";wifiEditing=false;wifiShowPassword=false;render();return;}return;}if(mm::WifiToggle.contains(x,y)){device::wifiEnabled(!device::connectivityStatus().wifi);render();return;}if(mm::WifiScan.contains(x,y)){device::scan();render();return;}if(mm::WifiManual.contains(x,y)){hiddenWifi();return;}if(mm::WifiDisconnect.contains(x,y)){if(device::connectivityStatus().connected||device::connectivityStatus().connecting)device::disconnect();else device::reconnect();render();return;}for(int row=0;row<mm::WifiRows;row++)if(mm::wifiRowRect(row).contains(x,y)){selectWifi(wifiOffset+row);return;}}
+  if(section==4){if(wifiEditing){if(mm::WifiEye.contains(x,y)){wifiShowPassword=!wifiShowPassword;render();return;}if(mm::WifiSSIDInput.contains(x,y)&&wifiHidden){wifiEditField=0;render();return;}if(mm::WifiPassword.contains(x,y)){wifiEditField=1;render();return;}if(mm::WifiConnect.contains(x,y)){connectWifi();return;}if(mm::WifiCancel.contains(x,y)){wifiPassword="";wifiEditing=false;wifiShowPassword=false;render();return;}return;}if(wifiSavedOpen){if(mm::WifiSavedDone.contains(x,y)){wifiSavedShow(false);return;}int n=device::savedNetworks().size();for(int row=0;row<mm::WifiRows&&wifiSavedOffset+row<n;row++){if(mm::wifiForgetRect(row).contains(x,y)){wifiForget(wifiSavedOffset+row);return;}if(mm::wifiRowRect(row).contains(x,y)){wifiSavedMove(wifiSavedOffset+row);return;}}return;}if(mm::WifiSaved.contains(x,y)){wifiSavedShow(true);return;}if(mm::WifiToggle.contains(x,y)){device::wifiEnabled(!device::connectivityStatus().wifi);render();return;}if(mm::WifiScan.contains(x,y)){device::scan();render();return;}if(mm::WifiManual.contains(x,y)){hiddenWifi();return;}if(mm::WifiDisconnect.contains(x,y)){if(device::connectivityStatus().connected||device::connectivityStatus().connecting)device::disconnect();else device::reconnect();render();return;}for(int row=0;row<mm::WifiRows;row++)if(mm::wifiRowRect(row).contains(x,y)){selectWifi(wifiOffset+row);return;}}
 
   if(section==14&&mm::AppNameCard.contains(x,y)){if(bleNameEditing)saveBleName();else startBleNameEdit();return;}
   if(section==14&&mm::BleToggle.contains(x,y)){device::bleEnabled(!device::connectivityStatus().ble);render();return;}
@@ -1550,6 +1565,7 @@ void touchScrollRows(int dy){device::activity();uint32_t now=millis();if(uint32_
  if(screen==Screen::Section){
   if(section==19){beginTouchBrowse();/* pixel scroll like the chat */if(touchScrollAcc){int was=settingsScroll;settingsScroll=constrain(settingsScroll-touchScrollAcc,0,mm::settingsMaxScroll());touchScrollAcc=0;touchScrollSteps++;/* unmoved at an end: flingTick stops */if(settingsScroll!=was)render();}return;}
   if(section==1&&!contactSearching&&!contactMenu&&!contactDialog){beginTouchBrowse();step(mm::ContactRowH,[&](int d){int total=matter::contactsCount(discoverFilter,contactQuery.c_str());nodeScroll=constrain(nodeScroll+d,0,max(0,total-mm::ContactRows));render();});return;}
+  if(section==4&&wifiSavedOpen){step(mm::WifiRowH,[&](int d){wifiSavedOffset=constrain(wifiSavedOffset+d,0,max(0,int(device::savedNetworks().size())-mm::WifiRows));render();});return;}
   if(section==4&&!wifiEditing){step(mm::WifiRowH,[&](int d){wifiOffset=constrain(wifiOffset+d,0,max(0,int(device::connectivityStatus().networkCount)-mm::WifiRows));render();});return;}
   if(section==16&&tzPicking){step(mm::TimeZoneRowH,[&](int d){tzScroll=constrain(tzScroll+d,0,device::TIME_ZONE_COUNT-mm::TimeZoneRows);render();});return;}
   if(section==7){step(mm::FileRowH,[&](int d){filesScroll=constrain(filesScroll+d,0,max(0,filesCount-mm::FileRows));render();});return;}
@@ -1572,6 +1588,7 @@ void swipe(int dy) {if(deviceLocked||radioLinkAsking())return;
   if(mm::toolsSection(section)){toolsScroll(dy);return;}
   if(section==16&&tzPicking){tzScroll=constrain(tzScroll+(dy<0?mm::TimeZoneRows:-mm::TimeZoneRows),0,device::TIME_ZONE_COUNT-mm::TimeZoneRows);render();return;}
   if(section==2&&!radioPowerEditing&&!radioDevicePage){cycleRadioPreset(dy<0?1:-1);}
+  else if(section==4&&wifiSavedOpen){wifiSavedOffset=constrain(wifiSavedOffset+(dy<0?mm::WifiRows:-mm::WifiRows),0,max(0,int(device::savedNetworks().size())-mm::WifiRows));render();}
   else if(section==4&&!wifiEditing){wifiOffset=constrain(wifiOffset+(dy<0?mm::WifiRows:-mm::WifiRows),0,max(0,int(device::connectivityStatus().networkCount)-mm::WifiRows));render();}
   else if(section==1){if(!contactMenu&&!contactDialog){contactPage(dy<0?1:-1);render();}}
   else if(section==19){settingsScroll=mm::settingsPage(settingsScroll,dy<0);settingsFocus=constrain(settingsFocus,mm::settingsFirstVisible(settingsScroll),mm::settingsLastVisible(settingsScroll));render();}
@@ -1925,6 +1942,9 @@ void handle(const String &s) {
  if(s=="meshcore status"){Serial.printf("MESHCORE_STATUS version=%s commit=%s\n",MM_MESHCORE_VERSION,MM_MESHCORE_COMMIT);return;}
  if(s=="lock messages status"){auto eligible=lockMessageTokens();auto state=uiState();Serial.printf("LOCK_MESSAGES browsing=%d ended=%d current=%lu position=%d count=%u unread=%u latest=%lu rpt=%d hint=%d countdown=%d\n",lockMessages.browsing,lockMessages.ended,lockMessages.current,lockMessages.position,unsigned(eligible.size()),state.unread,lastReceivedToken,!state.lockRepeater.empty(),lockHintUntil&&int32_t(lockHintUntil-millis())>0,unlockCountdownAt!=0);return;}
  if(s=="lock messages list"){StaticJsonDocument<1024> json;auto tokens=json.to<JsonArray>();for(auto id:lockMessageTokens())tokens.add(id);Serial.print("LOCK_MESSAGE_IDS ");serializeJson(json,Serial);Serial.println();return;}
+ // "wifi saved [open|close]": the saved networks page; "wifi forget N" acts as one tap on FORGET of row N (twice forgets).
+ if(s=="wifi saved"||s=="wifi saved open"||s=="wifi saved close"){if(s!="wifi saved")wifiSavedShow(s=="wifi saved open");auto names=device::savedNetworks();String list;for(auto &n:names)list+=(list.length()?"|":"")+n;Serial.printf("WIFI_SAVED count=%u open=%d focus=%d armed=%d names=%s\n",unsigned(names.size()),wifiSavedOpen,wifiSavedFocus,wifiForgetArmed,list.c_str());return;}
+ if(s.startsWith("wifi forget ")){wifiForget(s.substring(12).toInt());Serial.printf("WIFI_FORGET saved=%u armed=%d notice=%s\n",unsigned(device::savedNetworks().size()),wifiForgetArmed,notice.c_str());return;}
  if(s=="wifi status"){auto w=device::connectivityStatus();Serial.printf("WIFI_STATUS on=%d connected=%d connecting=%d scanning=%d saved=%d networks=%u paused=%d\n",w.wifi,w.connected,w.connecting,w.scanning,w.remembered,unsigned(w.networkCount),w.reconnectPaused);return;}
  if(s=="wifi link"){auto w=device::connectivityStatus();StaticJsonDocument<256> json;json["connected"]=w.connected;json["ssid"]=w.connected?w.ssid:String("");json["address"]=w.address;json["rssi"]=w.rssi;json["message"]=w.message;Serial.print("WIFI_LINK ");serializeJson(json,Serial);Serial.println();return;}
  if(s=="wifi editor status"){Serial.printf("WIFI_EDITOR editing=%d hidden=%d visible=%d field=%d ssid_bytes=%u password_bytes=%u\n",wifiEditing,wifiHidden,wifiShowPassword,wifiEditField,wifiTarget.length(),wifiPassword.length());return;}
@@ -2130,6 +2150,10 @@ void setup(){
  // The first T-Deck has no pull-up on the shared MISO line: without it the SX1262 may not answer at boot ("Radio
  // unavailable"). Set after SPI.begin, which reconfigures the pin (LilyGO examples and WADAMESH pull it up too).
  gpio_set_pull_mode(gpio_num_t(BOARD_SPI_MISO),GPIO_PULLUP_ONLY);
+ // A card that has just been powered listens in SD mode until it sees CMD0 with its CS low: the LCD traffic on the
+ // shared bus can reach it as SD commands and leave it answering garbage until the next power cycle (seen on a
+ // tester's 16 GB card: every sector read back the same block). Put it in SPI mode before the LCD speaks.
+ {uint8_t pd=sdcard_init(BOARD_SD_CS,&SPI,400000);if(pd!=0xFF){ff_sd_initialize(pd);sdcard_uninit(pd);}}
  lcd.init();analogWrite(BOARD_EPD_BL,100);splash(0,"Initializing mesh services...");
  pinMode(BOARD_I2C_SDA,INPUT_PULLUP);pinMode(BOARD_I2C_SCL,OUTPUT_OPEN_DRAIN);digitalWrite(BOARD_I2C_SCL,HIGH);
  if(digitalRead(BOARD_I2C_SDA)==LOW){

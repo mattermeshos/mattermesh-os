@@ -102,6 +102,14 @@ static void pickSaved(){
  if(known.empty()){savedSSID="";wipe(savedPassword);return;}
  int best=-1,bestRssi=-1000;for(auto &n:state.networks)for(size_t i=0;i<known.size();i++)if(known[i].ssid==n.ssid&&n.rssi>bestRssi){best=int(i);bestRssi=n.rssi;}
  size_t i=best>=0?size_t(best):knownCursor%known.size();savedSSID=known[i].ssid;savedPassword=known[i].password;}
+std::vector<String> savedNetworks(){std::vector<String> names;for(auto &k:known)names.push_back(k.ssid);return names;}
+// Forget one known network: its password goes; connected to it, Wi-Fi drops (and tries the other saved ones).
+bool forgetNetwork(const String &ssid){
+ size_t i=0;while(i<known.size()&&known[i].ssid!=ssid)i++;if(i==known.size())return false;
+ wipe(known[i].password);known.erase(known.begin()+i);knownCursor=0;bool ok=saveKnown();
+ for(auto &n:state.networks)if(n.ssid==ssid)n.saved=false;
+ bool current=(state.connected&&state.ssid==ssid)||(state.connecting&&!staged&&savedSSID==ssid);
+ pickSaved();state.remembered=!known.empty();if(current){if(known.empty())disconnect();else reconnect();}/* another saved network, if any, takes over */state.message=ok?"Network forgotten":"Forgotten / settings save failed";state.revision++;return ok;}
 static void beginConnection(){
  state.connected=false;state.address="";state.connecting=true;attemptAt=millis();state.message="Connecting...";disconnectReason=0;freshIP=false;
  if(!staged)pickSaved();

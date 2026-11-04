@@ -781,11 +781,20 @@ void Renderer::section(const State &s){
   std::string status=!s.notice.empty()?s.notice:s.weatherPhase==WeatherPhaseView::Ready?"Updated "+updated+(s.weatherSource.empty()?"":" / "+s.weatherSource):s.weatherPhase==WeatherPhaseView::Error&&data?s.weatherMessage+" / cached":s.weatherMessage.empty()&&data?"Cached "+updated:s.weatherMessage;
   c.text(Margin,WeatherStatusY,status,Font::ChatMeta,FG,W-2*Margin-70);c.text(W-Margin-c.width("Open-Meteo",Font::ChatMeta),WeatherStatusY,"Open-Meteo",Font::ChatMeta);
   if(!offline){bool busy=s.weatherBusy||s.weatherPhase==WeatherPhaseView::Locating;c.button(WeatherRefresh,busy?"UPDATING...":"REFRESH",busy);}
+ }else if(s.page==Page::Wifi&&!s.wifiEditing&&s.wifiSavedOpen){
+  // Saved networks: name rows with FORGET (armed on the first tap: CONFIRM), DONE back to the Wi-Fi page.
+  int count=s.wifiSaved.size();c.sectionLabel(Top+8,"SAVED NETWORKS",std::to_string(count)+"/8");
+  for(int row=0;row<WifiSavedRows&&s.wifiSavedOffset+row<count;row++){int i=s.wifiSavedOffset+row;Rect r=wifiSavedRow(row),f=wifiForgetRect(row);bool on=s.wifiSavedFocus==i,armed=s.wifiForgetArmed==i;c.card(r,on);auto ink=on?BG:FG;
+   c.icon(Icon::Wifi,r.x+6,r.y+(r.h-24)/2,24,ink);c.text(r.x+36,r.y+(r.h-c.lineHeight(Font::ChatBody))/2,s.wifiSaved[i]+(s.wifiConnected&&s.wifiSaved[i]==s.wifiSSID?" *":""),Font::ChatBody,ink,f.x-r.x-40);
+   if(on){g.fillRoundRect(f.x,f.y,f.w,f.h,Radius,BG);if(armed)g.drawRoundRect(f.x+2,f.y+2,f.w-4,f.h-4,Radius,FG);c.centered(f.x,f.y+(f.h-13)/2,f.w,armed?"CONFIRM":"FORGET",Font::Bold,FG);}else c.button(f,armed?"CONFIRM":"FORGET",armed);}
+  if(!count)c.centered(Margin,WifiSavedY+30,W-2*Margin,"No saved networks",Font::ChatMeta);
+  if(count>WifiSavedRows){int track=WifiSavedRows*WifiRowH-2,thumb=std::max(12,track*WifiSavedRows/count),max=count-WifiSavedRows;g.drawFastVLine(W-3,WifiSavedY,track,FG);g.fillRect(W-4,WifiSavedY+std::min(s.wifiSavedOffset,max)*(track-thumb)/max,3,thumb,FG);}
+  c.text(Margin+2,WifiSavedDone.y-20,!s.notice.empty()?s.notice:s.wifiForgetArmed>=0?"Tap CONFIRM to forget it":"FORGET removes the password",Font::ChatMeta,FG,W-2*Margin);c.button(WifiSavedDone,"DONE",true);
  }else if(s.page==Page::Wifi){
   std::string joined=s.wifiSSID+(s.wifiIP.empty()?"":" / "+s.wifiIP);// network name first, IP only when both fit
   c.toggleRow(WifiToggle,Icon::Wifi,"Wi-Fi",s.wifiConnected?(c.width(joined,Font::ChatMeta)<=120?joined:s.wifiSSID):s.wifiConnecting?"Connecting...":!s.wifiEnabled?"Off":s.wifiMessage.empty()?"Not connected":s.wifiMessage,s.wifiEnabled);
   c.button(WifiScan,s.wifiScanning?"SCAN...":"SCAN",s.wifiScanning);c.button(WifiManual,"HIDDEN");c.button(WifiDisconnect,s.wifiConnected||s.wifiConnecting?"DISCONNECT":"RECONNECT");
-  int count=s.networks.size();c.sectionLabel(WifiListY-16,"NETWORKS",count?std::to_string(count)+" FOUND":"");
+  int count=s.networks.size();c.sectionLabel(WifiListY-16,"NETWORKS");c.button(WifiSaved,"SAVED "+std::to_string(s.wifiSaved.size()));
   for(int row=0;row<WifiRows&&s.wifiOffset+row<count;row++){auto &n=s.networks[s.wifiOffset+row];c.menuRow(wifiRowRect(row),n.secured?Icon::Lock:Icon::Wifi,n.ssid,std::to_string(n.rssi)+" dBm / "+(n.saved?"Saved":n.secured?"Protected":"Open"),s.wifiFocus==s.wifiOffset+row);}
   if(!count)c.centered(Margin,WifiListY+30,W-2*Margin,s.wifiEnabled?"Tap SCAN to search":"Turn Wi-Fi on to search",Font::ChatMeta);
   if(count>WifiRows){int track=WifiRows*WifiRowH-2,thumb=std::max(12,track*WifiRows/count),max=count-WifiRows;g.drawFastVLine(W-3,WifiListY,track,FG);g.fillRect(W-4,WifiListY+std::min(s.wifiOffset,max)*(track-thumb)/max,3,thumb,FG);}

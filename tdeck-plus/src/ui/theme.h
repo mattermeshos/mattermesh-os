@@ -166,6 +166,9 @@ constexpr Rect WifiToggle=(Rect{W-Margin-64,StatusH+6,64,22}),WifiScan=(Rect{Mar
 constexpr int WifiListY=(Top+30),WifiRowH=32,WifiRows=4;
 inline Rect wifiRowRect(int index){return (Rect{Margin,WifiListY+index*WifiRowH,W-2*Margin-6,WifiRowH-3});}
 constexpr Rect WifiManual=(Rect{Margin+90,H-30,92,26}),WifiDisconnect=(Rect{Margin+188,H-30,W-2*Margin-188,26});
+// SAVED (count) on the status line opens the saved networks: the same rows, each with FORGET (tap twice), DONE at the bottom.
+constexpr Rect WifiSaved=(Rect{W-Margin-78,Top+4,78,22}),WifiSavedDone=(Rect{W-Margin-84,H-30,84,26});
+inline Rect wifiForgetRect(int index){Rect r=wifiRowRect(index);return (Rect{r.x+r.w-82,r.y+3,78,r.h-6});}
 constexpr Rect WifiSSIDInput={Margin,Top+24,W-2*Margin,32},WifiEye={W-Margin-32,Top+82,32,32};
 constexpr Rect WifiPassword={Margin,Top+82,W-2*Margin,32},WifiConnect={Margin,Top+128,108,30},WifiCancel={124,Top+128,108,30};
 constexpr Rect BleToggle=SettingsSwitch;

@@ -34,7 +34,7 @@ struct State {
  std::string appBleName,appPin,appWifiDetail,appBleInput;bool appBleEditing=false,appWifi=false,appBleLinked=false,appUsbLinked=false,appWifiLinked=false;
  bool wifiEnabled=true,wifiConnected=false,wifiConnecting=false,wifiScanning=false,wifiEditing=false,bleEnabled=true,bleReady=false;
  bool wifiHidden=false,wifiShowPassword=false;int wifiEditField=1;
- int wifiOffset=0,wifiFocus=0;std::string wifiSSID,wifiIP,wifiMessage,wifiPasswordMask;struct Network{std::string ssid;int rssi=0;bool secured=true,saved=false;};std::vector<Network> networks;
+ int wifiOffset=0,wifiFocus=0;std::string wifiSSID,wifiIP,wifiMessage,wifiPasswordMask;struct Network{std::string ssid;int rssi=0;bool secured=true,saved=false;};std::vector<Network> networks;bool wifiSavedOpen=false;std::vector<std::string> wifiSaved;int wifiSavedOffset=0,wifiSavedFocus=0,wifiForgetArmed=-1;
  bool weatherValid=false,weatherBusy=false,locationValid=false,gpsFix=false;
  bool gpsEnabled=true,gpsAvailable=false,gpsData=false,gpsNmeaFresh=false,gpsTimeValid=false,gpsTemporary=false;unsigned gpsUsed=0,gpsVisible=0,gpsBaud=0;
  float temperature=0,humidity=0,pressure=0,wind=0,high=0,low=0;int weatherCode=2;double latitude=0,longitude=0,altitude=0;

@@ -14,6 +14,8 @@ uint32_t connectivityRevision();bool wifiConnected();
 ConnectivityStatus connectivityStatus();
 // Password of a network joined before (known networks, newest first); false if it was never joined.
 bool knownNetwork(const String &ssid,String &password);
+// Names of the known networks (newest first) and forgetting one (password wiped, NVS updated; false if unknown).
+std::vector<String> savedNetworks();bool forgetNetwork(const String &ssid);
 // MeshCore companion app link over BLE (Nordic UART service, passkey pairing). Frames up to 176 bytes.
 constexpr size_t BLE_COMPANION_FRAME_MAX=176;
 void bleCompanionConfig(const String &nodeName,uint32_t pin);// call before bleEnabled(); name becomes "MeshCore-<node name>"
