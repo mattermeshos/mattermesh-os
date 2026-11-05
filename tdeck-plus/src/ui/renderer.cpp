@@ -616,7 +616,7 @@ void Renderer::welcome(const State &s){
   c.text(r.x+30,r.y+6,"How the clock is set",Font::Bold,FG,r.w-38);
   const char *lines[]={"With Wi-Fi: from the internet, in a few seconds.","Without Wi-Fi: from GPS satellites, outdoors.","Or by hand: Settings > Date / time."};
   for(int i=0;i<3;i++)c.text(r.x+12,r.y+26+i*15,lines[i],Font::ChatMeta,Muted,r.w-20);
- }else if(step==2){choice(welcomeCard(0,3),"868 MHz","Europe, UK, Switzerland",s.welcomeBand==868);choice(welcomeCard(2,3),"433 MHz","433 MHz T-Deck only",s.welcomeBand==433);choice(welcomeCard(1,3),"900 MHz","Americas, Oceania, Asia",s.welcomeBand==900);}
+ }else if(step==2){choice(welcomeCard(0,3),"868 MHz","Europe, UK, Switzerland",s.welcomeBand==868);choice(welcomeCard(2,3),"433 MHz","433 MHz T-Deck only",s.welcomeBand==433);choice(welcomeCard(1,3),"915 MHz","Americas, Oceania, Asia",s.welcomeBand==915);}
  else if(step==3){
   for(int i=0;i<WelcomeRows&&s.welcomeScroll+i<int(s.welcomePresets.size());i++){int at=s.welcomeScroll+i;Rect r=welcomeRow(i);bool on=at==s.welcomeFocus;c.card(r,on,8);auto ink=on?OnAccent:FG;
    c.text(r.x+10,r.y+2,s.welcomePresets[at].first,Font::ChatBody,ink,r.w-20);c.text(r.x+10,r.y+17,s.welcomePresets[at].second,Font::ChatMeta,on?OnAccent:Muted,r.w-20);}
@@ -791,7 +791,7 @@ void Renderer::section(const State &s){
   }else{
   std::string radioLine=s.radioReady?(s.radioTX?"TX active":s.radioQueued?"TX queued / RX":"RX ready"):("Radio error "+std::to_string(s.radioError)),pathLine="paths "+std::to_string(s.radioPathBytes)+"B";
   
-  c.button(LoRaBand868,"868 MHz",s.radioBand==868);c.button(LoRaBand900,"900 MHz",s.radioBand==900);c.button(LoRaBand433,"433 MHz",s.radioBand==433);
+  c.button(LoRaBand868,"868 MHz",s.radioBand==868);c.button(LoRaBand915,"915 MHz",s.radioBand==915);c.button(LoRaBand433,"433 MHz",s.radioBand==433);
   c.card(LoRaPreset,false,5);if(s.radioFocus==0)g.drawRoundRect(LoRaPreset.x+2,LoRaPreset.y+2,LoRaPreset.w-4,LoRaPreset.h-4,4,FG);
   c.iconButton({LoRaPresetPrev.x,LoRaPreset.y+(LoRaPreset.h-30)/2,30,30},Icon::Back);c.iconButton({LoRaPresetNext.x,LoRaPreset.y+(LoRaPreset.h-30)/2,30,30},Icon::ChevronRight);
   std::string name=s.radioPreset>=0&&s.radioPreset<matter::RADIO_PRESET_COUNT?matter::RADIO_PRESETS[s.radioPreset].name:"Custom";
@@ -805,6 +805,7 @@ void Renderer::section(const State &s){
   c.text(LoRaInset,Bottom-17,!s.notice.empty()?s.notice:radioLine+" / "+pathLine,Font::ChatMeta,FG,LoRaContentW);
   }
   if(s.radioPowerEditing){
+   dialogPanel(true);// the editor is a panel over the LoRa page (it was drawn on top of it: texts overlapped)
    int field=std::max(0,std::min(int(matter::RadioFieldCount),s.radioEditField));
    c.text(Margin+8,Top+15,labels[field],Font::ChatTitle);
    if(field==matter::RadioFieldCount){c.text(Margin+8,Top+46,"1 to 31 bytes / name only",Font::ChatMeta);c.text(Margin+8,Top+62,"Public key stays unchanged",Font::ChatMeta);}

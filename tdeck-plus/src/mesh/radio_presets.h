@@ -34,12 +34,12 @@ inline constexpr RadioPreset RADIO_PRESETS[]={
  {"Vietnam (Deprecated)",920.25f,250.0f,11,5,0},
 };
 constexpr int RADIO_PRESET_COUNT=sizeof(RADIO_PRESETS)/sizeof(RADIO_PRESETS[0]);
-inline int radioBand(float frequency){return frequency<500?433:frequency<900?868:900;}
+inline int radioBand(float frequency){return frequency<500?433:frequency<900?868:915;}
 // Default TX power when a band is chosen: 433 MHz EU ISM allows 10 mW (10 dBm), the user can raise it by hand.
 constexpr int BAND433_DEFAULT_POWER=10;
 inline int bandDefaultPower(int band,int maxPower){return band==433?BAND433_DEFAULT_POWER:maxPower;}
 // Band buttons in order (LoRa page, welcome): 868, 900, 433.
-inline int nextBand(int band){return band==868?900:band==900?433:868;}
+inline int nextBand(int band){return band==868?915:band==915?433:868;}
 inline int matchPreset(float frequency,float bandwidth,int sf,int cr){
  for(int i=0;i<RADIO_PRESET_COUNT;i++){auto &p=RADIO_PRESETS[i];if(std::fabs(frequency-p.frequency)<0.0004f&&bandwidth==p.bandwidth&&sf==p.sf&&cr==p.cr)return i;}
  return -1;

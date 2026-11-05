@@ -173,7 +173,7 @@ constexpr Rect RadioPowerSave={Margin+8,Top+142,(W-2*Margin-22)/2,30};
 constexpr Rect RadioPowerCancel={Margin+14+(W-2*Margin-22)/2,Top+142,(W-2*Margin-22)/2,30};
 constexpr Rect LoRaPanel={Margin,Top,W-2*Margin,Bottom-Top};
 constexpr int LoRaInset=Margin+6,LoRaContentW=W-2*LoRaInset;
-constexpr Rect LoRaBand868={LoRaInset,Top+18,(LoRaContentW-Gap)/2,24},LoRaBand900={W/2+Gap/2,Top+18,(LoRaContentW-Gap)/2,24};
+constexpr Rect LoRaBand868={LoRaInset,Top+18,(LoRaContentW-Gap)/2,24},LoRaBand915={W/2+Gap/2,Top+18,(LoRaContentW-Gap)/2,24};
 constexpr Rect LoRaPreset={LoRaInset,Top+48,LoRaContentW,50};
 constexpr Rect LoRaPresetPrev={LoRaInset,Top+48,30,50},LoRaPresetNext={W-LoRaInset-30,Top+48,30,50};
 inline Rect loraFieldRect(int field){return {LoRaInset,Top+102+field*22,LoRaContentW,21};}

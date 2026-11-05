@@ -170,6 +170,7 @@ void dmPathOpen(int chat);void dmPathCompose(mm::State &v);bool dmPathKeyPress(c
 void webCompose(mm::State &v);bool webKey(char c);bool webTap(int x,int y);bool webSerial(const String &s);void webLoop();bool webActive();void webPause();void webResume();// web_app.inc
 void mapOpen();void mapClose();void routeOpen(const std::string &path,const std::string &sender);void routeClose();bool routeLoading();void routeCompose(mm::State &v);void mapCompose(mm::State &v);void mapPan(int dx,int dy);
 bool radioPowerEditing=false,radioDevicePage=false;int radioDeviceFocus=0;constexpr int CompanionNameField=matter::RadioFieldCount;String radioPowerInput;
+bool trackballRolling=false;// set while a trackball roll is turned into keys (back() ignores them)
 matter::Config radioDraft;bool radioDraftLoaded=false;int radioEditField=matter::TxPower,radioPresetSelection=-1,radioBandSelection=868;
 bool advertGps=false;// off by default: on, every advert tells the mesh where this T-Deck is
 int radioFocus=3,nodeScroll=0,powerField=0,wifiOffset=0,wifiFocus=0;
@@ -1013,6 +1014,7 @@ void selectLoRaTab(bool device,bool focusTab=false){radioDevicePage=device;radio
 void activateRadioFocus(){if(radioFocus==0)cycleRadioPreset(1);else if(radioFocus<=5)editRadioField(radioFocus-1);else if(radioFocus==6)applyRadioDraft();else if(radioFocus>=8)selectLoRaTab(radioFocus==9);else sendAdvert();}
 
 void back() {
+ if(trackballRolling)return;// a trackball roll never goes back (only BACK, the back arrow or Backspace on an empty field)
  accentReset();
  if(deviceLocked){if(quickReply.active)closeQuickReply();return;}
  if(radioLinkAsking()){radioLinkAnswer(false);return;}
@@ -1206,7 +1208,7 @@ static void welcomeKey(char c){
 static void welcomeTap(int x,int y){
  if(mm::WelcomeNext.contains(x,y)){welcomeNext();return;}if(welcomeStep>0&&mm::WelcomeBack.contains(x,y)){welcomeKey('\b');return;}
  if(welcomeStep==1){for(int i=0;i<2;i++)if(mm::welcomeCard(i,2).contains(x,y)){welcomeWifiChoice=i;if(i==0&&!device::wifiConnected())welcomeOpenWifi();else render();}}
- else if(welcomeStep==2){const int bands[]={868,900,433};for(int i=0;i<3;i++)if(mm::welcomeCard(i,3).contains(x,y)){welcomeBand=bands[i];render();}}
+ else if(welcomeStep==2){const int bands[]={868,915,433};for(int i=0;i<3;i++)if(mm::welcomeCard(i,3).contains(x,y)){welcomeBand=bands[i];render();}}
  else if(welcomeStep==3){int scroll=max(0,min(welcomeFocus-mm::WelcomeRows/2,int(welcomeList.size())-mm::WelcomeRows));for(int i=0;i<mm::WelcomeRows;i++)if(mm::welcomeRow(i).contains(x,y)&&scroll+i<int(welcomeList.size())){welcomeFocus=scroll+i;render();}}
  else if(welcomeStep==5){for(int b=0;b<3;b++)if(mm::welcomeCard(b,3).contains(x,y)){welcomeBytes=b+1;render();}}
  else if(welcomeStep==6){int scroll=tzScrollFor(device::timeZone(),mm::WelcomeRows);for(int i=0;i<mm::WelcomeRows;i++)if(mm::welcomeRow(i).contains(x,y)){tzSet(scroll+i);render();}}}
@@ -1240,9 +1242,9 @@ void key(char c) {
   if(!field||!field->length()){back();return;}if(field==&input)inputEraseBeforeCursor();else eraseLastCodepoint(*field);notice="";if(screen==Screen::Chats&&searching){auto list=conversationList();selected=list.empty()?chatCount:list[0].id;}if(screen==Screen::PickContact){pickerFocus=0;refreshPicker();}if(screen==Screen::Section&&section==1)contactFocus=nodeScroll=0;if(screen==Screen::Section&&section==mm::KeyboardSection)kbdFocus=0;repaintSettled();return;}
  if(screen==Screen::Section&&section==9&&mapKey(c))return;
  if(channelOptions){if(c=='a'){back();return;}if(deleteChannelConfirm){if(c=='\n')deleteSelectedChannel();return;}if(channelKeyView){if(c=='\n')back();return;}const bool direct=chats[channelOptionTarget].direct;const int slots=direct?2:3;if(c=='w'||c=='k'||c=='s'||c=='j'){channelOptionFocus=(channelOptionFocus+(c=='s'||c=='j'?1:slots-1))%slots;render();}else if(c=='\n'||c=='d')channelOption(direct&&channelOptionFocus==1?2:channelOptionFocus);return;}
- if(screen==Screen::Chat&&positionShare){if(c=='\n'||c=='d')shareGpsPosition();else if(c=='a')back();return;}
+ if(screen==Screen::Chat&&positionShare){if(c=='\n'||(c=='d'&&!trackballRolling))shareGpsPosition();else if(c=='a')back();return;}
  if(screen==Screen::Chat&&scopeEditing){if(c=='\n')saveNewScope();else if(c>=32&&c<=126&&scopeInput.length()<32){scopeInput+=c;notice="";repaintSettled();}return;}
- if(screen==Screen::Chat&&scopePicker){if(c=='w'||c=='k'||c=='s'||c=='j'){scopeFocus=constrain(scopeFocus+((c=='s'||c=='j')?1:-1),0,int(regionScopes.size())-1);notice="";render();}else if(c=='\n'||c=='d')applySelectedScope();else if(c=='n')openScopePicker(true);else if(c=='a')back();return;}
+ if(screen==Screen::Chat&&scopePicker){if(c=='w'||c=='k'||c=='s'||c=='j'){scopeFocus=constrain(scopeFocus+((c=='s'||c=='j')?1:-1),0,int(regionScopes.size())-1);notice="";render();}else if(c=='\n'||(c=='d'&&!trackballRolling))applySelectedScope();else if(c=='n')openScopePicker(true);else if(c=='a')back();return;}
  if(screen==Screen::Chat&&clearChatConfirm){if(c=='\n')clearActiveChat();else if(c=='a')back();return;}
  if(screen==Screen::Chat&&chatDetails){if(c=='w'||c=='k'||c=='s'||c=='j'){chatMenuFocus=constrain(chatMenuFocus+((c=='s'||c=='j')?1:-1),0,mm::chatOptionCount(chats[activeChat].direct)-1);render();}else if(c=='\n'||c=='d')chatOption(chatMenuFocus);else if(c=='a')back();return;}
  if(screen==Screen::Chat&&messageActions){if(contextMessage.mine&&(c=='j'||c=='k')){int count=repeaterRows(contextSnapshot()).size();heardOffset=constrain(heardOffset+(c=='j'?1:-1),0,max(0,count-mm::HeardRows));render();}else if(c=='m'&&!contextMessage.mine)messageAction(mm::MessageMapAction);else if(c=='l'&&!contextMessage.mine)linkOpenFromChat(contextMessage.body);else if(c>='1'&&c<=(contextMessage.mine?'5':'0'+mm::ReceivedMessageActions))messageAction(contextMessage.mine?c-'1':mm::receivedMessageAction(c-'1'));return;}
@@ -1264,16 +1266,16 @@ void key(char c) {
  if(screen==Screen::Section){
   if(section==2&&radioDevicePage&&!radioPowerEditing){
    if(c=='w'||c=='k'||c=='s'||c=='j'){radioDeviceFocus=constrain(radioDeviceFocus+((c=='s'||c=='j')?1:-1),0,6);render();}
-   else if(radioDeviceFocus>=5&&(c=='a'||c=='d'))selectLoRaTab(c=='d',true);else if(c=='a')back();else if(c=='d'||c=='\n'){if(!radioDeviceFocus)editRadioField(CompanionNameField);else if(radioDeviceFocus<=3){radioDraft.pathBytes=radioDeviceFocus;notice="Edits ready / press APPLY";render();}else if(radioDeviceFocus==4)applyRadioDraft();else selectLoRaTab(radioDeviceFocus==6);}return;
+   else if(radioDeviceFocus>=5&&(c=='a'||c=='d'))selectLoRaTab(c=='d',true);else if(c=='a')back();else if((c=='d'&&!trackballRolling)||c=='\n'){if(!radioDeviceFocus)editRadioField(CompanionNameField);else if(radioDeviceFocus<=3){radioDraft.pathBytes=radioDeviceFocus;notice="Edits ready / press APPLY";render();}else if(radioDeviceFocus==4)applyRadioDraft();else selectLoRaTab(radioDeviceFocus==6);}return;
   }
   if(section==2&&!radioPowerEditing){
    if(c=='w'||c=='k'||c=='s'||c=='j'){radioFocus=constrain(radioFocus+((c=='s'||c=='j')?1:-1),0,9);render();}
    else if((c=='a'||c=='d')&&radioFocus>=8)selectLoRaTab(c=='d',true);
    else if((c=='a'||c=='d')&&radioFocus==7)setAdvertGps(c=='d');
    else if((c=='a'||c=='d')&&radioFocus==0)cycleRadioPreset(c=='a'?-1:1);
-   else if(c=='a')back();else if(c=='d'||c=='\n')activateRadioFocus();else if(c=='b')selectRadioBand(matter::nextBand(radioBandSelection));else if(c=='p')editRadioPower();return;
+   else if(c=='a')back();else if((c=='d'&&!trackballRolling)||c=='\n')activateRadioFocus();else if(c=='b')selectRadioBand(matter::nextBand(radioBandSelection));else if(c=='p')editRadioPower();return;
   }
-  if(!editableField()){if(c=='a'){back();return;}if(section==19&&c=='d')c='\n';if(section!=4){if(c=='w')c='k';else if(c=='s')c='j';}}
+  if(!editableField()){if(c=='a'){back();return;}if(section==19&&(c=='d'&&!trackballRolling))c='\n';if(section!=4){if(c=='w')c='k';else if(c=='s')c='j';}}
   if(section==3&&(c=='\n'||c==' ')){notice=device::locationToggleUser()?(device::locationState().enabled?"GPS enabled":"GPS disabled"):"GPS switch failed";render();return;}
   if(section==17){if(otaConfirm&&c=='n'){otaConfirm=false;render();}else if(c=='\n'||(otaConfirm&&c=='y'))otaAction();return;}
   if(section==2&&radioPowerEditing){if(c=='\n'){saveRadioPower();return;}if(radioEditField==CompanionNameField){if(c>=32&&c<=126&&radioPowerInput.length()<matter::COMPANION_NAME_MAX_BYTES)radioPowerInput+=c;}else if(((c>='0'&&c<='9')||c=='-'||c=='+'||c=='.')&&radioPowerInput.length()<12)radioPowerInput+=c;notice="";repaintSettled();return;}
@@ -1290,14 +1292,14 @@ void key(char c) {
    return;}
   if(section==mm::AccentKeySection){if(c=='l'||c=='j'){accentFocus=(accentFocus+1)%3;notice="";}else if(c=='h'||c=='k'){accentFocus=(accentFocus+2)%3;notice="";}else if(c=='\n'||c==' '){bool ok=setAccentMode(accentFocus);notice=ok?"Accent key applied":"Save failed";if(!ok)accentFocus=accentMode;}render();return;}
   if(section==mm::SupportSection){if(c=='j'||c=='k'||c=='h'||c=='l'||c=='d'||c=='\n'||c==' '){supportTab=1-supportTab;render();}return;}
-  if(section==mm::HomeWidgetsSection){if(c=='k'||c=='j'){homeWidgetsRow=c=='j'?1:0;render();}else if(c=='\n'||c==' '||c=='d')openHomeWidgetsRow(homeWidgetsRow);return;}
+  if(section==mm::HomeWidgetsSection){if(c=='k'||c=='j'){homeWidgetsRow=c=='j'?1:0;render();}else if(c=='\n'||c==' '||(c=='d'&&!trackballRolling))openHomeWidgetsRow(homeWidgetsRow);return;}
   if(section==mm::MainAreaSection){carouselKey(c,stepHomeMain,useHomeMain);return;}
   if(section==mm::NoteSection){if(c=='\n'){bool ok=saveNote();notice=ok?"Note saved":"Save failed";if(ok)back();else render();}else if(c>=32&&c<=126&&noteInput.length()<mm::NoteMaxBytes){noteInput+=c;repaintSettled();}return;}
   if(section==mm::BesideClockSection){carouselKey(c,stepHomeWidget,useHomeWidget);return;}
   if(section==mm::TextSizeSection){if(c=='j'||c=='l'||c=='k'||c=='h'){textSizeFocus=1-textSizeFocus;render();}else if(c=='\n'||c==' '){bool ok=setTextSize(textSizeFocus);notice=ok?"Text size applied":"Save failed";if(!ok)textSizeFocus=chatTextSize;render();}return;}
   if(section==22){if(c=='j'||c=='l'){wallpaperFocus=(wallpaperFocus+1)%WALLPAPER_COUNT;render();}else if(c=='k'||c=='h'){wallpaperFocus=(wallpaperFocus+WALLPAPER_COUNT-1)%WALLPAPER_COUNT;render();}else if(c=='\n'||c==' '){notice=setWallpaper(wallpaperFocus)?("Theme applied"):"Save failed";render();}return;}
   if(section==20){if(c=='j'||c=='k'){powerField=1-powerField;render();}else if(c=='\n'||c==' '){auto power=device::powerState();uint32_t current=powerField?power.keyboardSeconds:power.displaySeconds;int i=0;while(i<6&&device::TIMEOUT_VALUES[i]!=current)i++;device::timeout(powerField!=0,device::TIMEOUT_VALUES[(i+1)%6]);render();}return;}
-  if(section==4&&wifiSavedOpen){if(c=='j'||c=='k'||c=='w'||c=='s')wifiSavedMove(wifiSavedFocus+((c=='j'||c=='s')?1:-1));else if(c=='\n'||c=='d')wifiForget(wifiSavedFocus);return;}
+  if(section==4&&wifiSavedOpen){if(c=='j'||c=='k'||c=='w'||c=='s')wifiSavedMove(wifiSavedFocus+((c=='j'||c=='s')?1:-1));else if(c=='\n'||(c=='d'&&!trackballRolling))wifiForget(wifiSavedFocus);return;}
   if(section==4){auto connection=device::connectivityStatus();if(c=='v'){wifiSavedShow(true);return;}if(c=='h'){hiddenWifi();return;}else if(c=='x'){device::disconnect();render();return;}else if(c=='r'){device::reconnect();render();return;}else if(c=='f'){device::scan();render();}else if(c==' '){device::wifiEnabled(!connection.wifi);render();}else if(c=='j'||c=='k'||c=='w'||c=='s'){wifiFocus=constrain(wifiFocus+((c=='j'||c=='s')?1:-1),0,max(0,int(connection.networkCount)-1));wifiOffset=wifiFocus/mm::WifiRows*mm::WifiRows;render();}else if(c=='\n'||c=='d')selectWifi(wifiFocus);return;}
   if(section==14&&bleNameEditing){if(c=='\n')saveBleName();else if(c>=32&&c<=126&&bleNameInput.length()<device::BLE_NAME_MAX_BYTES){bleNameInput+=c;repaintSettled();}return;}
   if(section==14&&c=='n'){startBleNameEdit();return;}
@@ -1308,7 +1310,7 @@ void key(char c) {
   if(section==1){if(contactDialog){if(c=='j'||c=='k')contactDialogStep(c=='j'?1:-1);else if(c=='\n'&&contactButton==1)contactDeleteConfirm();else if(c=='\n'&&contactButton==2)contactDialogClose();return;}
    if(contactMenu){if(c=='j'||c=='k'){contactMenuFocus=(contactMenuFocus+(c=='j'?1:mm::ContactMenuRows-1))%mm::ContactMenuRows;render();}else if(c=='\n')contactMenuChoose(contactMenuFocus);return;}
    if(contactSearching){if(c=='\n'){contactSearching=false;render();return;}if(c>=32&&c<=126&&contactQuery.length()<31){contactQuery+=c;contactFocus=nodeScroll=0;}repaintSettled();return;}
-   if(c=='/'){contactSearching=true;render();return;}if(c=='m'){openContactMenu();return;}if(c=='d'){discoverFilter=(discoverFilter+1)%3;contactFocus=nodeScroll=0;render();return;}if(c=='n'||c=='p'){contactPage(c=='n'?1:-1);render();return;}
+   if(c=='/'){contactSearching=true;render();return;}if(c=='m'){openContactMenu();return;}if((c=='d'&&!trackballRolling)){discoverFilter=(discoverFilter+1)%3;contactFocus=nodeScroll=0;render();return;}if(c=='n'||c=='p'){contactPage(c=='n'?1:-1);render();return;}
    if(c=='j'||c=='k'){int total=matter::contactsCount(discoverFilter,contactQuery.c_str());notice="";contactFocus=constrain(contactFocus+(c=='j'?1:-1),-1,max(0,total-1));if(contactFocus>=0&&contactFocus<nodeScroll)nodeScroll=contactFocus;if(contactFocus>=nodeScroll+mm::ContactRows)nodeScroll=contactFocus-mm::ContactRows+1;render();return;}
    if(c=='\n'){if(contactFocus<0)openContactMenu();else openContact(contactFocus);}return;}
   if(section==19){
@@ -1318,7 +1320,7 @@ void key(char c) {
   return;
  }
  if(screen==Screen::Chats) {
-  if(!searching){if(c=='a'){back();return;}if(c=='d')c='\n';else if(c=='w')c='k';else if(c=='s')c='j';}
+  if(!searching){if(c=='a'){back();return;}if((c=='d'&&!trackballRolling))c='\n';else if(c=='w')c='k';else if(c=='s')c='j';}
   if(messagesMenu){if(c=='j'||c=='k')messageMenuFocus=(messageMenuFocus+(c=='j'?1:mm::MessagesMenuRows-1))%mm::MessagesMenuRows;else if(c>='1'&&c<='4'){messagesMenuChoose(c-'1');return;}else if(c=='\n'){messagesMenuChoose(messageMenuFocus);return;}render();return;}
   if(searching){
    if(c=='\n'){searching=false;render();return;}
@@ -1340,7 +1342,7 @@ void key(char c) {
   if(c==' '||c=='f'){pickerSearching=true;render();return;}
   if(c=='w'||c=='k'){pickerFocus=max(0,pickerFocus-1);render();}else if(c=='s'||c=='j'){pickerFocus=min(max(0,count-1),pickerFocus+1);render();}
   else if(c=='n'||c=='p'){pickerFocus=constrain(pickerFocus+(c=='n'?mm::PickerRows:-mm::PickerRows),0,max(0,count-1));render();}
-  else if(c=='\n'||c=='d')pickContact(pickerFocus);
+  else if(c=='\n'||(c=='d'&&!trackballRolling))pickContact(pickerFocus);
   return;
  } else if(screen==Screen::NewChat) {
   const bool hashtag=newForm==int(mm::ChannelForm::JoinHashtag),create=newForm==int(mm::ChannelForm::CreatePrivate);
@@ -1467,7 +1469,7 @@ void tap(int x,int y) {
    if(radioPowerEditing){if(mm::RadioPowerSave.contains(x,y))saveRadioPower();else if(mm::RadioPowerCancel.contains(x,y)){radioPowerEditing=false;notice="";render();}return;}
    if(mm::LoRaRadio.contains(x,y)){selectLoRaTab(false);return;}if(mm::LoRaDevice.contains(x,y)){selectLoRaTab(true);return;}
    if(radioDevicePage){if(mm::LoRaName.contains(x,y)){radioDeviceFocus=0;editRadioField(CompanionNameField);}else if(mm::LoRaDeviceApply.contains(x,y))applyRadioDraft();else for(int bytes=1;bytes<=3;bytes++)if(mm::loraBytesRect(bytes).contains(x,y)){radioDeviceFocus=bytes;radioDraft.pathBytes=bytes;notice="Edits ready / press APPLY";render();break;}return;}
-   if(mm::LoRaBand868.contains(x,y))selectRadioBand(868);else if(mm::LoRaBand900.contains(x,y))selectRadioBand(900);else if(mm::LoRaBand433.contains(x,y))selectRadioBand(433);
+   if(mm::LoRaBand868.contains(x,y))selectRadioBand(868);else if(mm::LoRaBand915.contains(x,y))selectRadioBand(915);else if(mm::LoRaBand433.contains(x,y))selectRadioBand(433);
    else if(mm::LoRaPresetPrev.contains(x,y))cycleRadioPreset(-1);else if(mm::LoRaPresetNext.contains(x,y))cycleRadioPreset(1);
    else if(mm::LoRaPreset.contains(x,y))cycleRadioPreset(1);
    else if(mm::LoRaApply.contains(x,y))applyRadioDraft();else if(mm::LoRaAdvert.contains(x,y))sendAdvert();else if(mm::LoRaAdvertGps.contains(x,y))setAdvertGps(!advertGps);
@@ -2203,16 +2205,25 @@ loadMapStyle();
 }
 // T-Deck Plus trackball: click = Enter (Back stays on Backspace with an empty field). Rolling moves the caret or
 // scrolls the chat while writing, elsewhere it sends the w/a/s/d navigation keys of the keyboard.
+constexpr uint32_t TrackballClickMinMs=40,TrackballClickAfterRollMs=250,TrackballRebounceMs=80;
 constexpr uint32_t TrackballLockMs=900;constexpr int TrackballStep=3;constexpr uint32_t TrackballDoubleMs=1000;
 // Presses counted by an interrupt: while locked the loop can be busy repainting the lock screen for a few hundred ms,
 // and a click that both starts and ends in that time was lost by polling (the double click never counted).
 static volatile uint32_t trackballPresses=0,trackballPressAt=0;
-static void IRAM_ATTR trackballPressIsr(){uint32_t t=millis();if(uint32_t(t-trackballPressAt)>40){trackballPresses++;trackballPressAt=t;}}
-void trackballBegin(){attachInterrupt(digitalPinToInterrupt(BOARD_BOOT_PIN),trackballPressIsr,FALLING);}
+// A press counts only after the button was released for TrackballIsrReleaseMs: the contact bounces at the press and at
+// the release, and a bounce after a 40 ms press used to count as a second press (a single click unlocked the screen).
+static volatile uint32_t trackballReleaseAt=0;static volatile bool trackballReleased=true;
+static void IRAM_ATTR trackballPressIsr(){uint32_t t=millis();
+ if(digitalRead(BOARD_BOOT_PIN)!=LOW){if(!trackballReleased){trackballReleased=true;trackballReleaseAt=t;}return;}
+ if(trackballReleased&&uint32_t(t-trackballReleaseAt)>=50&&uint32_t(t-trackballPressAt)>40){trackballPresses++;trackballPressAt=t;}trackballReleased=false;}
+void trackballBegin(){attachInterrupt(digitalPinToInterrupt(BOARD_BOOT_PIN),trackballPressIsr,CHANGE);}
 void pollTrackball(){
  // Click: unlock on the lock screen; elsewhere a short click is Enter (on release) and a 0.9 s hold locks the device.
  static bool clickDown=false,lockFired=false;static uint32_t clickAt=0;bool down=digitalRead(BOARD_BOOT_PIN)==LOW;uint32_t now=millis();
  int dx,dy;plus::Trackball::take(dx,dy);
+ // Click filter (involuntary clicks, 2026-11-05): no click while the ball rolls or within TrackballClickAfterRollMs of a
+ // roll, a press shorter than TrackballClickMinMs is a bounce, and a press right after a release (TrackballRebounceMs) too.
+ static uint32_t lastRollAt=0,releasedAt=0;static bool rolledDuringClick=false;if(dx||dy){lastRollAt=now;if(clickDown)rolledDuringClick=true;}
  // Locked: a double click (second press within 600 ms) unlocks; a single click only lights the screen for 10 s.
  static uint32_t pressesSeen=0,firstPressAt=0;
  if(deviceLocked){
@@ -2225,10 +2236,11 @@ void pollTrackball(){
   if(firstPressAt&&uint32_t(now-firstPressAt)>TrackballDoubleMs){firstPressAt=0;if(trackballUnlockTaps==1){trackballUnlockTaps=0;lockScreenDirty=true;}}
   return;}
  pressesSeen=trackballPresses;firstPressAt=0;// presses made while unlocked never count towards an unlock
- if(down&&!clickDown){clickDown=true;clickAt=now;lockFired=false;device::activity();}
+ if(down&&!clickDown&&uint32_t(now-releasedAt)<TrackballRebounceMs)down=false;// the release bounced
+ if(down&&!clickDown){clickDown=true;clickAt=now;lockFired=false;rolledDuringClick=uint32_t(now-lastRollAt)<TrackballClickAfterRollMs;device::activity();}
  else if(down&&clickDown&&!lockFired){uint32_t held=now-clickAt;int dots=int(held*7/TrackballLockMs);if(held>=TrackballLockMs){lockFired=true;lockKey.progress=0;if(screen!=Screen::Welcome&&!welcomeWifi)enterLockMode();else render();return;}// no lock during the welcome
   if(held>=200&&dots!=lockKey.progress&&screen!=Screen::Welcome&&!welcomeWifi){lockKey.progress=dots;render();}}
- else if(!down&&clickDown){clickDown=false;if(lockKey.progress){lockKey.progress=0;render();}if(!lockFired&&uint32_t(now-clickAt)<TrackballLockMs)key('\n');}
+ else if(!down&&clickDown){clickDown=false;if(lockKey.progress){lockKey.progress=0;render();}releasedAt=now;if(!lockFired&&!rolledDuringClick&&uint32_t(now-clickAt)>=TrackballClickMinMs&&uint32_t(now-clickAt)<TrackballLockMs)key('\n');}
  // Rolling: the balls toggle a line per detent step; three steps make one move (it used to be one, too twitchy).
  static int accX=0,accY=0;static uint32_t rolledAt=0;if(dx||dy){if(uint32_t(now-rolledAt)>400)accX=accY=0;rolledAt=now;accX+=dx;accY+=dy;}
  dx=accX/TrackballStep;dy=accY/TrackballStep;accX-=dx*TrackballStep;accY-=dy*TrackballStep;
@@ -2239,8 +2251,10 @@ void pollTrackball(){
   if(dy&&screen==Screen::Chat)scrollChat(dy<0?1:-1);
   return;
  }
- renderHold++;for(int n=0;n<abs(dy);n++)key(dy<0?'w':'s');
+ // The ball only moves: a roll to the left reaches the pages as 'a' (previous tab / choice) but never as Back (user, 2026-11-05).
+ renderHold++;trackballRolling=true;for(int n=0;n<abs(dy);n++)key(dy<0?'w':'s');
  for(int n=0;n<abs(dx);n++)key(dx<0?'a':'d');
+ trackballRolling=false;
  renderHold--;if(!renderHold&&renderPending){renderPending=false;render();}// one frame for all the steps of a roll
 }
 // OTA phase as of the last otaRevision() change (every phase change bumps the revision): loop() reads it without

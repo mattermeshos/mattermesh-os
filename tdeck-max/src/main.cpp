@@ -1181,7 +1181,7 @@ static void welcomeKey(char c){
  if(welcomeStep==4){if(c>=32&&c<=126&&welcomeName.length()<matter::COMPANION_NAME_MAX_BYTES){welcomeName+=c;repaintSettled();}return;}
  bool prev=c=='w'||c=='a'||c=='k'||c=='h',next=c=='s'||c=='d'||c=='j'||c=='l';if(!prev&&!next)return;
  if(welcomeStep==1)welcomeWifiChoice=welcomeWifiChoice?0:1;
- else if(welcomeStep==2)welcomeBand=welcomeBand==868?900:868;
+ else if(welcomeStep==2)welcomeBand=welcomeBand==868?915:868;
  else if(welcomeStep==3)welcomeFocus=constrain(welcomeFocus+(next?1:-1),0,max(0,int(welcomeList.size())-1));
  else if(welcomeStep==5)welcomeBytes=constrain(welcomeBytes+(next?1:-1),1,3);
  else if(welcomeStep==6)tzSet(device::timeZone()+(next?1:-1));
@@ -1189,7 +1189,7 @@ static void welcomeKey(char c){
 static void welcomeTap(int x,int y){
  if(mm::WelcomeNext.contains(x,y)){welcomeNext();return;}if(welcomeStep>0&&mm::WelcomeBack.contains(x,y)){welcomeBack();return;}
  if(welcomeStep==1){for(int i=0;i<2;i++)if(mm::welcomeWifiCard(i).contains(x,y)){welcomeWifiChoice=i;if(i==0&&!device::wifiConnected())welcomeOpenWifi();else render();}}
- else if(welcomeStep==2){for(int i=0;i<2;i++)if(mm::welcomeCard(i,2).contains(x,y)){welcomeBand=i?900:868;render();}}
+ else if(welcomeStep==2){for(int i=0;i<2;i++)if(mm::welcomeCard(i,2).contains(x,y)){welcomeBand=i?915:868;render();}}
  else if(welcomeStep==3){int scroll=welcomeScroll();for(int i=0;i<mm::WelcomeRows;i++)if(mm::welcomeRow(i).contains(x,y)&&scroll+i<int(welcomeList.size())){welcomeFocus=scroll+i;render();}}
  else if(welcomeStep==5){for(int b=0;b<3;b++)if(mm::welcomeCard(b,3).contains(x,y)){welcomeBytes=b+1;render();}}
  else if(welcomeStep==6){int scroll=tzScrollFor(device::timeZone(),mm::WelcomeRows);for(int i=0;i<mm::WelcomeRows;i++)if(mm::welcomeRow(i).contains(x,y)){tzSet(scroll+i);render();}}}
@@ -1249,7 +1249,7 @@ void key(char c) {
    else if((c=='a'||c=='d')&&radioFocus>=8)selectLoRaTab(c=='d',true);
    else if((c=='a'||c=='d')&&radioFocus==7)setAdvertGps(c=='d');
    else if((c=='a'||c=='d')&&radioFocus==0)cycleRadioPreset(c=='a'?-1:1);
-   else if(c=='a')back();else if(c=='d'||c=='\n')activateRadioFocus();else if(c=='b')selectRadioBand(radioBandSelection==868?900:868);else if(c=='p')editRadioPower();return;
+   else if(c=='a')back();else if(c=='d'||c=='\n')activateRadioFocus();else if(c=='b')selectRadioBand(radioBandSelection==868?915:868);else if(c=='p')editRadioPower();return;
   }
   if(!editableField()){if(c=='a'){back();return;}if(section==19&&c=='d')c='\n';if(section!=4){if(c=='w')c='k';else if(c=='s')c='j';}}
   if(section==3&&(c=='\n'||c==' ')){notice=device::locationToggleUser()?(device::locationState().enabled?"GPS enabled":"GPS disabled"):"GPS switch failed";render();return;}
@@ -1464,7 +1464,7 @@ void tap(int x,int y) {
    if(radioPowerEditing){if(mm::RadioPowerSave.contains(x,y))saveRadioPower();else if(mm::RadioPowerCancel.contains(x,y)){radioPowerEditing=false;notice="";render();}return;}
    if(mm::LoRaRadio.contains(x,y)){selectLoRaTab(false);return;}if(mm::LoRaDevice.contains(x,y)){selectLoRaTab(true);return;}
    if(radioDevicePage){if(mm::LoRaName.contains(x,y)){radioDeviceFocus=0;editRadioField(CompanionNameField);}else if(mm::LoRaDeviceApply.contains(x,y))applyRadioDraft();else for(int bytes=1;bytes<=3;bytes++)if(mm::loraBytesRect(bytes).contains(x,y)){radioDeviceFocus=bytes;radioDraft.pathBytes=bytes;notice="Edits ready / press APPLY";render();break;}return;}
-   if(mm::LoRaBand868.contains(x,y))selectRadioBand(868);else if(mm::LoRaBand900.contains(x,y))selectRadioBand(900);
+   if(mm::LoRaBand868.contains(x,y))selectRadioBand(868);else if(mm::LoRaBand915.contains(x,y))selectRadioBand(915);
    else if(mm::LoRaPresetPrev.contains(x,y))cycleRadioPreset(-1);else if(mm::LoRaPresetNext.contains(x,y))cycleRadioPreset(1);
    else if(mm::LoRaPreset.contains(x,y))cycleRadioPreset(1);
    else if(mm::LoRaApply.contains(x,y))applyRadioDraft();else if(mm::LoRaAdvert.contains(x,y))sendAdvert();else if(mm::LoRaAdvertGps.contains(x,y))setAdvertGps(!advertGps);

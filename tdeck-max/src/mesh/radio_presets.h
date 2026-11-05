@@ -30,7 +30,7 @@ inline constexpr RadioPreset RADIO_PRESETS[]={
  {"Vietnam (Deprecated)",920.25f,250.0f,11,5,0},
 };
 constexpr int RADIO_PRESET_COUNT=sizeof(RADIO_PRESETS)/sizeof(RADIO_PRESETS[0]);
-inline int radioBand(float frequency){return frequency<900?868:900;}
+inline int radioBand(float frequency){return frequency<900?868:915;}
 inline int matchPreset(float frequency,float bandwidth,int sf,int cr){
  for(int i=0;i<RADIO_PRESET_COUNT;i++){auto &p=RADIO_PRESETS[i];if(std::fabs(frequency-p.frequency)<0.0004f&&bandwidth==p.bandwidth&&sf==p.sf&&cr==p.cr)return i;}
  return -1;

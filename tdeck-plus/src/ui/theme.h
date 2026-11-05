@@ -247,7 +247,7 @@ constexpr int LoRaBandY=(Top+4),LoRaBandH=22,LoRaPresetY=(Top+30),LoRaPresetH=30
 constexpr int LoRaFieldY=(Top+64),LoRaFieldStep=20,LoRaFieldW=(LoRaContentW-96),LoRaValueX=100;
 // Band buttons 868 / 900 / 433 in thirds of the content width.
 constexpr int LoRaBandW=(LoRaContentW-2*Gap)/3;
-constexpr Rect LoRaBand868={LoRaInset,LoRaBandY,LoRaBandW,LoRaBandH},LoRaBand900={LoRaInset+LoRaBandW+Gap,LoRaBandY,LoRaBandW,LoRaBandH},LoRaBand433={LoRaInset+2*(LoRaBandW+Gap),LoRaBandY,LoRaBandW,LoRaBandH};
+constexpr Rect LoRaBand868={LoRaInset,LoRaBandY,LoRaBandW,LoRaBandH},LoRaBand915={LoRaInset+LoRaBandW+Gap,LoRaBandY,LoRaBandW,LoRaBandH},LoRaBand433={LoRaInset+2*(LoRaBandW+Gap),LoRaBandY,LoRaBandW,LoRaBandH};
 constexpr Rect LoRaPreset={LoRaInset,LoRaPresetY,LoRaContentW,LoRaPresetH};
 constexpr Rect LoRaPresetPrev={LoRaInset,LoRaPresetY,30,LoRaPresetH},LoRaPresetNext={W-LoRaInset-30,LoRaPresetY,30,LoRaPresetH};
 inline Rect loraFieldRect(int field){return {LoRaInset,LoRaFieldY+field*LoRaFieldStep,LoRaFieldW,LoRaFieldStep-1};}

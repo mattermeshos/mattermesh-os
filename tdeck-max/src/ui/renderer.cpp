@@ -527,7 +527,7 @@ void Renderer::welcome(const State &s){
   Rect r=welcomeWifiCard(2);r.h=WelcomeNext.y-34-r.y;c.card(r,false,8);c.icon(Icon::Clock,r.x+8,r.y+7,16);c.text(r.x+30,r.y+7,"How the clock is set",Font::Bold,FG,r.w-38);
   const char *lines[]={"Wi-Fi: from the internet.","No Wi-Fi: GPS, outdoors.","Or by hand: Settings > Date / time."};
   for(int i=0;i<3;i++)c.text(r.x+10,r.y+27+i*14,lines[i],Font::ChatMeta,FG,r.w-20);
- }else if(step==2){choice(welcomeCard(0,2),"868 MHz","Europe, UK, Switzerland",s.welcomeBand==868);choice(welcomeCard(1,2),"900 MHz","Americas, Oceania, Asia",s.welcomeBand==900);}
+ }else if(step==2){choice(welcomeCard(0,2),"868 MHz","Europe, UK, Switzerland",s.welcomeBand==868);choice(welcomeCard(1,2),"915 MHz","Americas, Oceania, Asia",s.welcomeBand==915);}
  else if(step==3){
   for(int i=0;i<WelcomeRows&&s.welcomeScroll+i<int(s.welcomePresets.size());i++){int at=s.welcomeScroll+i;Rect r=welcomeRow(i);bool on=at==s.welcomeFocus;c.card(r,on,6);uint16_t ink=on?BG:FG;
    c.text(r.x+8,r.y+3,s.welcomePresets[at].first,Font::ChatBody,ink,r.w-16);c.text(r.x+8,r.y+20,s.welcomePresets[at].second,Font::ChatMeta,ink,r.w-16);}
@@ -696,7 +696,7 @@ void Renderer::section(const State &s){
   }else{
   c.text(LoRaInset,Top+2,s.radioReady?(s.radioTX?"TX active":s.radioQueued?"TX queued / RX":"RX ready"):("Radio error "+std::to_string(s.radioError)),Font::ChatMeta,FG,110);
   c.text(W-LoRaInset-100,Top+2,std::string(s.radioInternal?"INT":"EXT")+" / paths "+std::to_string(s.radioPathBytes)+"B",Font::ChatMeta,FG,100);
-  c.button(LoRaBand868,"868 MHz",s.radioBand==868);c.button(LoRaBand900,"900 MHz",s.radioBand==900);
+  c.button(LoRaBand868,"868 MHz",s.radioBand==868);c.button(LoRaBand915,"915 MHz",s.radioBand==915);
   c.card(LoRaPreset,false,5);if(s.radioFocus==0)g.drawRoundRect(LoRaPreset.x+2,LoRaPreset.y+2,LoRaPreset.w-4,LoRaPreset.h-4,4,FG);
   c.iconButton({LoRaPresetPrev.x,LoRaPreset.y+10,30,30},Icon::Back);c.iconButton({LoRaPresetNext.x,LoRaPreset.y+10,30,30},Icon::ChevronRight);
   std::string name=s.radioPreset>=0&&s.radioPreset<matter::RADIO_PRESET_COUNT?matter::RADIO_PRESETS[s.radioPreset].name:"Custom";
