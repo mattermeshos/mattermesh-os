@@ -82,12 +82,12 @@ static void startWorker(bool gps){
  auto location=locationState();auto request=new Request{generation.load(),gps,location.latitude,location.longitude,{},location.configured,location.latitude,location.longitude,String("https://photon.komoot.io")};
  if(!gps)request->accessPoints=wifiAccessPoints();
  xSemaphoreTake(mutex,portMAX_DELAY);state.busy=true;state.phase=WeatherPhase::Fetching;state.message="Updating...";publish();xSemaphoreGive(mutex);
- if(xTaskCreate(worker,"matter-weather",8192,request,1,nullptr)!=pdPASS){delete request;xSemaphoreTake(mutex,portMAX_DELAY);state.busy=false;state.phase=WeatherPhase::Error;state.message="Weather worker unavailable";publish();xSemaphoreGive(mutex);}
+ if(xTaskCreatePinnedToCore(worker,"matter-weather",8192,request,1,nullptr,0)!=pdPASS){delete request;xSemaphoreTake(mutex,portMAX_DELAY);state.busy=false;state.phase=WeatherPhase::Error;state.message="Weather worker unavailable";publish();xSemaphoreGive(mutex);}
 }
 void weatherBegin(){preferences.begin("mmweather",false);mutex=xSemaphoreCreateMutex();WeatherData cached;if(preferences.getBytesLength("cache")==sizeof(cached)&&preferences.getBytes("cache",&cached,sizeof(cached))==sizeof(cached)&&cached.magic==WeatherData().magic&&cached.valid){state.data=cached;state.cached=true;state.message="Cached";}if(preferences.getBytesLength("place")==sizeof(placeCache)){PlaceCache saved;if(preferences.getBytes("place",&saved,sizeof(saved))==sizeof(saved)&&saved.magic==placeCache.magic){saved.name[sizeof(saved.name)-1]=0;placeCache=saved;if(state.data.valid&&placeMatches(state.data.latitude,state.data.longitude))state.place=placeCache.name;}}}
-void weatherSetOpen(bool on){
+void weatherSetOpen(bool on,uint32_t freshMs){
  if(on==open)return;open=on;locating=false;
- if(on){pending=!state.data.valid||!lastSuccess||uint32_t(millis()-lastSuccess)>=WEATHER_REOPEN_FRESH_MS;if(!pending)lastAttempt=lastSuccess;xSemaphoreTake(mutex,portMAX_DELAY);state.open=true;publish();xSemaphoreGive(mutex);return;}
+ if(on){pending=!state.data.valid||!lastSuccess||uint32_t(millis()-lastSuccess)>=freshMs;if(!pending)lastAttempt=lastSuccess;xSemaphoreTake(mutex,portMAX_DELAY);state.open=true;publish();xSemaphoreGive(mutex);return;}
  generation++;pending=false;
  if(wifiByWeather&&connectivityStatus().wifi)wifiEnabled(false,false);wifiByWeather=false;
  xSemaphoreTake(mutex,portMAX_DELAY);state.open=false;state.phase=WeatherPhase::Closed;state.cached=state.data.valid;state.message=state.data.valid?"Cached":"";publish();xSemaphoreGive(mutex);

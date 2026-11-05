@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include "policy.h"
 namespace device {
+// The LCD backlight never goes fully dark while the screen is awake: 1 % is the lowest level (0 left the panel black).
+constexpr uint8_t DISPLAY_MIN_LEVEL=3;
 struct PowerState {uint32_t displaySeconds=30,keyboardSeconds=30,lastActivity=0;bool displayAwake=true,keyboardAwake=true,displayEnabled=true,keyboardEnabled=true;uint32_t notificationFlashes=0;uint8_t displayPWM=0,keyboardPWM=0;};
 void powerLocked(bool locked);
 void unlockLightPreview(bool active);

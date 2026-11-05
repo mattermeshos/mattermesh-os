@@ -51,6 +51,7 @@ String audioDiagnosticResult(){return state.busy?String(""):result;}
 uint32_t audioRevision(){return state.revision;}
 // The busy flag alone, without copying the two Strings of AudioState (main loop, every pass).
 bool audioBusy(){return state.busy;}
+bool audioHoldsPower(){return warming.load()||state.recording||state.transcribing;}// main loop, every pass: no String copies
 AudioState audioState(){auto s=state;s.warming=warming.load();s.samples=used/2;s.level=peak.load()*100/32768;s.peak=peak.load();return s;}
 
 static void transcriptionWorker(void*){suppressCaptureStart(reinterpret_cast<int16_t*>(pcm+44),used.load()/2);int code=offlineItalianTranscribe(reinterpret_cast<int16_t*>(pcm+44),used.load()/2,cancel,result);if(code&&!cancel.load())error=code;done=true;vTaskDelete(nullptr);}

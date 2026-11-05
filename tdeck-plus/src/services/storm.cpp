@@ -77,7 +77,7 @@ void stormLoop(){
  pending=false;lastAttempt=millis();
  auto request=new Request{lat,lon};
  xSemaphoreTake(mutex,portMAX_DELAY);busy=true;state.phase=StormPhase::Fetching;state.message="Checking the forecast...";publish();xSemaphoreGive(mutex);
- if(xTaskCreate(worker,"matter-storm",8192,request,1,nullptr)!=pdPASS){delete request;xSemaphoreTake(mutex,portMAX_DELAY);busy=false;state.phase=StormPhase::Error;state.message="Worker unavailable";publish();xSemaphoreGive(mutex);}
+ if(xTaskCreatePinnedToCore(worker,"matter-storm",8192,request,1,nullptr,0)!=pdPASS){delete request;xSemaphoreTake(mutex,portMAX_DELAY);busy=false;state.phase=StormPhase::Error;state.message="Worker unavailable";publish();xSemaphoreGive(mutex);}
 }
 StormState stormState(){if(!mutex)return state;xSemaphoreTake(mutex,portMAX_DELAY);auto copy=state;xSemaphoreGive(mutex);return copy;}
 uint32_t stormRevision(){if(!mutex)return 0;xSemaphoreTake(mutex,portMAX_DELAY);uint32_t r=state.revision;xSemaphoreGive(mutex);return r;}

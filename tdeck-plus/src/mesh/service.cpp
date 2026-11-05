@@ -278,6 +278,7 @@ Snapshot snapshot(){state.nodes=meshPtr?chatMesh().getNumContacts():0;state.rece
 static bool matchesFilter(const CachedNode &n,int filter){if(!n.book)return false;return filter==0||(filter==1&&n.type==ADV_TYPE_CHAT)||(filter==2&&n.type==ADV_TYPE_REPEATER);}
 int nodeCount(int filter){int count=0;for(int i=0;i<discoveredCount;i++)if(matchesFilter(discovered[i],filter))count++;return count;}
 ContactPage contacts(int filter,const std::string &query,int offset,int limit){ContactPage page;std::vector<int> idx;idx.reserve(discoveredCount);for(int i=0;i<discoveredCount;i++){auto &n=discovered[i];if(!matchesFilter(n,filter)||!mm::contactMatches(n.name,query))continue;idx.push_back(i);if(n.live)page.live++;}
+ if(limit<=0){page.total=idx.size();return page;}// count only (Home Mesh live widget)
  uint32_t now=millis();std::stable_sort(idx.begin(),idx.end(),[&](int a,int b){auto &x=discovered[a],&y=discovered[b];if(x.live!=y.live)return x.live;if(x.live)return uint32_t(now-x.seen)<uint32_t(now-y.seen);return strcasecmp(x.name,y.name)<0;});
  page.total=idx.size();for(int i=std::max(0,offset);i<int(idx.size())&&int(page.rows.size())<limit;i++){auto &n=discovered[idx[i]];Node node;node.key=n.key;node.name=n.name;node.type=n.type;node.seen=n.seen;node.advertAt=n.advertAt;node.hops=n.hops;node.rssi=n.rssi;node.snr=n.snr;node.live=n.live;node.lat=n.lat;node.lon=n.lon;page.rows.push_back(node);}return page;}
 static bool bookHasKey(const char *key){uint8_t pub[32];return meshPtr&&unhex(String(key),pub,32)&&chatMesh().lookupContactByPubKey(pub,32);}

@@ -12,16 +12,17 @@ static void apply(){bool woken=wakeSet&&int32_t(wakeUntil-millis())>0;
  state.displayPWM=display;}if(keyboard!=state.keyboardPWM){
  plus::keyboardLight(keyboard);
  state.keyboardPWM=keyboard;}}
-void powerBegin(uint8_t display,uint8_t keyboard){preferences.begin("mmpower",false);state.displaySeconds=preferences.getUInt("display",30);state.keyboardSeconds=preferences.getUInt("keyboard",30);if(!validTimeout(state.displaySeconds))state.displaySeconds=30;if(!validTimeout(state.keyboardSeconds))state.keyboardSeconds=30;if(preferences.getUInt("display",0)!=state.displaySeconds)preferences.putUInt("display",state.displaySeconds);if(preferences.getUInt("keyboard",0)!=state.keyboardSeconds)preferences.putUInt("keyboard",state.keyboardSeconds);/* only a reset invalid value is written back at boot */state.displayEnabled=preferences.getBool("display_on",true);state.keyboardEnabled=preferences.getBool("keyboard_on",true);displayBrightness=display;keyboardBrightness=keyboard;state.displayPWM=255;state.keyboardPWM=255;activity();}
+void powerBegin(uint8_t display,uint8_t keyboard){if(display<DISPLAY_MIN_LEVEL)display=DISPLAY_MIN_LEVEL;preferences.begin("mmpower",false);state.displaySeconds=preferences.getUInt("display",30);state.keyboardSeconds=preferences.getUInt("keyboard",30);if(!validTimeout(state.displaySeconds))state.displaySeconds=30;if(!validTimeout(state.keyboardSeconds))state.keyboardSeconds=30;if(preferences.getUInt("display",0)!=state.displaySeconds)preferences.putUInt("display",state.displaySeconds);if(preferences.getUInt("keyboard",0)!=state.keyboardSeconds)preferences.putUInt("keyboard",state.keyboardSeconds);/* only a reset invalid value is written back at boot */state.displayEnabled=true;if(!preferences.getBool("display_on",true))preferences.putBool("display_on",true);/* an old "off" left the screen black */state.keyboardEnabled=preferences.getBool("keyboard_on",true);displayBrightness=display;keyboardBrightness=keyboard;state.displayPWM=255;state.keyboardPWM=255;activity();}
 void powerLocked(bool value){locked=value;unlockPreview=false;if(!locked)activity();else apply();}
 void unlockLightPreview(bool active){unlockPreview=locked&&active;apply();}
 int32_t wakeRemaining(){return wakeSet?int32_t(wakeUntil-millis()):0;}
 bool unlockPreviewActive(){return unlockPreview;}
 void wakeDisplay(uint32_t ms){uint32_t until=millis()+ms;if(!wakeSet||int32_t(until-wakeUntil)>0)wakeUntil=until;wakeSet=true;apply();}
 void activity(){if(locked)return;state.lastActivity=millis();state.displayAwake=state.keyboardAwake=true;apply();}
-void brightness(uint8_t display,uint8_t keyboard){displayBrightness=display;keyboardBrightness=keyboard;apply();}
+void brightness(uint8_t display,uint8_t keyboard){displayBrightness=display<DISPLAY_MIN_LEVEL?DISPLAY_MIN_LEVEL:display;keyboardBrightness=keyboard;apply();}
 bool timeout(bool keyboard,uint32_t seconds){if(!validTimeout(seconds))return false;if(preferences.putUInt(keyboard?"keyboard":"display",seconds)!=sizeof(uint32_t))return false;(keyboard?state.keyboardSeconds:state.displaySeconds)=seconds;activity();return true;}
-bool lightEnabled(bool keyboard,bool enabled){if(preferences.putBool(keyboard?"keyboard_on":"display_on",enabled)!=1)return false;(keyboard?state.keyboardEnabled:state.displayEnabled)=enabled;apply();return true;}
+bool lightEnabled(bool keyboard,bool enabled){if(!keyboard)enabled=true;// the screen light cannot be switched off
+ if(preferences.putBool(keyboard?"keyboard_on":"display_on",enabled)!=1)return false;(keyboard?state.keyboardEnabled:state.displayEnabled)=enabled;apply();return true;}
 void flashKeyboardNotification(){uint32_t now=millis();if(flashPhase>=0||(flashed&&uint32_t(now-lastFlash)<2000))return;flashed=true;lastFlash=flashAt=now;flashPhase=0;state.notificationFlashes++;apply();}
 bool notificationFlashing(){return flashPhase>=0;}
 void powerLoop(){uint32_t now=millis();if(flashPhase>=0&&uint32_t(now-flashAt)>=(flashPhase%2==0?FLASH_ON_MS:FLASH_OFF_MS)){flashAt=now;if(++flashPhase>=4)flashPhase=-1;}

@@ -120,7 +120,7 @@ static void mwHandle(){
  if(mwMethod=="GET"&&(route=="/"||route=="/index.html")){mwReply(200,"text/html; charset=utf-8",WebPage,sizeof(WebPage)-1);return;}
  if(mwMethod=="GET"&&route=="/favicon.ico"){mwReply(404,"text/plain","",0);return;}
  if(route.compare(0,5,"/api/")){mwReply(404,"text/plain","Not found",9);return;}
- DynamicJsonDocument in(MwMaxBody+512);if(mwMethod=="POST"&&mwBody.size()&&deserializeJson(in,mwBody)){mwError(400,"Bad JSON");return;}
+ DynamicJsonDocument in(mwMethod=="POST"&&mwBody.size()?MwMaxBody+512:16);/* GETs never read it: no 2.5 KB internal alloc per poll */if(mwMethod=="POST"&&mwBody.size()&&deserializeJson(in,mwBody)){mwError(400,"Bad JSON");return;}
  if(route=="/api/login"&&mwMethod=="POST"){String pin=in["pin"]|"";
   if(pin!=mwCode){if(++mwFails>=5){mwNewCode();render();mwError(401,"Too many tries: read the new code on the T-Deck");}else mwError(401,"Wrong code");return;}
   char t[33];for(int i=0;i<4;i++)snprintf(t+i*8,9,"%08lx",(unsigned long)esp_random());mwToken=t;mwFails=0;mwSeenAt=millis();mwPeer=mwClient.remoteIP().toString();

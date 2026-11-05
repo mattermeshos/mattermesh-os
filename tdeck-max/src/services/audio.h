@@ -9,5 +9,5 @@ bool audioDiagnosticPcm(const uint8_t *&data,size_t &bytes);
 String audioDiagnosticResult();
 uint32_t audioRevision();
 bool takeTranscript(String &text);
-void audioBegin(ExtensionIOXL9555 &io,bool ready);void audioLoop();AudioState audioState();bool audioBusy();bool audioNotify(bool test=false,bool mention=false);bool audioPreview(int tone);void audioRingtone(bool mention,int tone);void audioNotifications(bool enabled);void audioVolume(int value);bool audioRecord();bool audioProbeRecord();void audioStop();void audioCancel();
+void audioBegin(ExtensionIOXL9555 &io,bool ready);void audioLoop();AudioState audioState();bool audioBusy();bool audioHoldsPower();bool audioNotify(bool test=false,bool mention=false);bool audioPreview(int tone);void audioRingtone(bool mention,int tone);void audioNotifications(bool enabled);void audioVolume(int value);bool audioRecord();bool audioProbeRecord();void audioStop();void audioCancel();
 }

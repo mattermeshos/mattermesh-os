@@ -52,18 +52,18 @@ static void workLoop(){
    if(uxQueueMessagesWaiting(requests)&&!workerRunning.exchange(true)){idleMs=0;continue;}
    break;}
   idleMs=0;TileResult r;r.key=k;
-  if(png&&luma&&decoder&&k.generation==generation.load()&&wifiConnected()){size_t length=0;
+  if(png&&luma&&decoder&&k.generation==generation.load()&&wifiConnected()){networkJobBegin();size_t length=0;// 240 MHz + WDT pause only while fetching
    if(fetch(client,http,k,png,length)&&decoder->openRAM(png,length,drawLine)==PNG_SUCCESS){Decode d{decoder,luma,luma+MapTileSize*MapTileSize,true};
     if(decoder->getWidth()==MapTileSize&&decoder->getHeight()==MapTileSize&&decoder->decode(&d,0)==PNG_SUCCESS&&d.ok){r.bits=static_cast<uint8_t*>(heap_caps_malloc(MapTileBytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));if(r.bits)mapConvertTile(d.luma,d.tone,r.bits);}
     decoder->close();}
-   vTaskDelay(pdMS_TO_TICKS(RequestGapMs));}
+   networkJobEnd();vTaskDelay(pdMS_TO_TICKS(RequestGapMs));}
   else r.key.generation=0; // stale or offline: report back without a tile
   xQueueSend(results,&r,portMAX_DELAY);// dedicated task: wait for the main loop, a dropped result would leave the tile pending forever
  }
  if(decoder)decoder->~PNG();heap_caps_free(decoderMemory);heap_caps_free(luma);heap_caps_free(png);
 }
 // Ends after the loop so the TLS client and HTTP objects are destroyed first.
-static void worker(void*){networkJobBegin();workLoop();networkJobEnd();vTaskDelete(nullptr);}
+static void worker(void*){workLoop();vTaskDelete(nullptr);}
 
 // ---- main loop: RAM slots, SD cache, request bookkeeping -----------------
 void mapTilesBegin(fs::FS &fs,bool sdReady){

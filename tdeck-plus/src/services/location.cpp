@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "location.h"
 #include "time_sync.h"
 #include "gps_nmea.h"
@@ -23,6 +24,16 @@ static void saveBackup(uint32_t now){auto data=backup.take();if(store.save&&stor
 // UART RX, only the backup domain stays on (with the navigation data, so the next fix is a hot start). It is sent at
 // 38400 and 9600 baud (the module may be on either after a cold start). On sends a few bytes first to wake it.
 static uint32_t sleepEchoBytes=0;// bytes the module still sent in the 0.5 s after the sleep request (0 = asleep)
+// A module left frozen (seen on an L76K after another firmware: silent on both rates, even after a reboot) only
+// restarts without power. 30 s without one byte marks it in NVS; the next boot cuts BOARD_POWERON for a moment
+// (main.cpp setup), at most GpsSilentResets boots in a row; the first byte clears the mark.
+constexpr uint32_t GpsSilentMs=30000;constexpr int GpsSilentResets=3;static bool silentChecked=false;
+static void checkSilent(uint32_t now){
+ if(silentChecked||!state.enabled)return;
+ if(nmea.bytes>0){silentChecked=true;if(preferences.getInt("gps_silent",0))preferences.putInt("gps_silent",0);state.silent=0;return;}
+ if(uint32_t(now-start)<GpsSilentMs)return;
+ silentChecked=true;int n=abs(preferences.getInt("gps_silent",0));/* negative: the last boot already cut the power */if(n<=GpsSilentResets)preferences.putInt("gps_silent",n+1);
+ state.silent=n<GpsSilentResets?1:2;state.revision++;Serial.printf("GPS_SILENT resets=%d next_boot_reset=%d\n",n,n<GpsSilentResets);}
 static void ubx(uint8_t cls,uint8_t id,const uint8_t *payload,uint16_t length){
  uint8_t head[6]={0xB5,0x62,cls,id,uint8_t(length),uint8_t(length>>8)},a=0,b=0;for(int i=2;i<6;i++){a+=head[i];b+=a;}for(int i=0;i<length;i++){a+=payload[i];b+=a;}
  uint8_t check[2]={a,b};SerialGPS.write(head,6);SerialGPS.write(payload,length);SerialGPS.write(check,2);SerialGPS.flush();}
@@ -37,7 +48,7 @@ static bool applyEnabled(bool enabled){
  if(!enabled)gpsSleep(state.enabled);
  state.enabled=enabled;state.fix=state.data=false;state.satellites=0;state.baud=enabled?38400:0;
  gps=TinyGPSPlus();nmea=GpsNmea{};state.nmeaFresh=state.timeValid=false;state.serialBytes=state.nmeaValid=state.nmeaBad=state.satellitesUsed=state.satellitesVisible=0;state.nmeaAgeMs=UINT32_MAX;alternate=assisted=false;start=baudAt=millis();
- backup=GpsBackup();fixSeen=offPending=false;fixFirstAt=0;
+ backup=GpsBackup();fixSeen=offPending=false;fixFirstAt=0;silentChecked=false;
  if(enabled){SerialGPS.setRxBufferSize(2048);SerialGPS.setTxBufferSize(1024);SerialGPS.begin(state.baud,SERIAL_8N1,BOARD_GPS_RXD,BOARD_GPS_TXD);
   static const uint8_t wake[8]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};SerialGPS.write(wake,sizeof(wake));SerialGPS.flush();// RX edge: out of backup
  }
@@ -73,6 +84,7 @@ void locationLoop(){
  if(offPending&&(backup.idle()||int32_t(now-offDeadline)>=0)){offPending=false;if(!state.userEnabled){applyEnabled(false);state.timeLease=false;state.revision++;return;}}
  bool oldData=state.data,oldFresh=state.nmeaFresh,oldTime=state.timeValid;auto oldUsed=state.satellitesUsed,oldVisible=state.satellitesVisible;
  state.data=nmea.bytes>0;state.serialBytes=nmea.bytes;state.nmeaValid=nmea.valid;state.nmeaBad=nmea.bad;state.nmeaFresh=nmea.fresh(now);state.nmeaAgeMs=nmea.valid?uint32_t(now-nmea.lastValid):UINT32_MAX;
+ checkSilent(now);
  state.satellitesUsed=nmea.satellitesUsed(now);state.satellitesVisible=nmea.satellitesVisible(now);state.satellites=state.satellitesVisible?state.satellitesVisible:state.satellitesUsed;
  // Retry the two rates already supported by this board when no valid NMEA
  // has ever arrived. Noise bytes alone must not freeze baud discovery.

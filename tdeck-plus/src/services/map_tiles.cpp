@@ -67,20 +67,20 @@ static void workLoop(){
    if(uxQueueMessagesWaiting(requests)&&!workerRunning.exchange(true)){idleMs=0;continue;}
    break;}
   idleMs=0;TileResult r;r.key=k;
-  if(png&&decoder&&k.generation==generation.load()&&wifiConnected()){size_t length=0;
+  if(png&&decoder&&k.generation==generation.load()&&wifiConnected()){networkJobBegin();size_t length=0;// 240 MHz + WDT pause only while fetching
    if(fetch(client,http,k,png,length)){
     r.bits=static_cast<uint8_t*>(heap_caps_malloc(TileBytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));// decoded in place: no 128 KB copy
     if(r.bits&&!decodeTile(decoder,png,length,r.bits)){heap_caps_free(r.bits);r.bits=nullptr;}
     if(r.bits){r.png=static_cast<uint8_t*>(heap_caps_malloc(length,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));if(r.png){memcpy(r.png,png,length);r.pngLen=length;}}// the Plus caches the PNG itself
    }
-   vTaskDelay(pdMS_TO_TICKS(RequestGapMs));}
+   networkJobEnd();vTaskDelay(pdMS_TO_TICKS(RequestGapMs));}
   else r.key.generation=0; // stale or offline: report back without a tile
   xQueueSend(results,&r,portMAX_DELAY);// dedicated task: wait for the main loop (a dropped result would stay pending forever)
  }
  if(decoder)decoder->~PNG();heap_caps_free(decoderMemory);heap_caps_free(png);
 }
 // Ends after the loop so the TLS client and HTTP objects are destroyed first.
-static void worker(void*){networkJobBegin();workLoop();networkJobEnd();vTaskDelete(nullptr);}
+static void worker(void*){workLoop();vTaskDelete(nullptr);}
 
 // Core 0: PNG bytes read from SD by the main loop -> RGB565 tile; never touches the SPI bus.
 static void decoderTask(void*){

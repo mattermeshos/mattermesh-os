@@ -201,10 +201,10 @@ unsigned long lastHaptic=0,hapticPulses=0;bool hapticActive=false;
 int messageVibration=device::VIBRATION_MESSAGE_DEFAULT,mentionVibration=device::VIBRATION_MENTION_DEFAULT,activeVibration=0,hapticStrength=-1;
 uint8_t vibrationPercent=75;
 uint8_t vibrationRTP(){return uint8_t(127*vibrationPercent/100);}
-void stopVibration(){if(hapticReady){haptic.setRealtimeValue(0);haptic.stop();}hapticActive=false;}
+void stopVibration(){if(hapticReady){haptic.setRealtimeValue(0);haptic.stop();haptic.setMode(0x40);}hapticActive=false;}
 // Plays the active pattern: RTP value follows the pattern step, scaled by the user intensity.
 void hapticLoop(){if(!hapticActive)return;int strength=device::vibrationStrength(activeVibration,millis()-lastHaptic);
- if(strength<0){haptic.setRealtimeValue(0);haptic.stop();hapticActive=false;return;}
+ if(strength<0){haptic.setRealtimeValue(0);haptic.stop();haptic.setMode(0x40);hapticActive=false;return;}
  if(strength!=hapticStrength){hapticStrength=strength;haptic.setRealtimeValue(uint8_t(vibrationRTP()*strength/100));}}
 void loadVibrations(){Preferences p;p.begin("mmhaptic",true);messageVibration=device::vibrationIndex(p.getInt("pat",device::VIBRATION_MESSAGE_DEFAULT));mentionVibration=device::vibrationIndex(p.getInt("mpat",device::VIBRATION_MENTION_DEFAULT));p.end();}
 void saveVibrations(){Preferences p;if(!p.begin("mmhaptic",false))return;p.putInt("pat",messageVibration);p.putInt("mpat",mentionVibration);p.end();}
@@ -215,7 +215,7 @@ void initHaptic(){
  for(int n=0;n<3&&!hapticReady;n++){hapticReady=haptic.begin(&Wire);if(!hapticReady)delay(50);}
  if(!hapticReady)return;
  haptic.selectLibrary(1);haptic.setMode(DRV2605_MODE_INTTRIG);
- haptic.setWaveform(0,9);haptic.setWaveform(1,0);haptic.stop();
+ haptic.setWaveform(0,9);haptic.setWaveform(1,0);haptic.stop();haptic.setMode(0x40);// standby until the first vibration
 }
 bool messageHaptic(bool preview=false,int pattern=-1){
  if(!hapticReady||!hapticEnabled||vibrationPercent==0)return false;
@@ -334,7 +334,7 @@ void incomingRadio(const matter::Received &message);
 void deliveredRadio(const matter::Delivery &delivery);
 void renderChat(){
  chatDrafts.recoverIfEmpty(activeChat,input);
- mm::Renderer r(frame);auto state=uiState();firstRepeaterPainted=!state.firstRepeater.empty();r.chat(state);dmPathLine=r.dmPathLineOut;renderedChatMessages=r.snapshotMessages(state);paintedComposerTop=r.chatComposerTop;
+ mm::Renderer r(frame);auto state=uiState();firstRepeaterPainted=!state.firstRepeater.empty()&&state.firstRepeater.compare(0,7,"DM path")!=0;r.chat(state);dmPathLine=r.dmPathLineOut;renderedChatMessages=r.snapshotMessages(state);paintedComposerTop=r.chatComposerTop;
  if(!deviceLocked&&!radioLinkAsking()&&!chatDetails&&!scopePicker&&!clearChatConfirm&&!positionShare&&!channelOptions&&!messageActions&&!messagePath&&!emojiPicker&&chatOffset==0){
   uint32_t latest=0;for(auto it=state.messages.rbegin();it!=state.messages.rend();++it)if(!it->mine){latest=it->token;break;}
   for(auto &hit:r.messageBounds())if(latest&&state.messages[hit.second].token==latest){paintedReadChat=activeChat;paintedReadToken=latest;paintedUnread=unreadMessages[activeChat];break;}
@@ -833,7 +833,7 @@ void requestAntenna(bool internal){
 void confirmAntenna(){if(!antennaConfirm)return;if(matter::antenna(false,notice,true))antennaConfirm=false;render();}
 void confirmShutdown(){
  if(!shutdownConfirm)return;auto source=device::batteryPowerSource();if(source!=device::PowerSource::Battery){notice=source==device::PowerSource::USB?"Unplug USB to power off":"Power controller unavailable";render();return;}
- device::audioCancel();stopVibration();device::powerLocked(true);setTouchEnabled(false);epd.epd2.setBusyCallback(nullptr);frame.fillScreen(mm::BG);mm::Components c(frame);c.centered(8,145,224,"POWER OFF",mm::Font::ChatTitle);{mm::RefreshPlan plan;plan.changed=true;plan.full=true;mm::paintFramebuffer(epd.epd2,frame.getBuffer(),plan);}
+ device::audioCancel();stopVibration();device::powerLocked(true);setTouchEnabled(false);epd.epd2.setBusyCallback(nullptr);frame.fillScreen(mm::BG);mm::Components c(frame);c.centered(8,145,224,"POWER OFF",mm::Font::ChatTitle);{mm::RefreshPlan plan;plan.changed=true;plan.full=true;mm::paintFramebuffer(epd.epd2,frame.getBuffer(),plan);refreshTracker.commit(frame.getBuffer(),plan);}
  if(!device::batteryShutdown()){epd.epd2.setBusyCallback(serviceWhileDisplayBusy);device::powerLocked(false);setTouchEnabled(true);notice="Power off failed";render();return;}delay(200);epd.epd2.setBusyCallback(serviceWhileDisplayBusy);device::powerLocked(false);setTouchEnabled(true);notice="Power cut not completed";render();
 }
 void loadRadioDraft(bool keepSelection);
@@ -850,7 +850,8 @@ void openSection(int id,bool paint){
  if(paint)render();
 }
 // Unlocked idle policy: nothing to draw, no input for 3 s, no radio/audio work -> 80 MHz and a 20 ms loop; any activity or frame brings 240 MHz back.
-bool idleCpuLoop(){if(deviceLocked)return false;bool busy=dirty||radioDirty||dictationChat>=0||quickReply.active||deleteHeld||touchPipeline.contactActive()||matter::busy()||device::audioBusy()||uint32_t(millis()-device::powerState().lastActivity)<3000||uint32_t(millis()-lastPhysicalPaint)<1500;uint32_t want=busy?device::NORMAL_CPU_FREQUENCY:80;if(getCpuFrequencyMhz()!=want)setCpuFrequencyMhz(want);return !busy;}
+uint32_t appKeptActivity=0;// lastActivity stamped by the app keep-alive (not real input)
+bool idleCpuLoop(){if(deviceLocked)return false;bool busy=dirty||radioDirty||device::networkJobActive()||dictationChat>=0||quickReply.active||deleteHeld||touchPipeline.contactActive()||matter::busy()||device::audioBusy()||(device::powerState().lastActivity!=appKeptActivity&&uint32_t(millis()-device::powerState().lastActivity)<3000)||uint32_t(millis()-lastPhysicalPaint)<1500;uint32_t want=busy?device::NORMAL_CPU_FREQUENCY:80;if(getCpuFrequencyMhz()!=want)setCpuFrequencyMhz(want);return !busy;}
 // A panel over the chat (options, position, details, scopes, clear, message actions/path, emoji picker).
 static bool chatOverlayOpen(){return channelOptions||positionShare||chatDetails||scopePicker||clearChatConfirm||messageActions||messagePath||emojiPicker;}
 // The notification card painted over the status bar while unlocked (one at a time, chat notice, message, update) and
@@ -2168,7 +2169,7 @@ void loop(){
  // (the full audio state, Strings included, is copied only while a dictation chat is open)
  static int paintedAudioSeconds=-1;{int seconds=-1;if(!deviceLocked&&screen==Screen::Chat&&dictationChat>=0){auto audio=device::audioState();if(audio.recording)seconds=audio.warming?-2:std::min<int>(device::DICTATION_MAX_SECONDS,audio.samples/device::DICTATION_RATE);}
   if(seconds!=paintedAudioSeconds){paintedAudioSeconds=seconds;if(seconds!=-1){repaintNow();}}}
- {auto a=device::audioState();device::powerHold(a.warming||a.recording||a.transcribing);}/* dictation holds the idle clock; a message tone does not */device::batteryLoop();device::powerLoop();
+ device::powerHold(device::audioHoldsPower());/* dictation holds the idle clock; a message tone does not */device::batteryLoop();device::powerLoop();
  // Every HomeGpsCheckMs: feed the Main area trackers (altitude, packets). On Home, repaint (through the radio-dirty
  // path, which waits for touch and radio work) when what the GPS / activity widgets draw changed; ages, the sun and
  // the running counts move with the once-a-minute repaint. E-ink: satellites only while they are shown (no fix),
@@ -2206,7 +2207,7 @@ void loop(){
  if(radioDirty&&(uint32_t(millis()-radioChangedAt)>=250||uint32_t(millis()-radioFirstPending)>=1000)&&!matter::busy()&&!touchPipeline.contactActive()){radioDirty=false;radioFirstPending=0;render();}if(!radioDirty)radioFirstPending=0;
  pollKeyboard();
  static uint32_t appKeptAt=0,appInputAt=0,appKeepAt=0;// an app from the Apps menu on screen stays unlocked for AppKeepMs after the last input
- if(!deviceLocked&&screen==Screen::Section&&uint32_t(millis()-appKeepAt)>=1000){bool app=false;for(int i=0;i<mm::ApplicationCount;i++)if(mm::Applications[i].section==section)app=true;const uint32_t last=device::powerState().lastActivity;if(last!=appKeptAt)appInputAt=last;/* activity not from here: real input */if(app&&uint32_t(millis()-appInputAt)<mm::AppKeepMs){appKeepAt=millis();device::activity();appKeptAt=device::powerState().lastActivity;}}
+ if(!deviceLocked&&screen==Screen::Section&&uint32_t(millis()-appKeepAt)>=1000){bool app=false;for(int i=0;i<mm::ApplicationCount;i++)if(mm::Applications[i].section==section)app=true;const uint32_t last=device::powerState().lastActivity;if(last!=appKeptAt)appInputAt=last;/* activity not from here: real input */if(app&&uint32_t(millis()-appInputAt)<mm::AppKeepMs){appKeepAt=millis();device::activity();appKeptAt=device::powerState().lastActivity;appKeptActivity=appKeptAt;}}
  static bool bootDown=false;bool down=digitalRead(BOARD_BOOT_PIN)==LOW;
  if(down&&!bootDown){device::activity();back();}bootDown=down;
  if(dictationChat<0&&screen!=Screen::Welcome&&!welcomeWifi&&device::autoLockDue(millis(),device::powerState().lastActivity,deviceLocked,device::powerState().displaySeconds)){enterLockMode();delay(20);return;}

@@ -118,6 +118,7 @@ void wipeFree(void *p,size_t bytes){if(p){memset(p,0,bytes);free(p);}}
 bool offlineItalianReload(){if(busy.load())return false;cachedValid=false;dropPrefix();modelReady=false;return true;}
 void offlineItalianDebug(int c,int t){if(c>=0)forcedCores=c>2?2:c;if(t>=0)serialTrace=t!=0;}
 int offlineItalianTranscribe(const int16_t *pcm,size_t samples,std::atomic<bool> &cancel,String &text){
+ if(busy.load()){text="";return 19;}// not re-entrant (USB test during a dictation)
  text="";offlineItalianReset();uint32_t start=millis();busy=true;
  auto finish=[&](int error){elapsedMs=millis()-start;lastError=error;stage=4;busy=false;return error;};
  stage=1;

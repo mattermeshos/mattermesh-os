@@ -340,7 +340,7 @@ void deliveredRadio(const matter::Delivery &delivery);
 void submitLocal(){submitRadio();}
 void renderChat(){
  chatDrafts.recoverIfEmpty(activeChat,input);
- mm::Renderer r(frame);auto state=uiState();firstRepeaterPainted=!state.firstRepeater.empty();r.chat(state);dmPathLine=r.dmPathLineOut;{chatOffset=max(0,chatOffset+r.chatShiftOut);chatPixel=r.chatPixelOut;/* still below the newest loaded message: step past the window or page edge (the pager reloads), next frame goes on */if(chatPixel<0&&chatOffset>0){chatOffset--;repaintNow();}}renderedChatMessages=r.snapshotMessages(state);paintedComposerTop=r.chatComposerTop;
+ mm::Renderer r(frame);auto state=uiState();firstRepeaterPainted=!state.firstRepeater.empty()&&state.firstRepeater.compare(0,7,"DM path")!=0;r.chat(state);dmPathLine=r.dmPathLineOut;{chatOffset=max(0,chatOffset+r.chatShiftOut);chatPixel=r.chatPixelOut;/* still below the newest loaded message: step past the window or page edge (the pager reloads), next frame goes on */if(chatPixel<0&&chatOffset>0){chatOffset--;repaintNow();}}renderedChatMessages=r.snapshotMessages(state);paintedComposerTop=r.chatComposerTop;
  if(!deviceLocked&&!radioLinkAsking()&&!chatDetails&&!scopePicker&&!clearChatConfirm&&!positionShare&&!channelOptions&&!messageActions&&!messagePath&&!emojiPicker&&chatOffset==0){
   uint32_t latest=0;for(auto it=state.messages.rbegin();it!=state.messages.rend();++it)if(!it->mine){latest=it->token;break;}
   for(auto &hit:r.messageBounds())if(latest&&state.messages[hit.second].token==latest){paintedReadChat=activeChat;paintedReadToken=latest;paintedUnread=unreadMessages[activeChat];break;}
@@ -790,7 +790,7 @@ bool saveLights(){
 void loadLights(){
  if(!sdReady)return;File f=SD.open(device::sdSavedPath(SD,"/maxchat/lights.conf","/maxchat/lights.bak"));if(!f)return;
  String v=f.readStringUntil('\n');int kb,ep,vibe=1,level=75;
- if(sscanf(v.c_str(),"%d %d %d %d",&kb,&ep,&vibe,&level)>=2&&kb>=0&&kb<=255&&ep>=0&&ep<=255){keyboardBrightness=kb;displayBrightness=ep;}
+ if(sscanf(v.c_str(),"%d %d %d %d",&kb,&ep,&vibe,&level)>=2&&kb>=0&&kb<=255&&ep>=0&&ep<=255){keyboardBrightness=kb;displayBrightness=max<int>(device::DISPLAY_MIN_LEVEL,ep);}
  f.close();
 }
 mm::Page sectionPage(int id){
@@ -827,7 +827,8 @@ void openSection(int id,bool paint){
  if(paint)render();
 }
 // Unlocked idle policy: nothing to draw, no input for 3 s, no radio/audio/network work -> 80 MHz and a 20 ms loop; any activity or frame brings 240 MHz back.
-bool idleCpuLoop(bool audioBusy){if(deviceLocked)return false;bool busy=dirty||radioDirty||quickReply.active||device::networkJobActive()||deleteHeld||touchPipeline.contactActive()||matter::busy()||audioBusy||uint32_t(millis()-device::powerState().lastActivity)<3000||uint32_t(millis()-lastPhysicalPaint)<1500;uint32_t want=busy?device::NORMAL_CPU_FREQUENCY:80;if(getCpuFrequencyMhz()!=want)setCpuFrequencyMhz(want);return !busy;}
+uint32_t appKeptActivity=0;// lastActivity stamped by the app keep-alive (not real input)
+bool idleCpuLoop(bool audioBusy){if(deviceLocked)return false;bool busy=dirty||radioDirty||quickReply.active||device::networkJobActive()||deleteHeld||touchPipeline.contactActive()||matter::busy()||audioBusy||(device::powerState().lastActivity!=appKeptActivity&&uint32_t(millis()-device::powerState().lastActivity)<3000)||uint32_t(millis()-lastPhysicalPaint)<1500;uint32_t want=busy?device::NORMAL_CPU_FREQUENCY:80;if(getCpuFrequencyMhz()!=want)setCpuFrequencyMhz(want);return !busy;}
 // The notification card painted over the status bar while unlocked (one at a time, in this order) and opened by a tap.
 enum class TopBanner {None,Storm,Update,ChatNotice,Message};
 // No card at all: locked, welcome, pickers and forms, or any text field but the chat composer being typed (a tap would
@@ -1377,7 +1378,7 @@ void initTouch() {
 void quickSettingsTap(int x,int y){
  for(int row=0;row<2;row++)if(mm::quickSliderRect(row).contains(x,y)){
   int step=mm::quickStepAt(mm::quickSliderRect(row),x);
-  if(row==0){displayBrightness=(step*255+mm::QuickSteps/2)/mm::QuickSteps;if(!device::powerState().displayEnabled)device::lightEnabled(false,true);saveLights();device::brightness(displayBrightness,keyboardBrightness);}
+  if(row==0){displayBrightness=max<int>(device::DISPLAY_MIN_LEVEL,(step*255+mm::QuickSteps/2)/mm::QuickSteps);if(!device::powerState().displayEnabled)device::lightEnabled(false,true);saveLights();device::brightness(displayBrightness,keyboardBrightness);}
   else{device::audioVolume((step*100+mm::QuickSteps/2)/mm::QuickSteps);if(step&&!device::audioState().notifications)device::audioNotifications(true);}
   render();return;
  }
@@ -1483,10 +1484,10 @@ void tap(int x,int y) {
    int total=matter::contactsCount(discoverFilter,contactQuery.c_str());for(int i=0;i<mm::ContactRows;i++)if(mm::contactRowRect(i).contains(x,y)){if(nodeScroll+i<total){contactFocus=nodeScroll+i;openContact(contactFocus);}return;}return;}
   if(section==6){
    
-   for(int row=0;row<2;row++)if(mm::lightToggleRect(row).contains(x,y)){auto p=device::powerState();notice=device::lightEnabled(row==1,!(row==1?p.keyboardEnabled:p.displayEnabled))?"Light preference saved":"Cannot save light preference";render();return;}
+   for(int row=0;row<2;row++)if(mm::lightToggleRect(row).contains(x,y)){auto p=device::powerState();if(row==0){notice="The screen light stays on: lower the level instead";render();return;}notice=device::lightEnabled(row==1,!(row==1?p.keyboardEnabled:p.displayEnabled))?"Light preference saved":"Cannot save light preference";render();return;}
    for(int row=0;row<2;row++)if(mm::lightSliderRect(row).contains(x,y)){
     int percent=(constrain(x-mm::HapticTrackX,0,mm::HapticTrackW)*100+mm::HapticTrackW/2)/mm::HapticTrackW;uint8_t value=(percent*255+50)/100;
-    if(row==0)displayBrightness=value;else keyboardBrightness=value;
+    if(row==0)displayBrightness=max<int>(device::DISPLAY_MIN_LEVEL,value);else keyboardBrightness=value;
     saveLights();device::brightness(displayBrightness,keyboardBrightness);render();return;
    }return;
   }
@@ -2149,7 +2150,10 @@ void setup(){
  mbedtls_platform_set_calloc_free(tlsCalloc,tlsFree);
 #endif
  touchPipeline.stream=true;// lists follow the finger (services/touch_pipeline.h Move events)
- pinMode(BOARD_POWERON,OUTPUT);digitalWrite(BOARD_POWERON,HIGH);// LCD, LoRa, GPS and keyboard power
+ pinMode(BOARD_POWERON,OUTPUT);
+ {const int gpsSilent=device::prefGetInt("mmlocation","gps_silent",0);// GPS mute last time (location.cpp checkSilent): a real power cut, like the switch
+  if(gpsSilent>=1&&gpsSilent<=3){digitalWrite(BOARD_POWERON,LOW);device::prefPutInt("mmlocation","gps_silent",-gpsSilent);/* used: a new mute check is needed for the next cut */delay(1500);}}
+ digitalWrite(BOARD_POWERON,HIGH);// LCD, LoRa, GPS and keyboard power
  Serial.setTxBufferSize(16384);Serial.setRxBufferSize(2*SD_TRANSFER_CHUNK+512);Serial.setTxTimeoutMs(1000);Serial.begin(115200);/* RX queue holds two `sd put` chunks plus commands; never resized after begin */delay(800);device::wdtTraceBegin();pinMode(BOARD_BOOT_PIN,INPUT_PULLUP);
  for(int pin:{BOARD_LORA_CS,BOARD_SD_CS,BOARD_EPD_CS}){pinMode(pin,OUTPUT);digitalWrite(pin,HIGH);}
  // Shared SPI: every device retains its own chip select and transaction settings.
@@ -2278,6 +2282,9 @@ static void advertTick(){auto h=matter::advertHeard();static uint32_t seenAt=0,s
  const bool onPage=screen==Screen::Section&&section==2;if(!told&&onPage)device::activity();/* the answer comes before the lock */
  String text;if(h.revision!=seenRevision){seenRevision=h.revision;told=true;text=advertHeardText(h);}else if(!told&&uint32_t(millis()-h.at)>=AdvertWaitMs){told=true;text="No repeater heard the advert";}
  if(text.length()){Serial.printf("ADVERT_HEARD count=%d hashes=%s\n",h.count,h.hashes.c_str());if(onPage){notice=text;render();}}}
+// A mute GPS (location.cpp checkSilent) is told once; the next boot cuts the peripheral power to restart it.
+static void gpsSilentNotice(){static uint8_t shown=0;const uint8_t s=device::locationState().silent;if(s==shown)return;shown=s;if(!s)return;
+ notice=s==1?"GPS not responding: it restarts at the next reboot":"GPS not responding: switch off, unplug USB for 30 s";repaintNow();}
 void loop(){
  while(Serial.available()){char c=Serial.read();if((appUsbState||(command.length()==0&&c=='<'))&&appUsbByte(uint8_t(c)))continue;// MeshCore app frame over USB
   if(c=='\n'){
@@ -2313,7 +2320,7 @@ void loop(){
    if(homeMain==mm::MainElevation)key+="/"+String(altitudeTrack.count)+"/"+String(altitudeTrack.head);}
   if(homeMain==mm::MainActivity){auto stats=matter::nodeStats();key+="|a"+String(packetHistory.bucketStart)+"/"+String(packetHistory.at(mm_home::PacketBuckets-1))+"/"+String(stats.live)+"/"+String(lround(stats.bestSnr));}
   if(key!=shown){shown=key;if(key.length())markRadioDirty();}}}}
- static uint32_t serviceAt=0;if(millis()-serviceAt>=(deviceLocked?100u:20u)){serviceAt=millis();device::connectivityLoop();device::locationLoop();device::timeSyncLoop();device::weatherSetOpen(!deviceLocked&&((screen==Screen::Section&&section==10)||(screen==Screen::Home)));/* Plus: the Home header keeps the weather fresh (15 min) */device::weatherLoop();device::stormLoop();device::mapTilesLoop();if(deviceLocked)device::mapTilesCleanup();/* Plus: old OpenTopoMap caches */device::otaLoop(device::wifiConnected(),lastPaint!=0);appLinkLoop();welcomeWifiLoop();}
+ static uint32_t serviceAt=0;if(millis()-serviceAt>=(deviceLocked?100u:20u)){serviceAt=millis();device::connectivityLoop();device::locationLoop();gpsSilentNotice();device::timeSyncLoop();device::weatherSetOpen(!deviceLocked&&((screen==Screen::Section&&section==10)||(screen==Screen::Home)),screen==Screen::Home?device::WEATHER_REFRESH_MS:device::WEATHER_REOPEN_FRESH_MS);/* Plus: the Home header keeps the weather fresh (15 min) */device::weatherLoop();device::stormLoop();device::mapTilesLoop();if(deviceLocked)device::mapTilesCleanup();/* Plus: old OpenTopoMap caches */device::otaLoop(device::wifiConnected(),lastPaint!=0);appLinkLoop();welcomeWifiLoop();}
  static uint32_t timeRevision=0;auto clockRevision=device::timeSyncState().revision;if(clockRevision!=timeRevision){timeRevision=clockRevision;lockScreenDirty=true;if(!deviceLocked){markRadioDirty();}}
  serviceReplay();appVisibilityLoop();radioLinkLoop();toolsTick();weatherAppsTick();pollKeyboard();pollQuickReply();pollLockKey();pollBanners();if(deviceLocked){if(quickReply.active){pollTouch();static uint32_t keepAt=0;/* Plus: the screen stays on while the quick reply is open */if(millis()-keepAt>=1000){keepAt=millis();device::wakeDisplay(15000);}}
  pollTrackball();/* the click unlocks: read it before the locked loop returns */if(!deviceLocked)return;
@@ -2334,7 +2341,7 @@ void loop(){
  {static uint32_t otaKeepAt=0;auto phase=otaPhaseNow;if((phase==device::OtaPhase::Downloading||phase==device::OtaPhase::Verifying||phase==device::OtaPhase::Restarting)&&uint32_t(millis()-otaKeepAt)>=1000){otaKeepAt=millis();device::activity();}}
  // Plus: an app from the Apps menu on screen stays awake and unlocked for AppKeepMs after the last input.
  if(!deviceLocked&&screen==Screen::Section){static uint32_t appKeepAt=0;bool app=false;for(int i=0;i<mm::ApplicationCount;i++)if(mm::Applications[i].section==section)app=true;static uint32_t appKeptAt=0,appInputAt=0;{const uint32_t last=device::powerState().lastActivity;if(last!=appKeptAt)appInputAt=last;}/* activity not from here: real input */
-  if(app&&uint32_t(millis()-appKeepAt)>=1000&&uint32_t(millis()-appInputAt)<mm::AppKeepMs){appKeepAt=millis();device::activity();appKeptAt=device::powerState().lastActivity;}}
+  if(app&&uint32_t(millis()-appKeepAt)>=1000&&uint32_t(millis()-appInputAt)<mm::AppKeepMs){appKeepAt=millis();device::activity();appKeptAt=device::powerState().lastActivity;appKeptActivity=appKeptAt;}}
  if(screen!=Screen::Welcome&&!welcomeWifi&&!(screen==Screen::Section&&section==mm::LinkSection&&device::linkMeta().phase==device::LinkPhase::Loading)&&device::autoLockDue(millis(),device::powerState().lastActivity,deviceLocked,device::powerState().displaySeconds)){enterLockMode();delay(20);return;}
  static unsigned long statusAt=0;
  static time_t shownMinute=0;if(millis()-statusAt>=1000){statusAt=millis();advertTick();{auto c=device::connectivityStatus();static int wifiShown=-1;const int now=c.wifi+2*c.connected;if(now!=wifiShown){wifiShown=now;radioDirty=true;}}/* the status bar Wi-Fi colour */time_t minute=time(nullptr)/60;if(minute!=shownMinute){shownMinute=minute;radioDirty=true;if(!radioFirstPending)radioChangedAt=millis();}}
