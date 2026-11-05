@@ -89,24 +89,27 @@ void bleEnabled(bool enabled,bool boot){
 }
 // Known Wi-Fi networks (newest first, up to KnownMax): every network joined once keeps its password, so it is never
 // asked again and the device reconnects to whichever of them is around. NVS "networks" (JSON).
-constexpr size_t KnownMax=8;struct Known {String ssid,password;};static std::vector<Known> known;static size_t knownCursor=0;
+constexpr size_t KnownMax=8;struct Known {String ssid,password;};static std::vector<Known> known;static size_t knownCursor=0;static uint32_t knownFailed=0;static int knownPicked=-1;/* knownFailed bit i: known[i] failed since the last connection (pickSaved) */
 static bool saveKnown(){DynamicJsonDocument doc(2048);auto list=doc.to<JsonArray>();for(auto &k:known){auto o=list.createNestedObject();o["s"]=k.ssid;o["p"]=k.password;}String encoded;serializeJson(doc,encoded);return preferences.putString("networks",encoded)==encoded.length();}
 static bool saveNetwork(const String &ssid,const String &password){
  if(!known.empty()&&known[0].ssid==ssid&&known[0].password==password)return true;// already the newest: no NVS write
  for(size_t i=0;i<known.size();i++)if(known[i].ssid==ssid){known.erase(known.begin()+i);break;}
- known.insert(known.begin(),Known{ssid,password});if(known.size()>KnownMax)known.resize(KnownMax);knownCursor=0;return saveKnown();}
+ known.insert(known.begin(),Known{ssid,password});if(known.size()>KnownMax)known.resize(KnownMax);knownCursor=0;knownFailed=0;return saveKnown();}
 bool knownNetwork(const String &ssid,String &password){for(auto &k:known)if(k.ssid==ssid){password=k.password;return true;}return false;}
-// Saved network for the next automatic attempt: the strongest known one in the last scan, otherwise the next one in
-// the list (knownCursor moves on after each failed attempt).
+// Saved network for the next automatic attempt: the strongest known one in the last scan that has not failed since
+// the last connection, otherwise the next one in the list (knownCursor moves on after each failed attempt). A saved
+// network that shows up in scans but refuses us (an iPhone hotspot not switched on) no longer blocks the others.
 static void pickSaved(){
- if(known.empty()){savedSSID="";wipe(savedPassword);return;}
- int best=-1,bestRssi=-1000;for(auto &n:state.networks)for(size_t i=0;i<known.size();i++)if(known[i].ssid==n.ssid&&n.rssi>bestRssi){best=int(i);bestRssi=n.rssi;}
- size_t i=best>=0?size_t(best):knownCursor%known.size();savedSSID=known[i].ssid;savedPassword=known[i].password;}
+ if(known.empty()){savedSSID="";wipe(savedPassword);knownPicked=-1;return;}
+ const uint32_t all=known.size()>=32?0xFFFFFFFFu:((1u<<known.size())-1);if((knownFailed&all)==all)knownFailed=0;// every one failed: start over
+ int best=-1,bestRssi=-1000;for(auto &n:state.networks)for(size_t i=0;i<known.size();i++)if(!(knownFailed>>i&1)&&known[i].ssid==n.ssid&&n.rssi>bestRssi){best=int(i);bestRssi=n.rssi;}
+ size_t i=best;if(best<0){i=knownCursor%known.size();for(size_t k=0;k<known.size()&&(knownFailed>>i&1);k++)i=(i+1)%known.size();}
+ knownPicked=int(i);savedSSID=known[i].ssid;savedPassword=known[i].password;}
 std::vector<String> savedNetworks(){std::vector<String> names;for(auto &k:known)names.push_back(k.ssid);return names;}
 // Forget one known network: its password goes; connected to it, Wi-Fi drops (and tries the other saved ones).
 bool forgetNetwork(const String &ssid){
  size_t i=0;while(i<known.size()&&known[i].ssid!=ssid)i++;if(i==known.size())return false;
- wipe(known[i].password);known.erase(known.begin()+i);knownCursor=0;bool ok=saveKnown();
+ wipe(known[i].password);known.erase(known.begin()+i);knownCursor=0;knownFailed=0;bool ok=saveKnown();
  for(auto &n:state.networks)if(n.ssid==ssid)n.saved=false;
  bool current=(state.connected&&state.ssid==ssid)||(state.connecting&&!staged&&savedSSID==ssid);
  pickSaved();state.remembered=!known.empty();if(current){if(known.empty())disconnect();else reconnect();}/* another saved network, if any, takes over */state.message=ok?"Network forgotten":"Forgotten / settings save failed";state.revision++;return ok;}
@@ -160,14 +163,14 @@ void connectivityLoop(){
  }else if(connectionStart.timedOut(millis())){connectionStart.cancel();attemptAt=millis()-WIFI_CONNECT_TIMEOUT_MS;}
  bool connected=state.wifi&&retryPolicy.allowed&&!connectionStart.pending&&freshIP.load()&&WiFi.status()==WL_CONNECTED&&WiFi.localIP()!=IPAddress(0,0,0,0)&&(!staged||wifiMayCommit(staged,freshIP.load(),pendingSSID.c_str(),WiFi.SSID().c_str()));// no SSID String per loop unless staged
  if(connected!=state.connected){state.connected=connected;state.connecting=false;state.message=connected?"Connected":"Disconnected";
-  if(connected){state.ssid=WiFi.SSID();state.address=WiFi.localIP().toString();state.rssi=WiFi.RSSI();
+  if(connected){knownFailed=0;state.ssid=WiFi.SSID();state.address=WiFi.localIP().toString();state.rssi=WiFi.RSSI();
    if(staged){if(saveNetwork(pendingSSID,pendingPassword)){savedSSID=pendingSSID;savedPassword=pendingPassword;state.remembered=true;}else state.message="Connected / settings save failed";staged=false;wipe(pendingPassword);pendingSSID="";}
    configTzTime(MM_TZ,"pool.ntp.org","time.google.com");
   }else{state.address="";retryAt=millis();}state.revision++;
  }
  int reason=disconnectReason.load();bool authentication=reason==WIFI_REASON_AUTH_FAIL||reason==WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT||reason==WIFI_REASON_HANDSHAKE_TIMEOUT;
  bool failed=state.connecting&&((uint32_t(millis()-attemptAt)>=500&&(authentication||WiFi.status()==WL_CONNECT_FAILED))||uint32_t(millis()-attemptAt)>=WIFI_CONNECT_TIMEOUT_MS);
- if(failed){connectionStart.cancel();state.connecting=false;state.message=authentication?"Authentication failed / check password":reason==WIFI_REASON_NO_AP_FOUND?"Network not found":"Connection failed / retry";if(staged){retryPolicy.disconnect();staged=false;wipe(pendingPassword);pendingSSID="";}else knownCursor++;retryAt=millis();state.revision++;WiFi.disconnect(false,false);}
+ if(failed){connectionStart.cancel();state.connecting=false;state.message=authentication?"Authentication failed / check password":reason==WIFI_REASON_NO_AP_FOUND?"Network not found":"Connection failed / retry";if(staged){retryPolicy.disconnect();staged=false;wipe(pendingPassword);pendingSSID="";}else{if(knownPicked>=0&&knownPicked<32)knownFailed|=1u<<knownPicked;knownCursor++;pickSaved();}retryAt=millis();state.revision++;WiFi.disconnect(false,false);}
  if(retryPolicy.due(state.wifi,state.connected,state.connecting,state.scanning,millis(),retryAt))beginConnection();
  if(state.scanning){int count=WiFi.scanComplete();
   if(count>=0){

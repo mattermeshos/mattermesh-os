@@ -3,7 +3,7 @@
 // Settings > Companion link (41) pairs another companion over Bluetooth and switches the T-Deck to its radio; Companion
 // settings (42) is its minimal management.
 namespace mm {
-constexpr int RadioLinkSection=41,RadioLinkSettingsSection=42;
+constexpr int RadioLinkSection=41,RadioLinkSettingsSection=42,WebAppSection=47;
 // Bluetooth companion: the status card on top; paired: the "Use companion radio" switch and three actions;
 // not paired: the PIN card, SEARCH and up to three companions found.
 constexpr Rect RadioLinkStatus={Margin,Top+2,W-2*Margin,40};
@@ -16,5 +16,8 @@ inline Rect radioLinkPeerRow(int i){return {Margin,Top+82+i*34,W-2*Margin,30};}
 // Companion settings: name, path bytes (three chips), region, ADVERT; read-only facts below.
 constexpr Rect RadioLinkName={Margin,Top+4,W-2*Margin,30},RadioLinkRegion={Margin,Top+72,W-2*Margin-96,30},RadioLinkAdvert={W-Margin-90,Top+72,90,30};
 constexpr int RadioLinkPathY=Top+38,RadioLinkFactsY=Top+110;
+// MatterMesh Web (47): the switch, the address / code card, CLOSE SESSION, the hint.
+constexpr Rect WebAppToggle={Margin,Top+4,W-2*Margin,34},WebAppCard={Margin,Top+44,W-2*Margin,76},WebAppClose={Margin,Top+126,W-2*Margin,30};
+constexpr int WebAppHintY=Top+162;
 inline Rect radioLinkPathChip(int i){int x0=Margin+96,w=(W-Margin-x0-2*Gap)/3;return {x0+i*(w+Gap),RadioLinkPathY,w,30};}
 }

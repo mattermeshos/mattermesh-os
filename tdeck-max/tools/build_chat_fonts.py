@@ -1,21 +1,22 @@
 """Pack native 1-bit chat fonts (ASCII and Latin-1: à è é ì ò ù ...) plus a Cyrillic table (U+0400..U+0491, Russian
-and Ukrainian); keep the original splash/fonts untouched.
+and Ukrainian) and a Greek table (U+0391..U+03C9, names like "MΔRCO"); keep the original splash/fonts untouched.
 
 GFXfont cannot address code points above 255, so Cyrillic is a second font (TextCyr) whose code 32 is U+0400:
-Components draws cp with that font as code cp-0x400+32."""
+Components draws cp with that font as code cp-0x400+32. Greek (TextGrk) works the same way from U+0391."""
 from pathlib import Path
 import math
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 CYR_FIRST, CYR_LAST = 0x400, 0x491
+GRK_FIRST, GRK_LAST = 0x391, 0x3C9
 
 
 def pack(font, codes):
     data, glyphs = [], []
     for code in codes:
         char = chr(code)
-        if 127 <= code < 160 or code == 0xAD or 0x483 <= code <= 0x489:  # controls, soft hyphen, combining marks
+        if 127 <= code < 160 or code == 0xAD or 0x483 <= code <= 0x489 or code == 0x3A2:  # controls, soft hyphen, combining marks, unassigned U+03A2
             glyphs.append((len(data), 0, 0, 0, 0, 0))
             continue
         if code == 0xA0:  # no-break space draws as a space
@@ -36,6 +37,7 @@ for name, size, line_height in [('body', 13, 15), ('meta', 11, 13), ('title', 16
     font = ImageFont.truetype(str(ROOT / 'assets/fonts/LiberationSans-Bold.ttf'), size)
     data, packed = pack(font, range(32, 256))
     cyr_data, cyr_packed = pack(font, range(CYR_FIRST, CYR_LAST + 1))
+    grk_data, grk_packed = pack(font, range(GRK_FIRST, GRK_LAST + 1))
     (ROOT / f'src/ui/chat_{name}_font.h').write_text(
         '#pragma once\n#include <Adafruit_GFX.h>\n'
         f'namespace mm_chat_{name} {{\n'
@@ -47,4 +49,9 @@ for name, size, line_height in [('body', 13, 15), ('meta', 11, 13), ('title', 16
         'const uint8_t cyrBitmap[] PROGMEM={' + ','.join(map(str, cyr_data)) + '};\n'
         'const GFXglyph cyrGlyphs[] PROGMEM={' + cyr_packed + '};\n'
         f'const GFXfont TextCyr PROGMEM={{(uint8_t*)cyrBitmap,(GFXglyph*)cyrGlyphs,32,{32 + CYR_LAST - CYR_FIRST},'
+        + str(line_height) + '};\n'
+        '// Greek U+0391..U+03C9: code 32 is U+0391 (see tools/build_chat_fonts.py).\n'
+        'const uint8_t grkBitmap[] PROGMEM={' + ','.join(map(str, grk_data)) + '};\n'
+        'const GFXglyph grkGlyphs[] PROGMEM={' + grk_packed + '};\n'
+        f'const GFXfont TextGrk PROGMEM={{(uint8_t*)grkBitmap,(GFXglyph*)grkGlyphs,32,{32 + GRK_LAST - GRK_FIRST},'
         + str(line_height) + '};\n}\n')

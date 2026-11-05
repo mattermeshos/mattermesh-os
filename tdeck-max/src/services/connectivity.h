@@ -2,6 +2,9 @@
 #include <Arduino.h>
 #include <vector>
 namespace device {
+// Network work (weather, map tiles, OTA): a TLS handshake can hold core 0 for seconds without yielding; while any
+// job runs the core-0 idle task leaves the task watchdog (ported from the Plus, WDT_LAST core0=matter-weather).
+void networkJobBegin();void networkJobEnd();bool networkJobActive();
 struct Network {String ssid;int rssi=0;bool protectedNetwork=true,saved=false;};
 struct AccessPoint {uint8_t bssid[6]={};int rssi=0;};
 struct ConnectivityStatus {bool reconnectPaused=false,wifi=true,connected=false,connecting=false,scanning=false,ble=true,bleReady=false,bleClient=false,remembered=false;int rssi=0;String ssid,address,message;uint32_t revision=0;size_t networkCount=0;};

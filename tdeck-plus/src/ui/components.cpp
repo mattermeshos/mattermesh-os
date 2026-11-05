@@ -3,6 +3,8 @@
 #include "weather_icons.h"
 #include "aa_icons.h"
 #include "emoji_color.h"
+#include "text_fold.h"
+#include "emoji_flags.h"
 #include "packed.h"
 #include <cstring>
 #include <esp_heap_caps.h>
@@ -50,7 +52,12 @@ static std::string displayText(const std::string &input){
  static const char *from[]={"’","‘","“","”","„","…","–","—"};
  static const char *to[]={"'","'","\"","\"","\"","...","-","-"};
  static_assert(sizeof(from)==sizeof(to),"displayText map");
- for(size_t i=0;i<sizeof(from)/sizeof(from[0]);i++){size_t at=0;while((at=value.find(from[i],at))!=std::string::npos){value.replace(at,std::string(from[i]).size(),to[i]);at++;}}return value;
+ for(size_t i=0;i<sizeof(from)/sizeof(from[0]);i++){size_t at=0;while((at=value.find(from[i],at))!=std::string::npos){value.replace(at,std::string(from[i]).size(),to[i]);at++;}}
+ // Decorated letters and symbols the faces lack ("⟦MΔRȻØ⟧", "𝐌𝐀𝐑𝐂𝐎", "ᴍᴀʀᴄᴏ"): the nearest letter instead of a box (text_fold.h).
+ std::string folded;bool changed=false;uint32_t cp;for(size_t at=0;at<value.size();){size_t next=utf8Next(value,at,cp);uint32_t to=cp>=0x100?mm_fold::fold(cp):cp;
+  if(to!=cp){changed=true;if(to<0x80)folded+=char(to);else if(to<0x800){folded+=char(0xC0|(to>>6));folded+=char(0x80|(to&0x3F));}else{folded+=char(0xE0|(to>>12));folded+=char(0x80|((to>>6)&0x3F));folded+=char(0x80|(to&0x3F));}}
+  else folded.append(value,at,next-at);at=next;}
+ return changed?folded:value;
 }
 #include "aa_fonts.h"
 static bool chatLarge=true;
@@ -70,15 +77,31 @@ static const GFXfont *cyrillicFont(Font f){switch(f){
  case Font::ChatBody:return &mm_aa::ChatBodyCyr;case Font::ChatMeta:return &mm_aa::ChatMetaCyr;case Font::ChatTitle:return &mm_aa::ChatTitleCyr;
  case Font::MenuLabel:return &mm_aa::MenuLabelCyr;case Font::NavLabel:return &mm_aa::NavLabelCyr;case Font::ChatText:return chatLarge?&mm_aa::ChatTextCyr:&mm_aa::ChatTextSmallCyr;
  default:return nullptr;}}
-static const GFXfont *cyrillicFor(uint32_t cp,Font f){return cp>=CyrFirst&&cp<=CyrLast?cyrillicFont(f):nullptr;}
+// Greek U+0391..U+03C9 (names like "MΔRCO", Ω, π): <Face>Grk tables, code 32 = U+0391.
+constexpr uint32_t GrkFirst=0x391,GrkLast=0x3C9;
+static const GFXfont *greekFont(Font f){switch(f){
+ case Font::Small:case Font::LockText:return &mm_aa::SmallGrk;case Font::Body:return &mm_aa::BodyGrk;case Font::Bold:return &mm_aa::BoldGrk;
+ case Font::Title:return &mm_aa::TitleGrk;case Font::Brand:return &mm_aa::BrandGrk;case Font::Tiny:return &mm_aa::TinyGrk;
+ case Font::ChatBody:return &mm_aa::ChatBodyGrk;case Font::ChatMeta:return &mm_aa::ChatMetaGrk;case Font::ChatTitle:return &mm_aa::ChatTitleGrk;
+ case Font::MenuLabel:return &mm_aa::MenuLabelGrk;case Font::NavLabel:return &mm_aa::NavLabelGrk;case Font::ChatText:return chatLarge?&mm_aa::ChatTextGrk:&mm_aa::ChatTextSmallGrk;
+ default:return nullptr;}}
+static bool scriptCodepoint(uint32_t cp){return (cp>=CyrFirst&&cp<=CyrLast)||(cp>=GrkFirst&&cp<=GrkLast);}
+// The Cyrillic or Greek face for cp (null: neither, or a clock face); its code 32 is the script's first code point.
+static const GFXfont *cyrillicFor(uint32_t cp,Font f,uint32_t &base){if(cp>=CyrFirst&&cp<=CyrLast){base=CyrFirst;return cyrillicFont(f);}if(cp>=GrkFirst&&cp<=GrkLast){base=GrkFirst;return greekFont(f);}return nullptr;}
 // Constant tables (built once); only ChatText depends on the runtime text size.
 int Components::ascent(Font f){static constexpr int a[]={10,10,10,12,17,28,7,48,11,10,9,13,30,7,47,9};return f==Font::ChatText?(((chatLarge?12:11))):a[int(f)];}
 int Components::lineHeight(Font f){static constexpr int a[]={11,13,13,16,21,34,9,64,17,15,13,20,44,11,64,13};return f==Font::ChatText?(((chatLarge?17:16))):a[int(f)];}
+static int emojiSize(Font f);static bool emojiDraw(FastCanvas16 *fast,int index,int side,int x,int y,int size);// defined below
 // Regional indicators (U+1F1E6..U+1F1FF) come in pairs as flags; one text unit keeps the pair together.
 static bool regionalIndicator(uint32_t cp){return cp>=0x1f1e6&&cp<=0x1f1ff;}
 static size_t unitNext(const std::string &s,size_t at,uint32_t &cp){size_t next=utf8Next(s,at,cp);if(regionalIndicator(cp)){uint32_t second;size_t after=utf8Next(s,next,second);if(regionalIndicator(second))return after;}return next;}
-int Components::flagAdvance(Font f,bool pair){return (pair?2:1)*unitAdvance('A',Font::Tiny)+7;}
-void Components::flag(int x,int y,Font f,uint32_t first,uint32_t second,uint16_t color){bool pair=regionalIndicator(second);int h=std::min(14,lineHeight(f)-1),w=flagAdvance(f,pair)-2,top=y+(lineHeight(f)-1-h)/2;g.drawRoundRect(x,top,w,h,3,color);g.setFont(font(Font::Tiny));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);g.setCursor(x+3,top+(h+ascent(Font::Tiny))/2-1);g.write(uint8_t('A'+first-0x1f1e6));if(pair)g.write(uint8_t('A'+second-0x1f1e6));g.setFont(font(f));}
+// A pair is a colour flag (emoji_flags.h) as wide as an emoji; a country without a sprite, or a lone indicator, is a
+// rounded badge with the letters.
+int Components::flagAdvance(Font f,bool pair){return pair?std::max(emojiSize(f)+2,2*unitAdvance('A',Font::Tiny)+7):unitAdvance('A',Font::Tiny)+7;}
+static int flagIndex(uint32_t first,uint32_t second){int code=int(first-0x1f1e6)*26+int(second-0x1f1e6),lo=0,hi=mm_emoji_flags::Count;
+ while(lo<hi){int mid=(lo+hi)/2;if(mm_emoji_flags::Table[mid].code<code)lo=mid+1;else hi=mid;}return lo<mm_emoji_flags::Count&&mm_emoji_flags::Table[lo].code==code?mm_emoji_color::ChatBigCount+mm_emoji_flags::Table[lo].index:-1;}
+void Components::flag(int x,int y,Font f,uint32_t first,uint32_t second,uint16_t color){bool pair=regionalIndicator(second);
+ if(pair){int e=emojiSize(f);if(emojiDraw(fast,flagIndex(first,second),mm_emoji_color::ChatBigSize,x+(flagAdvance(f,true)-2-e)/2,y+(lineHeight(f)-e)/2,e))return;}int h=std::min(14,lineHeight(f)-1),w=flagAdvance(f,pair)-2,top=y+(lineHeight(f)-1-h)/2;g.drawRoundRect(x,top,w,h,3,color);g.setFont(font(Font::Tiny));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);g.setCursor(x+3,top+(h+ascent(Font::Tiny))/2-1);g.write(uint8_t('A'+first-0x1f1e6));if(pair)g.write(uint8_t('A'+second-0x1f1e6));g.setFont(font(f));}
 // Colour emoji (Noto Color Emoji): the 14 px set for text, the 24 px set for the picker; other sizes scale the nearest set.
 static int emojiColorIndex(const mm_emoji_color::Entry *table,int count,uint32_t cp){int lo=0,hi=count;while(lo<hi){int mid=(lo+hi)/2;if(table[mid].code<cp)lo=mid+1;else hi=mid;}return lo<count&&table[lo].code==cp?table[lo].index:-1;}
 // Emoji smaller than their sprite set (16 px names and previews) are averaged down once per emoji and size into PSRAM
@@ -91,8 +114,9 @@ static const uint8_t *emojiSprite(int side,int index){
  if(!slots){slots=static_cast<uint8_t*>(heap_caps_malloc(Slots*SlotBytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));if(!slots)return nullptr;for(auto &k:keys)k=-1;}
  const bool picker=side==PickerSize;const int32_t key=index*2+picker;const int slot=int((uint32_t(key)*2654435761u)>>26);
  uint8_t *out=slots+slot*SlotBytes;if(keys[slot]==key)return out;
- const uint8_t *data=picker?PickerData:ChatBigData;const uint32_t *offset=picker?PickerOffset:ChatBigOffset;
- keys[slot]=-1;if(!inflateRaw(data+offset[index],offset[index+1]-offset[index],out,size_t(side)*side*5/2))return nullptr;
+ const uint8_t *data=picker?PickerData:ChatBigData;const uint32_t *offset=picker?PickerOffset:ChatBigOffset;int at=index;
+ if(!picker&&index>=ChatBigCount){data=mm_emoji_flags::Data;offset=mm_emoji_flags::Offset;at=index-ChatBigCount;}// flags follow the chat set (emoji_flags.h)
+ keys[slot]=-1;if(!inflateRaw(data+offset[at],offset[at+1]-offset[at],out,size_t(side)*side*5/2))return nullptr;
  keys[slot]=key;return out;}
 struct SmallEmoji {uint16_t key;uint8_t size;uint16_t *rgb;uint8_t *alpha;};
 static const SmallEmoji *smallEmoji(int side,int index,int size){
@@ -116,7 +140,10 @@ static bool emojiColor(FastCanvas16 *fast,uint32_t cp,int x,int y,int size){
  int index=-1,side=0;
  if(size>=25&&(index=emojiColorIndex(PickerTable,PickerCount,cp))>=0)side=PickerSize;
  else if((index=emojiColorIndex(ChatBigTable,ChatBigCount,cp))>=0)side=ChatBigSize;
- if(index<0)return false;
+ return emojiDraw(fast,index,side,x,y,size);}
+// A sprite of a set (index past ChatBigCount: a flag) at any size.
+static bool emojiDraw(FastCanvas16 *fast,int index,int side,int x,int y,int size){
+ if(!fast||index<0)return false;
  if(size<side)if(const SmallEmoji *small=smallEmoji(side,index,size)){fast->drawRGBA(x,y,small->rgb,small->alpha,size,size);return true;}
  const uint8_t *sprite=emojiSprite(side,index);if(!sprite)return false;
  const uint16_t *rgb=reinterpret_cast<const uint16_t*>(sprite);const uint8_t *alpha=sprite+size_t(side)*side*2;
@@ -132,10 +159,10 @@ static int emojiOverride=0;// chat bubbles on the Plus draw bigger emoji (20 px 
 void Components::inlineEmoji(int px){emojiOverride=px;}
 static int emojiSize(Font f){if(emojiOverride)return emojiOverride;return (std::min(16,Components::lineHeight(f)));}
 // A unit text() hands to emoji(): not a font glyph, not a degree sign or an invisible joiner; flags are drawn apart.
-static bool emojiUnit(uint32_t cp,const GFXfont *face){return !invisibleCodepoint(cp)&&cp!=0xb0&&cp!=0x2070&&!(cp>=face->first&&cp<=face->last)&&!(cp>=CyrFirst&&cp<=CyrLast)&&!regionalIndicator(cp);}
-bool Components::hasEmoji(const std::string &s,Font f){auto value=displayText(s);auto face=font(f);uint32_t cp;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(emojiUnit(cp,face))return true;at=next;}return false;}
+static bool emojiUnit(uint32_t cp,const GFXfont *face){return !invisibleCodepoint(cp)&&cp!=0xb0&&cp!=0x2070&&!(cp>=face->first&&cp<=face->last)&&!scriptCodepoint(cp)&&!regionalIndicator(cp);}
+bool Components::hasEmoji(const std::string &s,Font f){auto value=displayText(s);auto face=font(f);uint32_t cp;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(emojiUnit(cp,face)||(regionalIndicator(cp)&&next-at>4))return true;at=next;}return false;}/* a flag pair counts: it is drawn as a colour emoji */
 int Components::emojiOnlyCount(const std::string &s,Font f){auto value=displayText(s);auto face=font(f);uint32_t cp;int n=0;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(emojiUnit(cp,face))n++;else if(cp!=' '&&!invisibleCodepoint(cp))return 0;at=next;}return n<=3?n:0;}
-int Components::unitAdvance(uint32_t cp,Font f){if(invisibleCodepoint(cp))return 0;if(cp==0xb0||cp==0x2070)return degreeRadius(f)*2+3;auto face=font(f);if(cp>=face->first&&cp<=face->last)return face->glyph[cp-face->first].xAdvance;if(auto cyr=cyrillicFor(cp,f))return cyr->glyph[cp-CyrFirst+32-cyr->first].xAdvance;return emojiSize(f)+2;}
+int Components::unitAdvance(uint32_t cp,Font f){if(invisibleCodepoint(cp))return 0;if(cp==0xb0||cp==0x2070)return degreeRadius(f)*2+3;auto face=font(f);if(cp>=face->first&&cp<=face->last)return face->glyph[cp-face->first].xAdvance;uint32_t base=0;if(auto cyr=cyrillicFor(cp,f,base))return cyr->glyph[cp-base+32-cyr->first].xAdvance;return emojiSize(f)+2;}
 std::string Components::display(const std::string &s){return displayText(s);}
 int Components::width(const std::string &s,Font f){return rawWidth(displayText(s),f);}
 // Width of text already passed through displayText(): fit/lines/inputTail measure prefixes many times and must not repeat that pass.
@@ -173,7 +200,7 @@ std::string Components::inputTail(const std::string &s,int w,Font f){
   if(width<=w)return value.substr(at);}
  return std::string();
 }
-void Components::drawDisplayed(int x,int y,const std::string &value,Font f,uint16_t color){g.setFont(font(f));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);uint32_t cp;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(regionalIndicator(cp)){uint32_t second=0;if(next-at>4)utf8Next(value,at+4,second);flag(x,y,f,cp,second,color);x+=flagAdvance(f,next-at>4);at=next;continue;}at=next;if(invisibleCodepoint(cp))continue;auto face=font(f);if(cp==0xb0||cp==0x2070){int r=degreeRadius(f);g.drawCircle(x+r,y+r,r,color);if(r>=4)g.drawCircle(x+r,y+r,r-1,color);}else if(cp>=face->first&&cp<=face->last){g.setCursor(x,y+ascent(f));g.write(uint8_t(cp));}else if(auto cyr=cyrillicFor(cp,f)){g.setFont(cyr);g.setCursor(x,y+ascent(f));g.write(uint8_t(cp-CyrFirst+32));g.setFont(face);}else{int e=emojiSize(f);emoji(cp,x,y+(lineHeight(f)-e)/2,e,color);}x+=unitAdvance(cp,f);}}
+void Components::drawDisplayed(int x,int y,const std::string &value,Font f,uint16_t color){g.setFont(font(f));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);uint32_t cp;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(regionalIndicator(cp)){uint32_t second=0;if(next-at>4)utf8Next(value,at+4,second);flag(x,y,f,cp,second,color);x+=flagAdvance(f,next-at>4);at=next;continue;}at=next;if(invisibleCodepoint(cp))continue;auto face=font(f);if(cp==0xb0||cp==0x2070){int r=degreeRadius(f);g.drawCircle(x+r,y+r,r,color);if(r>=4)g.drawCircle(x+r,y+r,r-1,color);}else if(cp>=face->first&&cp<=face->last){g.setCursor(x,y+ascent(f));g.write(uint8_t(cp));}else if(uint32_t base=0;auto cyr=cyrillicFor(cp,f,base)){g.setFont(cyr);g.setCursor(x,y+ascent(f));g.write(uint8_t(cp-base+32));g.setFont(face);}else{int e=emojiSize(f);emoji(cp,x,y+(lineHeight(f)-e)/2,e,color);}x+=unitAdvance(cp,f);}}
 void Components::text(int x,int y,const std::string &s,Font f,uint16_t color,int maxWidth){auto value=displayText(s);if(maxWidth)value=fitDisplayed(value,maxWidth,f);drawDisplayed(x,y,value,f,color);}
 void Components::centered(int x,int y,int w,const std::string &s,Font f,uint16_t color){auto v=fitDisplayed(displayText(s),w,f);drawDisplayed(x+(w-rawWidth(v,f))/2,y,v,f,color);}
 std::vector<std::string> Components::lines(const std::string &s,int maxW,Font f){
@@ -200,6 +227,21 @@ void Components::tab(Rect r,const std::string &label,bool selected,bool open){{t
 std::vector<std::string> Components::clampLines(const std::string &s,int w,Font f,int maxRows,const char *ellipsis){auto out=lines(s,w,f);if(maxRows>0&&int(out.size())>maxRows){out.resize(maxRows);out.back()=fit(out.back()+ellipsis,w,f);}return out;}
 // Anti-aliased Material Design Icons (ui/aa_icons.h) at 12, 16, 24 and 32 px, drawn on the LCD frame only.
 void Components::icon(Icon id,int x,int y,int size,uint16_t color){
+ if(id==Icon::Desktop){// a browser window (bar with three dots) holding "</>"
+  int t=size>=24?2:1,wx=x+1,wy=y+2,ww=size-2,wh=size-4,bar=wy+(size>=24?6:4);
+  for(int i=0;i<t;i++)g.drawRoundRect(wx+i,wy+i,ww-2*i,wh-2*i,3,color);
+  g.fillRect(wx,bar,ww,t,color);
+  for(int i=0;i<3;i++)g.fillRect(wx+ww-t-3-i*(t+2)-t,wy+t+1,t+(t==1),t+(t==1),color);
+  if(size==24){// "</>" drawn pixel by pixel, mirrored around the window centre (x+11.5), rows y+11..y+17
+   static const int8_t L[7]={7,6,5,4,5,6,7},S0[7]={13,12,12,11,11,10,10},SW[7]={1,2,1,2,1,2,1};
+   for(int r=0;r<7;r++){int yy=y+11+r;g.fillRect(x+L[r],yy,2,1,color);g.fillRect(x+22-L[r],yy,2,1,color);g.fillRect(x+S0[r],yy,SW[r],1,color);}
+   return;}
+  int cy=bar+t+(wy+wh-t-bar-t)/2,hh=size>=24?4:2,cx=x+size/2,gap=size>=24?5:3,arm=size>=24?3:2;
+  for(int k=0;k<t;k++){
+   g.drawLine(cx-gap+k,cy-hh,cx-gap-arm+k,cy,color);g.drawLine(cx-gap-arm+k,cy,cx-gap+k,cy+hh,color);// <
+   g.drawLine(cx+gap-k,cy-hh,cx+gap+arm-k,cy,color);g.drawLine(cx+gap+arm-k,cy,cx+gap-k,cy+hh,color);}// >
+  g.drawLine(cx+1,cy-hh,cx-1,cy+hh,color);if(t>1)g.drawLine(cx+2,cy-hh,cx,cy+hh,color);// /
+  return;}
  if(fast&&(size==12||size==16||size==24||size==32))fast->drawAlpha(x,y,mm_aa_icons::sprite(size,int(id)),size,size,color);
 }
 void Components::packIcon(PackIcon id,int x,int y,int size,uint16_t color){
@@ -235,6 +277,8 @@ void Components::statusBar(const Status &s){
  // Red: on but not connected (Wi-Fi without a network, a companion not reached). Connected: the normal status ink.
  const bool waiting[]={false,false,!s.wifiLinked,s.companion&&!s.companionLinked};
  for(int i=0;i<4;i++)if(active[i])icon(indicators[i],first+visible++*StatusIconStep,StatusIconY,IconStatus,waiting[i]?rgb(0xE0,0x45,0x3A):StatusFg);// MDI sprites share one grid
+ if(s.web){const char *label="WEB";int pw=width(label,Font::ChatMeta)+8,px=(count?first:layout.iconsRight)-pw-4;// MatterMesh Web serving: a pill left of the icons
+  fillRound(px,StatusIconY+1,pw,StatusH-6,4,StatusFg);text(px+4,StatusTextY+1,label,Font::ChatMeta,StatusBg);}
  text(layout.percentX,StatusTextY,layout.percent,Font::ChatBody,StatusFg);
  // iOS-style battery: rounded body, soft outline, level filled in the theme accent, rounded terminal; bolt when charging.
  {int x=layout.batteryX,y=StatusBatteryY,bw=StatusBatteryW-3,bh=StatusBatteryH;int level=std::max(0,std::min(100,s.battery));

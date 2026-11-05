@@ -1,4 +1,5 @@
 #include "ota.h"
+#include "connectivity.h"
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -119,7 +120,7 @@ static void checkWorker(void*){
  }
  // Not reached: an offer found earlier stays (it is still signed and valid); otherwise say what went wrong.
  if(!reached){if(hadOffer)setPhase(OtaPhase::Available,offerMessage);else setPhase(OtaPhase::Error,answered?"Bad answer from the update server":"Update server unreachable");}
- xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);vTaskDelete(nullptr);
+ xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);networkJobEnd();vTaskDelete(nullptr);
 }
 
 // Streams the image into the idle slot, resuming with a Range request when the connection drops.
@@ -161,15 +162,15 @@ static void installWorker(void*){
   setPhase(OtaPhase::Restarting,"Installed "+version+" / restarting");Serial.printf("OTA_INSTALLED version=%s code=%ld\n",version.c_str(),long(code));
   // otaLoop() restarts in 2.5 s from the main task, between its own SD writes, after closing the card (the SD is
   // written by the main task; the network workers only fetch). busy stays set.
-  xSemaphoreTake(mutex,portMAX_DELAY);restartAt=millis()+2500;if(!restartAt)restartAt=1;xSemaphoreGive(mutex);vTaskDelete(nullptr);
+  xSemaphoreTake(mutex,portMAX_DELAY);restartAt=millis()+2500;if(!restartAt)restartAt=1;xSemaphoreGive(mutex);networkJobEnd();vTaskDelete(nullptr);
  }
  Serial.printf("OTA_FAILED %s\n",problem.c_str());setPhase(OtaPhase::Error,problem);
- xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);vTaskDelete(nullptr);
+ xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);networkJobEnd();vTaskDelete(nullptr);
 }
 
 static bool spawn(TaskFunction_t worker,const char *name,uint32_t stack){
  xSemaphoreTake(mutex,portMAX_DELAY);if(busy){xSemaphoreGive(mutex);return false;}busy=true;xSemaphoreGive(mutex);
- if(xTaskCreatePinnedToCore(worker,name,stack,nullptr,1,nullptr,0)==pdPASS)return true;
+ networkJobBegin();if(xTaskCreatePinnedToCore(worker,name,stack,nullptr,1,nullptr,0)==pdPASS)return true;networkJobEnd();
  xSemaphoreTake(mutex,portMAX_DELAY);busy=false;xSemaphoreGive(mutex);setPhase(OtaPhase::Error,"Update worker unavailable");return false;
 }
 

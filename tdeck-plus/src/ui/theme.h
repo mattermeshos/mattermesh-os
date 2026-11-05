@@ -3,7 +3,7 @@
 #include <algorithm>
 namespace mm {
 // T-Deck Plus ST7789 LCD, landscape 320x240, colour. No vibration motor and no on-device dictation.
-constexpr int W=320,H=240,MaxSection=43;// 43: chat Path (dm_path_layout.h)
+constexpr int W=320,H=240,MaxSection=47;// 47: MatterMesh Web (radio_link_layout.h); 43: chat Path (dm_path_layout.h)
 
 // T-Deck Plus colour LCD: the inks are runtime values so the themes (palette + illustrations) share every component.
 // Defaults are "Alpine Light": warm paper background, night-blue ink, alpine green accent, sage / glacier surfaces.
@@ -70,10 +70,10 @@ constexpr Rect EmojiPopup=(Rect{Margin,ComposerY-162,W-2*Margin,160});
 
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
 // T-Deck Plus: no Antenna row (one LoRa antenna), Wallpaper becomes Themes.
-constexpr int SettingsCount=20,SettingsRowH=36;
+constexpr int SettingsCount=21,SettingsRowH=36;// MatterMesh Web after GPS
 // Six groups, each label above its first row (navigation_catalog.h SettingsItems is in this order).
 constexpr int SettingsGroupCount=6;
-inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,2,5,10,13,16};
+inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,2,6,11,14,17};
 inline constexpr const char *SettingsGroupNames[SettingsGroupCount]={"RADIO & MESH","CONNECTIONS","DISPLAY","KEYBOARD & SOUND","DEVICE","SYSTEM"};
 // First-boot welcome (Plus landscape): BACK / NEXT at the bottom, two or three choice cards, preset rows.
 constexpr Rect WelcomeBack={Margin,H-38,92,30},WelcomeNext={W-Margin-128,H-38,128,30};

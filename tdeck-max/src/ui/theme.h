@@ -9,7 +9,7 @@ namespace mm {
 #ifndef MM_HEIGHT
 #define MM_HEIGHT 320
 #endif
-constexpr int W=MM_WIDTH,H=MM_HEIGHT,MaxSection=43;// 43: chat Path (dm_path_layout.h)
+constexpr int W=MM_WIDTH,H=MM_HEIGHT,MaxSection=47;// 47: MatterMesh Web (radio_link_layout.h); 43: chat Path (dm_path_layout.h)
 constexpr uint16_t BG=0,FG=1; // GFXcanvas1 ink semantics; white=0, black=1.
 constexpr int Margin=8,Gap=6,Radius=5,StatusH=18,HeaderH=32,FooterH=18;
 constexpr int Top=StatusH+HeaderH,Bottom=H-Margin,FooterY=H-FooterH;
@@ -56,10 +56,10 @@ constexpr Rect EmojiPopup={Margin,ComposerY-198,W-2*Margin,196};
 constexpr Rect emojiTabRect(int index){return {EmojiPopup.x+4+index*36,EmojiPopup.y+4,34,26};}
 constexpr Rect emojiChoiceRect(int index){return {EmojiPopup.x+4+(index%6)*36,EmojiPopup.y+34+(index/6)*36,34,34};}
 constexpr Rect ChatMenu={W-32,StatusH,32,HeaderH};
-constexpr int SettingsCount=20,SettingsRowH=36;
+constexpr int SettingsCount=21,SettingsRowH=36;
 // Six groups, each label above its first row (navigation_catalog.h SettingsItems is in this order).
 constexpr int SettingsGroupCount=6;
-inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,3,6,10,13,16};
+inline constexpr int SettingsGroupFirst[SettingsGroupCount]={0,3,7,11,14,17};// MatterMesh Web after GPS
 inline constexpr const char *SettingsGroupNames[SettingsGroupCount]={"RADIO & MESH","CONNECTIONS","DISPLAY","KEYBOARD & SOUND","DEVICE","SYSTEM"};
 constexpr int SettingsGpsIndex=5;// CONNECTIONS
 // Settings scroll by whole rows: scroll = first visible row, its group label above it

@@ -15,11 +15,10 @@ inline size_t utf8Next(const std::string &s,size_t at,uint32_t &cp){
  if((n==2&&cp<128)||(n==3&&cp<2048)||(n==4&&cp<65536)||cp>0x10ffff||(cp>=0xd800&&cp<=0xdfff)){cp='?';return at+1;}return at+n;
 }
 inline bool invisibleCodepoint(uint32_t cp){return cp==0x200d||cp==0xfe0e||cp==0xfe0f||(cp>=0x1f3fb&&cp<=0x1f3ff);}
-// Regional-indicator flags currently render as separate oversized letter glyphs.
-// Omit them only from sender labels; protocol, journal and message bodies stay intact.
+// Sender labels: trimmed; flags stay (drawn in colour, emoji_flags.h).
 inline std::string senderDisplayName(const std::string &value){
  std::string out;uint32_t cp;
- for(size_t at=0;at<value.size();){size_t next=utf8Next(value,at,cp);if(cp<0x1f1e6||cp>0x1f1ff)out+=value.substr(at,next-at);at=next;}
+ for(size_t at=0;at<value.size();){size_t next=utf8Next(value,at,cp);out+=value.substr(at,next-at);at=next;}/* flags stay: drawn in colour (emoji_flags.h) */
  while(!out.empty()&&out.back()==' ')out.pop_back();while(!out.empty()&&out.front()==' ')out.erase(out.begin());return out;
 }
 inline std::string mentionDisplayText(const std::string &value){

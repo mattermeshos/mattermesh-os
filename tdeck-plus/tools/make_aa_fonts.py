@@ -4,7 +4,8 @@ Each mm::Font face of the e-paper UI gets an Inter face whose cap height equals 
 its layout. Glyph bitmaps hold one 4-bit coverage value per pixel (two pixels per byte, row-major, high nibble
 first); ui/fast_canvas.h blends them over the frame. Text faces cover 32..255 (ASCII and Latin-1: à è é ì ò ù ...),
 clock faces 32..58. Text faces also get a Cyrillic table (<Face>Cyr, U+0400..U+0491 for Russian / Ukrainian): GFXfont
-cannot address code points above 255, so its code 32 is U+0400 and Components draws cp as cp-0x400+32.
+cannot address code points above 255, so its code 32 is U+0400 and Components draws cp as cp-0x400+32. A Greek table
+(<Face>Grk, U+0391..U+03C9) works the same way.
 Usage: python tools/make_aa_fonts.py
 """
 from pathlib import Path
@@ -43,6 +44,7 @@ WIDE_SPACE = {"ChatText": 0.38, "ChatTextSmall": 0.38, "ChatBody": 0.38, "LockTe
 
 
 CYR_FIRST, CYR_LAST = 0x400, 0x491
+GRK_FIRST, GRK_LAST = 0x391, 0x3C9  # Greek capitals and small letters (names like "MΔRCO", Ω, π)
 
 
 def glyphs(font, last, space_em=0.32, codes=None):
@@ -104,6 +106,13 @@ for name, weight, cap, line in FACES:
         if cgname == cname:
             out.append(f"const GFXglyph {cname}Glyphs[] PROGMEM={{" + ",".join("{%d,%d,%d,%d,%d,%d}" % g for g in ctable) + "};")
         out.append(f"const GFXfont {cname} PROGMEM={{(uint8_t*){cbname}Bitmap,(GFXglyph*){cgname}Glyphs,32,{32 + CYR_LAST - CYR_FIRST},{line}}};")
+        gbitmap, gtable = glyphs(font, 0, codes=range(GRK_FIRST, GRK_LAST + 1))
+        gname_ = name + "Grk";gbname = bitmaps.setdefault(bytes(gbitmap), gname_);ggname = tables.setdefault((gbname, tuple(gtable)), gname_)
+        if gbname == gname_:
+            out.append(f"const uint8_t {gname_}Bitmap[] PROGMEM={{" + ",".join(str(b) for b in gbitmap) + "};")
+        if ggname == gname_:
+            out.append(f"const GFXglyph {gname_}Glyphs[] PROGMEM={{" + ",".join("{%d,%d,%d,%d,%d,%d}" % g for g in gtable) + "};")
+        out.append(f"const GFXfont {gname_} PROGMEM={{(uint8_t*){gbname}Bitmap,(GFXglyph*){ggname}Glyphs,32,{32 + GRK_LAST - GRK_FIRST},{line}}};")
 out.append("}")
 (ROOT / "src/ui/aa_fonts.h").write_text("\n".join(out) + "\n")
 print("faces:", ", ".join(names))

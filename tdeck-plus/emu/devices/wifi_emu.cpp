@@ -98,6 +98,7 @@ int WiFiClient::connect(const char *host,uint16_t port,int32_t timeoutMs){
  sock=std::make_shared<Socket>();sock->fd=fd;return 1;
 }
 int WiFiClient::fd() const{return sock?sock->fd:-1;}
+IPAddress WiFiClient::remoteIP() const{sockaddr_in a{};socklen_t n=sizeof(a);if(!sock||sock->fd<0||getpeername(sock->fd,reinterpret_cast<sockaddr*>(&a),&n)<0||a.sin_family!=AF_INET)return IPAddress(0,0,0,0);uint32_t v=ntohl(a.sin_addr.s_addr);return IPAddress(v>>24,(v>>16)&255,(v>>8)&255,v&255);}
 uint8_t WiFiClient::connected(){return sock&&(sock->alive()||available()>0);}
 void WiFiClient::stop(){if(sock&&sock->fd>=0){close(sock->fd);sock->fd=-1;}sock.reset();}
 void WiFiClient::setNoDelay(bool on){if(sock&&sock->fd>=0){int v=on;setsockopt(sock->fd,IPPROTO_TCP,TCP_NODELAY,&v,sizeof(v));}}

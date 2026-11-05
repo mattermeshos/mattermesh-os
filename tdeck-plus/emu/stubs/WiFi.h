@@ -37,6 +37,7 @@ public:
  virtual uint8_t connected();
  virtual void stop();
  void setNoDelay(bool on);
+ IPAddress remoteIP() const;// peer address (ESP32 WiFiClient::remoteIP)
  int fd() const;// socket descriptor, -1 when not connected (ESP32 WiFiClient::fd)
  // ESP32 semantics: seconds (sets the Stream timeout used by readBytes / readStringUntil to seconds*1000).
  int setTimeout(uint32_t seconds){Stream::setTimeout(seconds*1000);return 0;}

@@ -19,7 +19,7 @@ DEFS := -DARDUINO=10812 -DRADIOLIB_STATIC_ONLY=1 -DRADIOLIB_GODMODE=1 -DUSE_SX12
 INCS := -Iemu/include -Iemu -Imeshcore-base/src -I$(RL) -I.pio/libdeps/tdeck-plus-free/Crypto
 # Compile the real SX126x driver and all its support code, without unrelated radio/protocol modules.
 SOURCES := emu/tests/test_sx1262.cpp emu/devices/sx1262.cpp emu/air/air_client.cpp \
- $(wildcard emu/core/*.cpp) meshcore-base/src/helpers/radiolib/RadioLibWrappers.cpp \
+ $(filter-out emu/core/inflate.cpp,$(wildcard emu/core/*.cpp)) meshcore-base/src/helpers/radiolib/RadioLibWrappers.cpp \
  $(RL)/Module.cpp $(RL)/Hal.cpp $(RL)/hal/Arduino/ArduinoHal.cpp \
  $(RL)/protocols/PhysicalLayer/PhysicalLayer.cpp $(wildcard $(RL)/modules/SX126x/*.cpp) \
  $(wildcard $(RL)/utils/*.cpp)

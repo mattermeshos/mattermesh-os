@@ -2,6 +2,18 @@
 // Included by renderer.cpp.
 #include "radio_link_layout.h"
 void Renderer::radioLinkPages(const State &s){
+ if(s.page==Page::WebApp){
+  shell(s,"MatterMesh Web");g.fillRect(ChatMenu.x,ChatMenu.y,ChatMenu.w,ChatMenu.h-1,BG);
+  c.toggleRow(WebAppToggle,Icon::Desktop,"MatterMesh Web",s.webOn?"Serving on Wi-Fi":"Off",s.webOn);
+  {Rect r=WebAppCard;c.card(r,false,8);
+   if(!s.webOn){c.text(r.x+10,r.y+10,"Turn it on, then open the address",Font::Bold,FG,r.w-20);c.text(r.x+10,r.y+30,"shown here in a browser on",Font::ChatMeta,FG,r.w-20);c.text(r.x+10,r.y+46,"the same Wi-Fi.",Font::ChatMeta,FG,r.w-20);}
+   else if(s.webAddress.empty()){c.text(r.x+10,r.y+10,"No Wi-Fi connection",Font::Bold,FG,r.w-20);c.text(r.x+10,r.y+30,"Settings > Wi-Fi:",Font::ChatMeta,FG,r.w-20);c.text(r.x+10,r.y+46,"join a network first.",Font::ChatMeta,FG,r.w-20);}
+   else{c.text(r.x+10,r.y+6,"OPEN IN A BROWSER",Font::ChatMeta,FG,r.w-20);c.text(r.x+10,r.y+21,s.webAddress,Font::Bold,FG,r.w-20);
+    c.text(r.x+10,r.y+44,s.webLinked?"CONNECTED":"CODE",Font::ChatMeta,FG,r.w-20);
+    if(s.webLinked)c.text(r.x+10,r.y+58,"Browser "+s.webPeer,Font::Bold,FG,r.w-20);else c.text(r.x+10,r.y+56,s.webCode,Font::Title,FG,r.w-20);}}
+  c.button(WebAppClose,s.webLinked?"CLOSE SESSION":"NEW CODE",s.webFocus==1&&s.webOn);
+  c.text(Margin,WebAppHintY,"One browser at a time;",Font::ChatMeta,FG,W-2*Margin);c.text(Margin,WebAppHintY+15,"messages go out via this radio.",Font::ChatMeta,FG,W-2*Margin);
+  return;}
  if(s.page==Page::RadioLink){
   shell(s,"Companion link");g.fillRect(ChatMenu.x,ChatMenu.y,ChatMenu.w,ChatMenu.h-1,BG);
   {Rect r=RadioLinkStatus;c.card(r,false,8);c.icon(Icon::Radio,r.x+8,r.y+(r.h-16)/2,16,FG);

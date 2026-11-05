@@ -78,7 +78,7 @@ static void fetchWeather(Request &request){
  xSemaphoreGive(mutex);
 }
 // Return from fetchWeather before deleting the task so TLS buffers and sockets are released.
-static void worker(void *argument){auto request=static_cast<Request*>(argument);fetchWeather(*request);delete request;xSemaphoreTake(mutex,portMAX_DELAY);state.busy=false;publish();xSemaphoreGive(mutex);vTaskDelete(nullptr);}
+static void worker(void *argument){networkJobBegin();auto request=static_cast<Request*>(argument);fetchWeather(*request);delete request;xSemaphoreTake(mutex,portMAX_DELAY);state.busy=false;publish();xSemaphoreGive(mutex);networkJobEnd();vTaskDelete(nullptr);}
 static void startWorker(bool gps){
  auto location=locationState();if(location.injected)location=LocationState{};/* never the weather of a test position */auto request=new Request{generation.load(),gps,location.latitude,location.longitude,{},location.configured,location.latitude,location.longitude,preferences.getString("place_api","https://photon.komoot.io")};
  if(!gps)request->accessPoints=wifiAccessPoints();

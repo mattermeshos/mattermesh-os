@@ -165,6 +165,7 @@ static void wipeString(String &s){for(unsigned i=0;i<s.length();i++)s.setCharAt(
 void toolsOpen(int id);void toolsClose(int id);void toolsCompose(mm::State &v);bool toolsBack();String *toolsField();
 mm::Rect dmPathLine{0,0,0,0};// last painted DM path line (renderChat)
 void dmPathOpen(int chat);void dmPathCompose(mm::State &v);bool dmPathKeyPress(char c);bool dmPathTap(int x,int y);String *dmPathField();bool dmPathBack();bool dmPathScroll(int d);bool dmPathSerial(const String &s);// chat Path (dm_path_app.inc)
+void webCompose(mm::State &v);bool webKey(char c);bool webTap(int x,int y);bool webSerial(const String &s);void webLoop();bool webActive();void webPause();void webResume();// web_app.inc
 bool radioLinkActive();bool radioLinkConnected();bool radioLinkAsking();void radioLinkAnswer(bool yes);size_t radioLinkTextLimit(bool direct);bool radioLinkChatSend(int chat,const String &body,uint32_t token,String &reason);void radioLinkBegin();void radioLinkLoop();void radioLinkCompose(mm::State &v);bool radioLinkKey(char c);bool radioLinkTap(int x,int y);String *radioLinkField();void radioLinkLeft();bool radioLinkSerial(const String &s);// companion link (radio_link_app.inc)
 void mapOpen();void mapClose();void routeOpen(const std::string &path,const std::string &sender);void routeClose();bool routeLoading();void routeCompose(mm::State &v);void mapCompose(mm::State &v);void mapPan(int dx,int dy);
 bool radioPowerEditing=false,radioDevicePage=false;int radioDeviceFocus=0;constexpr int CompanionNameField=matter::RadioFieldCount;String radioPowerInput;
@@ -683,7 +684,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
   v.chatTotal=radioTotal;v.chatPosition=chatOffset;
  }
  auto battery=device::batteryState();v.status.battery=battery.percent;v.status.charging=battery.charging;v.voltage=battery.voltage;v.batteryEstimated=battery.estimated;v.batteryCharging=battery.charging;v.batteryFull=battery.full;
- auto connection=device::connectivityStatus();v.status.wifi=connection.wifi;v.status.wifiLinked=connection.connected;v.status.bt=connection.ble&&connection.bleReady;v.rlOn=radioLinkActive();v.status.companion=v.rlOn;v.status.companionLinked=radioLinkConnected();v.wifiEnabled=connection.wifi;v.wifiConnected=connection.connected;v.wifiConnecting=connection.connecting;v.wifiScanning=connection.scanning;v.wifiMessage=connection.message.c_str();v.wifiSSID=wifiEditing?wifiTarget.c_str():connection.ssid.c_str();v.wifiIP=connection.address.c_str();v.wifiEditing=wifiEditing;v.wifiPasswordMask=device::wifiInputDisplay(wifiPassword.c_str(),wifiShowPassword);v.wifiHidden=wifiHidden;v.wifiShowPassword=wifiShowPassword;v.wifiEditField=wifiEditField;v.wifiOffset=wifiOffset;v.wifiFocus=wifiFocus;v.bleEnabled=connection.ble;v.bleReady=connection.bleReady;
+ auto connection=device::connectivityStatus();v.status.wifi=connection.wifi;v.status.wifiLinked=connection.connected;v.status.web=webActive();v.status.bt=connection.ble&&connection.bleReady;v.rlOn=radioLinkActive();v.status.companion=v.rlOn;v.status.companionLinked=radioLinkConnected();v.wifiEnabled=connection.wifi;v.wifiConnected=connection.connected;v.wifiConnecting=connection.connecting;v.wifiScanning=connection.scanning;v.wifiMessage=connection.message.c_str();v.wifiSSID=wifiEditing?wifiTarget.c_str():connection.ssid.c_str();v.wifiIP=connection.address.c_str();v.wifiEditing=wifiEditing;v.wifiPasswordMask=device::wifiInputDisplay(wifiPassword.c_str(),wifiShowPassword);v.wifiHidden=wifiHidden;v.wifiShowPassword=wifiShowPassword;v.wifiEditField=wifiEditField;v.wifiOffset=wifiOffset;v.wifiFocus=wifiFocus;v.bleEnabled=connection.ble;v.bleReady=connection.bleReady;
  if(!deviceLocked&&screen==Screen::Section&&section==4){v.wifiSavedOpen=wifiSavedOpen;v.wifiSavedOffset=wifiSavedOffset;v.wifiSavedFocus=wifiSavedFocus;v.wifiForgetArmed=wifiForgetArmed>=0&&millis()-wifiForgetAt<WifiForgetMs?wifiForgetArmed:-1;for(auto &name:device::savedNetworks())v.wifiSaved.push_back(name.c_str());}
  if(!deviceLocked&&screen==Screen::Section&&section==4)for(auto &network:device::connectivityState().networks){mm::State::Network n;n.ssid=network.ssid.c_str();n.rssi=network.rssi;n.secured=network.protectedNetwork;n.saved=network.saved;v.networks.push_back(n);}
  if(!deviceLocked&&((screen==Screen::Section&&section==10)||homeShowsWeather())){// the Weather page and the Home weather widgets draw these
@@ -698,7 +699,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
  // The lock screen keeps `section`: do not rebuild the map view (PSRAM + tile requests) or tool state while locked.
  if(!deviceLocked&&screen==Screen::Section&&section==9)mapCompose(v);
  if(!deviceLocked&&screen==Screen::Section&&mm::toolsSection(section))toolsCompose(v);
- if(!deviceLocked&&screen==Screen::Section&&(section==mm::RadioLinkSection||section==mm::RadioLinkSettingsSection||section==19))radioLinkCompose(v);/* Settings: the Companion link row status */
+ if(!deviceLocked&&screen==Screen::Section&&(section==mm::RadioLinkSection||section==mm::RadioLinkSettingsSection||section==19))radioLinkCompose(v);if(!deviceLocked&&screen==Screen::Section&&(section==19||section==mm::WebAppSection))webCompose(v);/* Settings: the MatterMesh Web row *//* Settings: the Companion link row status */
  v.homeWidget=homeWidget;v.homeWidgetFocus=homeWidgetFocus;v.homeMain=homeMain;v.homeMainFocus=homeMainFocus;v.homeWidgetsRow=homeWidgetsRow;// Settings shows the choices on its Home widgets rows
  if(screen==Screen::Section&&section==mm::NoteSection)v.noteInput=noteInput.c_str();
  if(!deviceLocked&&(screen==Screen::Home||(screen==Screen::Section&&section==mm::MainAreaSection)))fillMainWidget(v);// Home widgets draws Home from its own state
@@ -809,7 +810,7 @@ void loadLights(){
  f.close();
 }
 mm::Page sectionPage(int id){
- switch(id){case mm::DmPathSection:return mm::Page::DmPath;case mm::RadioLinkSection:return mm::Page::RadioLink;case mm::RadioLinkSettingsSection:return mm::Page::RadioLinkSettings;case 1:return mm::Page::Mesh;case 2:return mm::Page::Radio;case 3:return mm::Page::GPS;case 4:return mm::Page::Wifi;case 5:return mm::Page::Battery;case 6:return mm::Page::Controls;case 7:return mm::Page::Files;case 8:return mm::Page::Info;case 9:return mm::Page::Maps;case 10:return mm::Page::Weather;case 11:return mm::Page::Terminal;case 14:return mm::Page::Bluetooth;case 16:return mm::Page::DateTime;case 17:return mm::Page::Updates;case mm::QuickSettingsSection:return mm::Page::QuickSettings;case 19:return mm::Page::Settings;case 20:return mm::Page::Power;case 21:return mm::Page::Audio;case 22:return mm::Page::Wallpaper;case mm::KeyboardSection:return mm::Page::Keyboard;case 23:return mm::Page::Antenna;case mm::AccentKeySection:return mm::Page::AccentKey;case mm::HomeWidgetsSection:return mm::Page::HomeWidgets;case mm::BesideClockSection:return mm::Page::BesideClock;case mm::MainAreaSection:return mm::Page::MainArea;case mm::NoteSection:return mm::Page::Note;case 24:return mm::Page::Storage;case mm::CliSection:return mm::Page::Cli;case mm::SupportSection:return mm::Page::Support;default:return mm::Page::Info;}
+ switch(id){case mm::WebAppSection:return mm::Page::WebApp;case mm::DmPathSection:return mm::Page::DmPath;case mm::RadioLinkSection:return mm::Page::RadioLink;case mm::RadioLinkSettingsSection:return mm::Page::RadioLinkSettings;case 1:return mm::Page::Mesh;case 2:return mm::Page::Radio;case 3:return mm::Page::GPS;case 4:return mm::Page::Wifi;case 5:return mm::Page::Battery;case 6:return mm::Page::Controls;case 7:return mm::Page::Files;case 8:return mm::Page::Info;case 9:return mm::Page::Maps;case 10:return mm::Page::Weather;case 11:return mm::Page::Terminal;case 14:return mm::Page::Bluetooth;case 16:return mm::Page::DateTime;case 17:return mm::Page::Updates;case mm::QuickSettingsSection:return mm::Page::QuickSettings;case 19:return mm::Page::Settings;case 20:return mm::Page::Power;case 21:return mm::Page::Audio;case 22:return mm::Page::Wallpaper;case mm::KeyboardSection:return mm::Page::Keyboard;case 23:return mm::Page::Antenna;case mm::AccentKeySection:return mm::Page::AccentKey;case mm::HomeWidgetsSection:return mm::Page::HomeWidgets;case mm::BesideClockSection:return mm::Page::BesideClock;case mm::MainAreaSection:return mm::Page::MainArea;case mm::NoteSection:return mm::Page::Note;case 24:return mm::Page::Storage;case mm::CliSection:return mm::Page::Cli;case mm::SupportSection:return mm::Page::Support;default:return mm::Page::Info;}
 }
 void renderSection(){
  auto v=uiState();v.page=sectionPage(section);v.filter=discoverFilter;v.settingsFocus=settingsFocus;v.settingsOffset=settingsScroll;
@@ -1075,6 +1076,7 @@ String *editableField(){
 }
 #include "map_app.inc"
 #include "radio_link_app.inc"
+#include "web_app.inc"
 #include "cli_app.inc"
 // The tools hooks: the CLI.
 void toolsOpen(int id){notice="";if(id==mm::CliSection)cliOpen();}
@@ -1208,6 +1210,7 @@ void key(char c) {
  device::activity();
  if(c==3){back();return;}
  if(dmPathKeyPress(c))return;
+ if(c!='\b'&&webKey(c))return;
  if(screen==Screen::Section&&mm::toolsSection(section)&&toolsKey(c))return;
  if(c!='\b'&&radioLinkKey(c))return;
  if(c=='\b'){auto field=editableField();if(!field||!field->length()){back();return;}if(field==&input)inputEraseBeforeCursor();else eraseLastCodepoint(*field);notice="";if(screen==Screen::Chats&&searching){auto list=conversationList();selected=list.empty()?chatCount:list[0].id;}if(screen==Screen::PickContact){pickerFocus=0;refreshPicker();}if(screen==Screen::Section&&section==1)contactFocus=nodeScroll=0;if(screen==Screen::Section&&section==mm::KeyboardSection)kbdFocus=0;repaintSettled();return;}
@@ -1425,6 +1428,7 @@ void tap(int x,int y) {
  if(screen==Screen::Section){
   if(mm::toolsSection(section)&&toolsTap(x,y))return;
   if(radioLinkTap(x,y))return;
+  if(webTap(x,y))return;
   if(dmPathTap(x,y))return;
   if(section==mm::QuickSettingsSection&&shutdownConfirm){quickSettingsTap(x,y);return;}
   if(section==9){mapTap(x,y);return;}// full-page map: its own floating back button
@@ -1944,6 +1948,7 @@ void handle(const String &s) {
  if(s=="contacts rows"){auto page=matter::contacts(discoverFilter,contactQuery.c_str(),nodeScroll,mm::ContactRows);for(size_t i=0;i<page.rows.size();i++){auto &n=page.rows[i];Serial.printf("CONTACT_ROW index=%u lat=%.6f type=%u live=%d hops=%d rssi=%.0f snr=%.1f key=%s name=%s\n",unsigned(nodeScroll+i),n.lat/1e6,n.type,n.live,n.hops,n.rssi,n.snr,n.key.c_str(),n.name.c_str());}Serial.printf("CONTACT_ROWS total=%d live=%d\n",page.total,page.live);return;}
  if(s.startsWith("cli ")){size_t before=cliOutput.size();cliRun(s.substring(4).c_str());render();Serial.printf("CLI lines=%u\n",unsigned(cliOutput.size()));for(size_t i=before<cliOutput.size()?before:0;i<cliOutput.size();i++)Serial.printf("CLI> %s\n",cliOutput[i].c_str());return;}
  if(radioLinkSerial(s))return;
+ if(webSerial(s))return;
  if(s=="channel menu status"){auto gps=device::locationState();bool valid=!device::gpsCoordinateMessage(gps.available,gps.enabled,gps.fix,gps.fixAgeMs,gps.latitude,gps.longitude).empty();Serial.printf("CHANNEL_MENU_STATUS key_view=%d qr_size=%d key_chars=%u count=%d open=%d target=%d muted=%d delete_confirm=%d position=%d position_ready=%d\n",channelKeyView,channelQrSize,channelKeyHex.length(),chatCount,channelOptions,channelOptionTarget,channelOptionTarget>=0&&channelOptionTarget<chatCount&&bool(mutedChannels&(uint32_t(1)<<channelOptionTarget)),deleteChannelConfirm,positionShare,valid);return;}
  if(s=="channel list"){DynamicJsonDocument json(8192);// 32 conversations
  auto list=json.to<JsonArray>();for(int i=0;i<chatCount;i++){auto entry=list.createNestedObject();entry["id"]=i;entry["name"]=chats[i].name;entry["direct"]=chats[i].direct;entry["muted"]=bool(mutedChannels&(uint32_t(1)<<i));entry["ready"]=channelReady[i];entry["peer_bound"]=!peerKeys[i].isEmpty();}Serial.print("CHANNEL_LIST ");serializeJson(json,Serial);Serial.println();return;}
@@ -2150,7 +2155,7 @@ void loop(){
   command.trim();uint32_t request=0;if(command.startsWith("@")){int split=command.indexOf(' ');if(split>1){request=strtoul(command.c_str()+1,nullptr,10);command.remove(0,split+1);}}
   handle(command);command="";if(request)Serial.printf("USB_DONE %lu\n",request);
  }else if(c!='\r'&&command.length()<256)command+=c;}
- matter::loop();hapticLoop();device::audioLoop();
+ matter::loop();hapticLoop();device::audioLoop();webLoop();
  if(!deviceLocked&&screen==Screen::Chat&&archivePager.poll(radioJournal)){chatRowsRevision++;repaintNow();}
  if(deviceLocked)incomingBanner.clear();else if(incomingBanner.expire(millis())){repaintNow();}
  // OTA: repaint Settings / Updates on progress; a newly offered release shows a banner once per boot.

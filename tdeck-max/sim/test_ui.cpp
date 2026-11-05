@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cstring>
 #include "ui/renderer.h"
+#include "ui/emoji_flags_mono.h"
 #include "ui/refresh.h"
 #include "ui/navigation_catalog.h"
 #include "ui/utf8.h"
@@ -12,8 +13,12 @@
 #include "services/keyboard_layout.h"
 int main(){
  GFXcanvas1 canvas(mm::W,mm::H);mm::Components c(canvas);
- assert(mm::senderDisplayName("Ridge_L1 🇮🇹")=="Ridge_L1");assert(mm::senderDisplayName("IT Field 🙂")=="IT Field 🙂");
- assert(mm::mentionDisplayText("@[🇮🇹 Oreste IW1QQG] Hi")=="@[Oreste IW1QQG] Hi");assert(mm::mentionDisplayText("@[Oreste 🇮🇹")=="@[Oreste");assert(mm::mentionDisplayText("Weather 🇮🇹") == "Weather 🇮🇹");
+ assert(mm::senderDisplayName(" Ridge_L1 🇮🇹 ")=="Ridge_L1 🇮🇹");/* flags stay in names: drawn as 1-bit flags (emoji_flags_mono.h) */assert(mm::senderDisplayName("IT Field 🙂")=="IT Field 🙂");
+ assert(mm::mentionDisplayText("@[🇮🇹 Oreste IW1QQG] Hi")=="@[🇮🇹 Oreste IW1QQG] Hi");assert(mm::mentionDisplayText("@[Oreste 🇮🇹")=="@[Oreste 🇮🇹");
+ // Decorated letters fold to the nearest drawn letter; Greek stays (TextGrk tables); a known flag pair is one sprite.
+ assert(c.display("⟦MΔRȻØ⟧")=="[MΔRCØ]");assert(c.display("𝐌𝐀𝐑𝐂𝐎")=="MARCO");assert(c.display("ᴍᴀʀᴄᴏ")=="MARCO");assert(c.display("plain")=="plain");
+ assert(mm_flags::find(8*26+19)&&!mm_flags::find(25*26+25));/* IT yes, ZZ no */assert(c.width("🇮🇹",mm::Font::ChatBody)==mm_flags::W+2);
+ assert(c.width("Ω",mm::Font::ChatBody)==c.width("O",mm::Font::ChatBody)||c.width("Ω",mm::Font::ChatBody)<14);/* a glyph, not the 14 px emoji box */assert(mm::mentionDisplayText("Weather 🇮🇹") == "Weather 🇮🇹");
  for(int i=0;i<mm::ApplicationCount;i++){auto r=mm::appRect(i);assert(r.x>=0&&r.y>=mm::StatusH&&r.x+r.w<=mm::W&&r.y+r.h<=mm::Bottom);for(int j=i+1;j<mm::ApplicationCount;j++){auto q=mm::appRect(j);assert(r.x+r.w<=q.x||q.x+q.w<=r.x||r.y+r.h<=q.y||q.y+q.h<=r.y);}}
  assert(mm::MenuHomeTabCount==4&&mm::MenuHomeTabIcon==24&&mm::MenuHomeTabH==44);
  assert(mm::HomeTabs[2].section==19);for(auto app:mm::Applications)assert(app.section!=19&&app.section!=0&&app.section!=1);
@@ -93,7 +98,7 @@ int main(){
   for(int row=0;row<mm::MenuHomeRows;row++){auto box=mm::menuHomeRowRect(row);for(int y=box.y;y<box.y+box.h;y++)for(int x=box.x;x<box.x+box.w;x++)assert(bool(scrolled[y*(mm::W/8)+x/8]&(128>>(x%8)))==bool(canvas.getPixel(x,y)));}
  }
  for(auto page:{mm::Page::Weather,mm::Page::Files,mm::Page::Mesh,mm::Page::Settings}){s.page=page;r.draw(s);assert(!canvas.getPixel(0,mm::FooterY));}
- s.lockHasMessage=true;s.receivedName="Ridge_L1 🇮🇹";r.lock(s);std::vector<uint8_t> lockPixels(canvas.getBuffer(),canvas.getBuffer()+((mm::W+7)/8)*mm::H);assert(s.receivedName=="Ridge_L1 🇮🇹");s.receivedName="Ridge_L1";r.lock(s);assert(!memcmp(lockPixels.data(),canvas.getBuffer(),lockPixels.size()));
+ s.lockHasMessage=true;s.receivedName="Ridge_L1 🇮🇹";r.lock(s);std::vector<uint8_t> lockPixels(canvas.getBuffer(),canvas.getBuffer()+((mm::W+7)/8)*mm::H);assert(s.receivedName=="Ridge_L1 🇮🇹");s.receivedName="Ridge_L1";r.lock(s);assert(memcmp(lockPixels.data(),canvas.getBuffer(),lockPixels.size()));/* the flag is drawn */
  for(auto clock:{"22:51","11:11","00:00"})for(auto date:{"Wed, Oct 14","Mon, Apr 28","Sat, Sep 30"})for(bool acquiring:{false,true}){
   s.status.clock=clock;s.menuDate=date;s.status.acquiringTime=acquiring;s.nodeCount=303;
   // Widget layout: the smaller clock and its date stay left of the divider (HomeWidgetBox.x-5), clear of it.

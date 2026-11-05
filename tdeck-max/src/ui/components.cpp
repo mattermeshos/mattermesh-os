@@ -12,6 +12,8 @@
 #include "lock_clock_font.h"
 #include "nav_label_font.h"
 #include "emoji_bitmap.h"
+#include "text_fold.h"
+#include "emoji_flags_mono.h"
 #include "utf8.h"
 #include <algorithm>
 namespace mm {
@@ -33,12 +35,18 @@ static std::string repairDoubleUtf8(const std::string &in){
 static std::string displayText(const std::string &in){
  // Fast path (most strings): every rewrite below needs a mention "@[", a 0xC3 lead (double-encoded UTF-8) or a 0xE2
  // lead (the typography table), so text without them comes back unchanged with a single copy.
- if(in.find('\xc3')==std::string::npos&&in.find('\xe2')==std::string::npos&&in.find("@[")==std::string::npos)return in;
+ // Folding (below) needs a code point from U+0100 up, so a lead byte from 0xC4 up.
+ if(in.find("@[")==std::string::npos&&std::none_of(in.begin(),in.end(),[](char c){return uint8_t(c)>=0xc3;}))return in;
  std::string value=mentionDisplayText(repairDoubleUtf8(in));
  for(auto unit:{std::make_pair("℃","°C"),std::make_pair("℉","°F")}){size_t at=0;while((at=value.find(unit.first,at))!=std::string::npos){value.replace(at,std::string(unit.first).size(),unit.second);at+=std::string(unit.second).size();}}
  static const char *from[]={"’","‘","“","”","„","…","–","—"};
  static const char *to[]={"'","'","\"","\"","\"","...","-","-"};
- for(size_t i=0;i<sizeof(from)/sizeof(from[0]);i++){size_t at=0;while((at=value.find(from[i],at))!=std::string::npos){value.replace(at,std::string(from[i]).size(),to[i]);at++;}}return value;
+ for(size_t i=0;i<sizeof(from)/sizeof(from[0]);i++){size_t at=0;while((at=value.find(from[i],at))!=std::string::npos){value.replace(at,std::string(from[i]).size(),to[i]);at++;}}
+ // Decorated letters and symbols the faces lack ("⟦MΔRȻØ⟧", "𝐌𝐀𝐑𝐂𝐎", "ᴍᴀʀᴄᴏ"): the nearest letter instead of a box (text_fold.h).
+ std::string folded;bool changed=false;uint32_t cp;for(size_t at=0;at<value.size();){size_t next=utf8Next(value,at,cp);uint32_t to=cp>=0x100?mm_fold::fold(cp):cp;
+  if(to!=cp){changed=true;if(to<0x80)folded+=char(to);else if(to<0x800){folded+=char(0xC0|(to>>6));folded+=char(0x80|(to&0x3F));}else{folded+=char(0xE0|(to>>12));folded+=char(0x80|((to>>6)&0x3F));folded+=char(0x80|(to&0x3F));}}
+  else folded.append(value,at,next-at);at=next;}
+ return changed?folded:value;
 }
 // ASCII stand-in for a Latin-1 letter in a face that stops at 126 (menus, clock, labels); 0 = not Latin-1.
 static char latinFold(uint32_t cp){static const char fold[]=" !cL$Y|S\"ca\"--R-o+23'uP.,1o\"????AAAAAAACEEEEIIIIDNOOOOOxOUUUUYPsaaaaaaaceeeeiiiidnooooo/ouuuuypy";return cp>=0xa0&&cp<=0xff&&cp!=0xad?fold[cp-0xa0]:0;}
@@ -52,8 +60,13 @@ static const mm_emoji::Glyph *emojiGlyph(uint32_t cp){int lo=0,hi=mm_emoji::coun
 // Regional indicators (U+1F1E6..U+1F1FF) come in pairs as flags; one text unit keeps the pair together.
 static bool regionalIndicator(uint32_t cp){return cp>=0x1f1e6&&cp<=0x1f1ff;}
 static size_t unitNext(const std::string &s,size_t at,uint32_t &cp){size_t next=utf8Next(s,at,cp);if(regionalIndicator(cp)){uint32_t second;size_t after=utf8Next(s,next,second);if(regionalIndicator(second))return after;}return next;}
-int Components::flagAdvance(Font f,bool pair){return (pair?2:1)*unitAdvance('A',Font::Tiny)+7;}
-void Components::flag(int x,int y,Font f,uint32_t first,uint32_t second,uint16_t color){bool pair=regionalIndicator(second);int h=std::min(14,lineHeight(f)-1),w=flagAdvance(f,pair)-2,top=y+(lineHeight(f)-1-h)/2;g.drawRoundRect(x,top,w,h,3,color);g.setFont(font(Font::Tiny));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);g.setCursor(x+3,top+(h+ascent(Font::Tiny))/2-1);g.write(uint8_t('A'+first-0x1f1e6));if(pair)g.write(uint8_t('A'+second-0x1f1e6));g.setFont(font(f));}
+// A pair with a sprite is a 1-bit flag (emoji_flags_mono.h, colours as patterns) where the line is tall enough;
+// a country without a sprite, or a lone indicator, is a rounded badge with the letters.
+static bool flagSprite(Font f){return Components::lineHeight(f)>=mm_flags::H+1;}
+int Components::flagAdvance(Font f,bool pair){return pair&&flagSprite(f)?std::max(mm_flags::W+2,2*unitAdvance('A',Font::Tiny)+7):(pair?2:1)*unitAdvance('A',Font::Tiny)+7;}
+void Components::flag(int x,int y,Font f,uint32_t first,uint32_t second,uint16_t color){bool pair=regionalIndicator(second);
+ if(pair&&flagSprite(f))if(auto sprite=mm_flags::find(int(first-0x1f1e6)*26+int(second-0x1f1e6))){g.drawBitmap(x+(flagAdvance(f,true)-2-mm_flags::W)/2,y+(lineHeight(f)-mm_flags::H)/2,sprite->rows,mm_flags::W,mm_flags::H,color);return;}
+int h=std::min(14,lineHeight(f)-1),w=flagAdvance(f,pair)-2,top=y+(lineHeight(f)-1-h)/2;g.drawRoundRect(x,top,w,h,3,color);g.setFont(font(Font::Tiny));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);g.setCursor(x+3,top+(h+ascent(Font::Tiny))/2-1);g.write(uint8_t('A'+first-0x1f1e6));if(pair)g.write(uint8_t('A'+second-0x1f1e6));g.setFont(font(f));}
 void Components::emoji(uint32_t cp,int x,int y,int size,uint16_t color){auto sprite=emojiGlyph(cp);if(!sprite){g.drawRect(x+1,y+1,size-2,size-2,color);return;}
  if(size==14){g.drawBitmap(x,y,sprite->pixels,14,14,color);return;}// native size: same 2-byte MSB-first rows, no per-pixel scaling
  for(int yy=0;yy<size;yy++)for(int xx=0;xx<size;xx++){int sx=xx*14/size,sy=yy*14/size;if(sprite->pixels[sy*2+sx/8]&(128>>(sx%8)))g.drawPixel(x+xx,y+yy,color);}}
@@ -67,8 +80,16 @@ static const GFXfont *cyrillicFont(Font f){switch(f){
  case Font::ChatTitle:case Font::Title:case Font::Brand:return &mm_chat_title::TextCyr;
  case Font::ChatMeta:case Font::Small:return &mm_chat_meta::TextCyr;
  default:return nullptr;}}
-static const GFXfont *cyrillicFor(uint32_t cp,Font f){return cp>=CyrFirst&&cp<=CyrLast?cyrillicFont(f):nullptr;}
-int Components::unitAdvance(uint32_t cp,Font f){if(invisibleCodepoint(cp))return 0;if(cp==0xb0||cp==0x2070)return degreeRadius(f)*2+3;auto face=font(f);if(cp>=face->first&&cp<=face->last)return face->glyph[cp-face->first].xAdvance;if(auto cyr=cyrillicFor(cp,f))return cyr->glyph[cp-CyrFirst].xAdvance;if(char c=latinFold(cp))return face->glyph[uint8_t(c)-face->first].xAdvance;if(cp==0xad)return 0;return std::min(14,lineHeight(f)-1)+2;}
+// Greek U+0391..U+03C9 (names like "MΔRCO", Ω, π): TextGrk of the same chat faces, code 32 = U+0391.
+constexpr uint32_t GrkFirst=0x391,GrkLast=0x3C9;
+static const GFXfont *greekFont(Font f){switch(f){
+ case Font::ChatBody:case Font::Body:case Font::Bold:case Font::LockText:return &mm_chat_body::TextGrk;
+ case Font::ChatTitle:case Font::Title:case Font::Brand:return &mm_chat_title::TextGrk;
+ case Font::ChatMeta:case Font::Small:return &mm_chat_meta::TextGrk;
+ default:return nullptr;}}
+// The Cyrillic or Greek face for cp (null: neither, or a face without them); its code 32 is the script's first code point.
+static const GFXfont *cyrillicFor(uint32_t cp,Font f,uint32_t &base){if(cp>=CyrFirst&&cp<=CyrLast){base=CyrFirst;return cyrillicFont(f);}if(cp>=GrkFirst&&cp<=GrkLast){base=GrkFirst;return greekFont(f);}return nullptr;}
+int Components::unitAdvance(uint32_t cp,Font f){if(invisibleCodepoint(cp))return 0;if(cp==0xb0||cp==0x2070)return degreeRadius(f)*2+3;auto face=font(f);if(cp>=face->first&&cp<=face->last)return face->glyph[cp-face->first].xAdvance;uint32_t base=0;if(auto cyr=cyrillicFor(cp,f,base))return cyr->glyph[cp-base].xAdvance;if(char c=latinFold(cp))return face->glyph[uint8_t(c)-face->first].xAdvance;if(cp==0xad)return 0;return std::min(14,lineHeight(f)-1)+2;}
 std::string Components::display(const std::string &s){return displayText(s);}
 int Components::width(const std::string &s,Font f){return rawWidth(displayText(s),f);}
 // Width of text already passed through displayText(): fit/lines/inputTail measure prefixes many times and must not repeat that pass.
@@ -108,7 +129,7 @@ std::string Components::inputTail(const std::string &s,int w,Font f){
 }
 // displayText() runs once per call: text() and centered() fit and measure the displayed string itself.
 void Components::text(int x,int y,const std::string &s,Font f,uint16_t color,int maxWidth){auto value=displayText(s);if(maxWidth)value=fitDisplayed(value,maxWidth,f);drawDisplayed(x,y,value,f,color);}
-void Components::drawDisplayed(int x,int y,const std::string &value,Font f,uint16_t color){g.setFont(font(f));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);uint32_t cp;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(regionalIndicator(cp)){uint32_t second=0;if(next-at>4)utf8Next(value,at+4,second);flag(x,y,f,cp,second,color);x+=flagAdvance(f,next-at>4);at=next;continue;}at=next;if(invisibleCodepoint(cp))continue;auto face=font(f);if(cp==0xb0||cp==0x2070){int r=degreeRadius(f);g.drawCircle(x+r,y+r,r,color);if(r>=4)g.drawCircle(x+r,y+r,r-1,color);}else if(cp>=face->first&&cp<=face->last){g.setCursor(x,y+ascent(f));g.write(uint8_t(cp));}else if(auto cyr=cyrillicFor(cp,f)){g.setFont(cyr);g.setCursor(x,y+ascent(f));g.write(uint8_t(cp-CyrFirst+32));g.setFont(face);}else if(char c=latinFold(cp)){g.setCursor(x,y+ascent(f));g.write(uint8_t(c));}else if(cp!=0xad)emoji(cp,x,y,std::min(14,lineHeight(f)-1),color);x+=unitAdvance(cp,f);}}
+void Components::drawDisplayed(int x,int y,const std::string &value,Font f,uint16_t color){uint32_t base=0;g.setFont(font(f));g.setTextSize(1);g.setTextWrap(false);g.setTextColor(color);uint32_t cp;for(size_t at=0;at<value.size();){size_t next=unitNext(value,at,cp);if(regionalIndicator(cp)){uint32_t second=0;if(next-at>4)utf8Next(value,at+4,second);flag(x,y,f,cp,second,color);x+=flagAdvance(f,next-at>4);at=next;continue;}at=next;if(invisibleCodepoint(cp))continue;auto face=font(f);if(cp==0xb0||cp==0x2070){int r=degreeRadius(f);g.drawCircle(x+r,y+r,r,color);if(r>=4)g.drawCircle(x+r,y+r,r-1,color);}else if(cp>=face->first&&cp<=face->last){g.setCursor(x,y+ascent(f));g.write(uint8_t(cp));}else if(auto cyr=cyrillicFor(cp,f,base)){g.setFont(cyr);g.setCursor(x,y+ascent(f));g.write(uint8_t(cp-base+32));g.setFont(face);}else if(char c=latinFold(cp)){g.setCursor(x,y+ascent(f));g.write(uint8_t(c));}else if(cp!=0xad)emoji(cp,x,y,std::min(14,lineHeight(f)-1),color);x+=unitAdvance(cp,f);}}
 void Components::centered(int x,int y,int w,const std::string &s,Font f,uint16_t color){auto v=fitDisplayed(displayText(s),w,f);drawDisplayed(x+(w-rawWidth(v,f))/2,y,v,f,color);}
 std::vector<std::string> Components::lines(const std::string &s,int maxW,Font f){
  std::vector<std::string> out;std::string line,word;auto value=displayText(s);g.setTextWrap(false);
@@ -119,6 +140,21 @@ std::vector<std::string> Components::lines(const std::string &s,int maxW,Font f)
  uint32_t cp;for(size_t at=0;at<value.size();){size_t next=utf8Next(value,at,cp);if(cp==' '||cp=='\n'){add();if(cp=='\n')emit();}else word.append(value,at,next-at);at=next;}add();if(!line.empty())emit();if(out.empty())out.push_back("");return out;
 }
 void Components::icon(Icon id,int x,int y,int size,uint16_t color){const uint8_t *bmp=nullptr;
+ if(id==Icon::Desktop){// a browser window (bar with three dots) holding "</>"
+  int t=size>=24?2:1,wx=x+1,wy=y+2,ww=size-2,wh=size-4,bar=wy+(size>=24?6:4);
+  for(int i=0;i<t;i++)g.drawRoundRect(wx+i,wy+i,ww-2*i,wh-2*i,3,color);
+  g.fillRect(wx,bar,ww,t,color);
+  for(int i=0;i<3;i++)g.fillRect(wx+ww-t-3-i*(t+2)-t,wy+t+1,t+(t==1),t+(t==1),color);
+  if(size==24){// "</>" drawn pixel by pixel, mirrored around the window centre (x+11.5), rows y+11..y+17
+   static const int8_t L[7]={7,6,5,4,5,6,7},S0[7]={13,12,12,11,11,10,10},SW[7]={1,2,1,2,1,2,1};
+   for(int r=0;r<7;r++){int yy=y+11+r;g.fillRect(x+L[r],yy,2,1,color);g.fillRect(x+22-L[r],yy,2,1,color);g.fillRect(x+S0[r],yy,SW[r],1,color);}
+   return;}
+  int cy=bar+t+(wy+wh-t-bar-t)/2,hh=size>=24?4:2,cx=x+size/2,gap=size>=24?5:3,arm=size>=24?3:2;
+  for(int k=0;k<t;k++){
+   g.drawLine(cx-gap+k,cy-hh,cx-gap-arm+k,cy,color);g.drawLine(cx-gap-arm+k,cy,cx-gap+k,cy+hh,color);// <
+   g.drawLine(cx+gap-k,cy-hh,cx+gap+arm-k,cy,color);g.drawLine(cx+gap+arm-k,cy,cx+gap-k,cy+hh,color);}// >
+  g.drawLine(cx+1,cy-hh,cx-1,cy+hh,color);if(t>1)g.drawLine(cx+2,cy-hh,cx,cy+hh,color);// /
+  return;}
  switch(id){
  case Icon::Messages:bmp=size==12?mm_assets::icon_messages_12:size==16?mm_assets::icon_messages_16:size==24?mm_assets::icon_messages_24:mm_assets::icon_messages_32;break;
  case Icon::Mesh:bmp=size==12?mm_assets::icon_mesh_12:size==16?mm_assets::icon_mesh_16:size==24?mm_assets::icon_mesh_24:mm_assets::icon_mesh_32;break;
@@ -203,6 +239,8 @@ void Components::statusBar(const Status &s){
   int dy=StatusIconY+(IconStatus-(bottom-top+1))/2-top;
   for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++)if(glyph.getPixel(x,y)&&(!waiting[i]||((x+y)&1)))g.drawPixel(dx+x,dy+y,FG);
  }
+ if(s.web){const char *label="WEB";int pw=width(label,Font::ChatMeta)+8,px=(count?first:layout.iconsRight)-pw-4;// MatterMesh Web serving: a pill left of the icons
+  g.fillRoundRect(px,StatusIconY,pw,StatusH-5,4,FG);text(px+4,StatusTextY,label,Font::ChatMeta,BG);}
  text(layout.percentX,StatusTextY,layout.percent,Font::ChatBody);
  if(s.charging){int x=layout.batteryX+1;g.fillTriangle(x+7,StatusIconY,x+1,StatusIconY+7,x+7,StatusIconY+7,FG);g.fillTriangle(x+5,StatusIconY+4,x+5,StatusIconY+12,x+11,StatusIconY+4,FG);}
  else {int x=layout.batteryX,y=StatusBatteryY;g.fillRect(x,y,12,StatusBatteryH,FG);g.fillRect(x+2,y+2,8,5,BG);g.fillRect(x+12,y+3,2,3,FG);int level=std::max(0,std::min(100,s.battery));int fill=(level*6+50)/100;if(fill)g.fillRect(x+3,y+3,fill,3,FG);}

@@ -11,8 +11,8 @@
 int main(){
  mm::FastCanvas16 canvas(mm::W,mm::H);mm::Components c(canvas);
  auto shot=[&]{return std::vector<uint16_t>(canvas.getBuffer(),canvas.getBuffer()+mm::W*mm::H);};auto px=[&](int x,int y){return canvas.getPixel(x,y);};
- assert(mm::senderDisplayName("Ridge_L1 🇮🇹")=="Ridge_L1");assert(mm::senderDisplayName("IT Field 🙂")=="IT Field 🙂");
- assert(mm::mentionDisplayText("@[🇮🇹 Oreste IW1QQG] Hi")=="@[Oreste IW1QQG] Hi");assert(mm::mentionDisplayText("@[Oreste 🇮🇹")=="@[Oreste");assert(mm::mentionDisplayText("Weather 🇮🇹") == "Weather 🇮🇹");
+ assert(mm::senderDisplayName(" Ridge_L1 🇮🇹 ")=="Ridge_L1 🇮🇹");/* flags stay in names: drawn in colour (emoji_flags.h) */assert(mm::senderDisplayName("IT Field 🙂")=="IT Field 🙂");
+ assert(mm::mentionDisplayText("@[🇮🇹 Oreste IW1QQG] Hi")=="@[🇮🇹 Oreste IW1QQG] Hi");assert(mm::mentionDisplayText("@[Oreste 🇮🇹")=="@[Oreste 🇮🇹");assert(mm::mentionDisplayText("Weather 🇮🇹") == "Weather 🇮🇹");
  for(int i=0;i<mm::ApplicationCount;i++){auto r=mm::appRect(i);assert(r.x>=0&&r.y>=mm::StatusH&&r.x+r.w<=mm::W&&r.y+r.h<=mm::Bottom);for(int j=i+1;j<mm::ApplicationCount;j++){auto q=mm::appRect(j);assert(r.x+r.w<=q.x||q.x+q.w<=r.x||r.y+r.h<=q.y||q.y+q.h<=r.y);}}
  assert(mm::MenuHomeTabCount==4&&mm::MenuHomeTabIcon==24&&mm::MenuHomeTabH==38);// Plus: compact 38 px tabs, 24 px icon over the label
  assert(mm::HomeTabs[2].section==19);for(auto app:mm::Applications)assert(app.section!=19&&app.section!=0&&app.section!=1);
@@ -92,7 +92,7 @@ int main(){
   for(int row=0;row<mm::MenuHomeRows;row++){auto box=mm::menuHomeRowRect(row);for(int y=box.y;y<box.y+box.h;y++)for(int x=box.x;x<box.x+box.w;x++)assert(scrolled[y*mm::W+x]==px(x,y));}
  }
  for(auto page:{mm::Page::Weather,mm::Page::Files,mm::Page::Mesh,mm::Page::Settings}){s.page=page;r.draw(s);assert(px(0,mm::FooterY)==mm::BG);}// no footer rule across the bottom
- s.lockHasMessage=true;s.receivedName="Ridge_L1 🇮🇹";r.lock(s);auto lockPixels=shot();assert(s.receivedName=="Ridge_L1 🇮🇹");s.receivedName="Ridge_L1";r.lock(s);assert(shot()==lockPixels);
+ s.lockHasMessage=true;s.receivedName="Ridge_L1 🇮🇹";r.lock(s);auto lockPixels=shot();assert(s.receivedName=="Ridge_L1 🇮🇹");s.receivedName="Ridge_L1";r.lock(s);assert(shot()!=lockPixels);/* the flag is drawn */
  // Plus Home header: clock (MenuClock) and date left-aligned in MenuHomeClock's column, left of the divider; the right box
  // (here: logo + contact count + fact, no weather) centred between the divider and the right margin. The Max centred
  // clock/date/status in MenuHomeClock; the Plus does not use those two info rects.

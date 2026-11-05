@@ -63,7 +63,7 @@ static void workLoop(){
  if(decoder)decoder->~PNG();heap_caps_free(decoderMemory);heap_caps_free(luma);heap_caps_free(png);
 }
 // Ends after the loop so the TLS client and HTTP objects are destroyed first.
-static void worker(void*){workLoop();vTaskDelete(nullptr);}
+static void worker(void*){networkJobBegin();workLoop();networkJobEnd();vTaskDelete(nullptr);}
 
 // ---- main loop: RAM slots, SD cache, request bookkeeping -----------------
 void mapTilesBegin(fs::FS &fs,bool sdReady){
