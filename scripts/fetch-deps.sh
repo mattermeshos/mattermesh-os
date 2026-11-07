@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch the pinned third-party sources both firmware trees build against, apply the local patches and link them
-# into tdeck-plus/ and tdeck-max/ (each tree expects ./hardware and ./meshcore-base next to platformio.ini).
+# into tdeck-plus/, tdeck-max/ and thinknode-m9/ (each tree expects ./hardware and ./meshcore-base next to platformio.ini).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -15,7 +15,7 @@ fetch https://github.com/meshcore-dev/MeshCore.git 81dbae592ffad40b4212bc0b37e82
 fetch https://github.com/Xinyuan-LilyGO/T-Deck-MAX.git 7b7f834746499676eb14dfc987c586b0df6aa361 t-deck-max
 git -C deps/meshcore apply "$ROOT/tdeck-max/tools/patches/meshcore-login-password.patch"
 git -C deps/t-deck-max apply "$ROOT/patches/lilygo-tdeck-max.patch"
-for tree in tdeck-plus tdeck-max; do
+for tree in tdeck-plus tdeck-max thinknode-m9; do
   ln -sfn "$ROOT/deps/meshcore" "$tree/meshcore-base"
   ln -sfn "$ROOT/deps/t-deck-max" "$tree/hardware"
 done

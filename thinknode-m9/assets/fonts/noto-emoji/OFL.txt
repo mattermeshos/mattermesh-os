@@ -1,0 +1,1 @@
+../../../../shared/fonts/noto-emoji/OFL.txt

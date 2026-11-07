@@ -1,0 +1,19 @@
+#pragma once
+#include <Arduino.h>
+#include "policy.h"
+namespace device {
+// The screen backlight never goes fully dark while the screen is awake: 1 % is the lowest level.
+constexpr uint8_t DISPLAY_MIN_LEVEL=3;
+struct PowerState {uint32_t displaySeconds=30,keyboardSeconds=30,lastActivity=0;bool displayAwake=true,keyboardAwake=true,displayEnabled=true,keyboardEnabled=true;uint32_t notificationFlashes=0;uint8_t displayPWM=0,keyboardPWM=0;};
+void powerLocked(bool locked);
+void unlockLightPreview(bool active);
+// Lights the display for ms (T-Deck Plus LCD: a SPACE press on the lock screen, an incoming message), locked or idle.
+void wakeDisplay(uint32_t ms);
+int32_t wakeRemaining();bool unlockPreviewActive();// USB diagnostics
+bool lightEnabled(bool keyboard,bool enabled);void flashKeyboardNotification();bool notificationFlashing();
+void powerBegin(uint8_t display,uint8_t keyboard);void powerLoop();void activity();
+// Hold: while active (dictation recording/transcribing) the display/keyboard lights keep their current
+// state and the idle clock does not advance (so no dimming and no auto-lock); when released, the idle
+// timers start one second later. Call every loop with the current busy state.
+void brightness(uint8_t display,uint8_t keyboard);bool timeout(bool keyboard,uint32_t seconds);PowerState powerState();
+}

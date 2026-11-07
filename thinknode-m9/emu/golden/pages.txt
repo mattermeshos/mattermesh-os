@@ -1,0 +1,25 @@
+# Reference pages of the M9 emulator (emu/tests/golden.py): name | steps from Home
+home ~3 |
+chats | tap 37
+chat | tap 37; tap 21
+new-chat-menu | tap 37; tap 42
+apps | serial apps
+quick-settings | tap 40
+settings | serial section 19
+lora | serial section 2
+lights | serial section 6
+power | serial section 20
+battery | serial section 5
+date-time ~3 | serial section 16
+gps ~2 | serial section 3
+wifi | serial section 4
+companion-link | serial section 41
+web | serial section 47
+about | serial section 8
+weather | serial section 10
+files ~2 | serial section 7
+cli | serial section 30
+rpt-diagnostic | serial section 26
+rpt-scanner | serial section 27
+rx-log | serial section 28
+noise-floor | serial section 29

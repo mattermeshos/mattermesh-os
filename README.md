@@ -22,8 +22,9 @@ This repository holds the source of the **Free edition**, released under the GNU
 |---|---|---|
 | [`tdeck-plus/`](tdeck-plus) | T-Deck Plus (ESP32-S3, SX1262 or SX1268; 433, 868 and 915 MHz) | 320×240 colour LCD, touch |
 | [`tdeck-max/`](tdeck-max) | T-Deck Max (ESP32-S3, SX1262) | 240×320 e-paper, touch |
+| [`thinknode-m9/`](thinknode-m9) | Elecrow ThinkNode M9 (ESP32-S3, LR1110) | 320×240 colour LCD, keyboard and D-pad, no touch: the whole UI is reachable with the arrows and OK |
 
-The two devices are separate code bases (different screens, input and power management); they share the
+The devices are separate code bases (different screens, input and power management); they share the
 MeshCore companion protocol, so they work with the MeshCore apps and with every other MeshCore node.
 
 ## What's in the Free edition
@@ -43,6 +44,7 @@ Requirements: [PlatformIO Core](https://platformio.org/install/cli), git, a C++1
 scripts/fetch-deps.sh                 # MeshCore companion-v1.18.0 and the LilyGO T-Deck-MAX libraries, pinned and patched
 cd tdeck-plus && pio run -e tdeck-plus-free          # T-Deck Plus
 cd tdeck-max  && pio run -e mattermesh-free          # T-Deck Max
+cd thinknode-m9 && pio run -e thinknode-m9-free     # ThinkNode M9
 ```
 
 Flash the app image at `0x10000` (for example `esptool.py write-flash 0x10000 .pio/build/<env>/firmware.bin`).
