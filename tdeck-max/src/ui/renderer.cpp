@@ -384,6 +384,12 @@ void Renderer::chat(const State &s){
  auto accentLetters=s.accent?mm_kbd::accentBar(mm_kbd::Lang(s.kbdLang),s.accentTaps,"  "):std::string();
  if(!accentLetters.empty()){Rect bar={composer.x,composer.y-32,composer.w,28};g.fillRoundRect(bar.x,bar.y,bar.w,bar.h,8,FG);c.centered(bar.x,bar.y+(bar.h-c.lineHeight(Font::ChatTitle))/2,bar.w,accentLetters,Font::ChatTitle,BG);
   g.fillRoundRect(ComposerEmoji.x+2,ComposerEmoji.y+2,ComposerEmoji.w-4,ComposerEmoji.h-5,5,FG);c.centered(ComposerEmoji.x,ComposerEmoji.y+(ComposerEmoji.h-c.lineHeight(Font::ChatTitle))/2,ComposerEmoji.w,"\xc3\xa0",Font::ChatTitle,BG);}
+ if(s.composerSym&&!s.accent){/* sym held or tapped once (e-paper): the emoji button's own space turns black with "sym", one pixel inside the
+    card's border and the divider; a small corner mark while it lasts for one key only */
+  const int x0=ComposerEmoji.x,x1=composer.x+composer.w-3,yb=composer.y+composer.h-3,y0=std::max(composer.y+3,int(ComposerEmoji.y)),r=4;/* the card border is 2 px on the Max */
+  g.fillRoundRect(x0,y0,x1-x0,yb-y0,r,FG);g.fillRect(x0,y0,r,yb-y0,FG);if(y0>composer.y+3)g.fillRect(x0,y0,x1-x0,r,FG);
+  c.centered(x0,y0+(yb-y0-c.lineHeight(Font::ChatMeta))/2,x1-x0,"sym",Font::ChatMeta,BG);
+  if(s.composerSymOnce)g.fillTriangle(x1-8,yb-3,x1-4,yb-3,x1-4,yb-7,BG);}
  for(int i=0;i<int(s.holdMenu.size());i++){Rect b=holdMenuButton(i,s.holdMenu.size(),s.holdMenuY);g.fillRoundRect(b.x-3,b.y-3,b.w+6,b.h+6,8,BG);c.button(b,s.holdMenu[i],true);}
  if(s.emojiPicker){
   g.fillRect(0,EmojiPopup.y-3,W,ComposerY-EmojiPopup.y+3,BG);c.card(EmojiPopup,false,6);
@@ -393,7 +399,7 @@ void Renderer::chat(const State &s){
   for(int i=0;i<int(items.size())&&i<EmojiPageSize;i++){Rect r=emojiChoiceRect(i);bool on=s.emojiFocus==i;if(on)c.card(r,true,5);g.drawBitmap(r.x+(r.w-24)/2,r.y+(r.h-24)/2,mm_emoji_picker::glyphs[items[i]].pixels,24,24,on?BG:FG);}
   int footY=EmojiPopup.y+EmojiPopup.h-15;c.text(EmojiPopup.x+8,footY,s.emojiTab?mm_emoji_picker::categories[s.emojiTab-1].label:"Most used",Font::ChatMeta);std::string hint="N/M tab  ENTER add";c.text(EmojiPopup.x+EmojiPopup.w-8-c.width(hint,Font::ChatMeta),footY,hint,Font::ChatMeta);
  }
- if(s.messageMenu){g.fillRect(0,Top,W,H-Top,BG);Rect info={Margin,Top+4,W-2*Margin,Bottom-Top-8};g.fillRect(info.x,info.y,info.w,info.h,BG);c.card(info);c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Clear chat","Send GPS position","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
+ if(s.messageMenu){g.fillRect(0,Top,W,H-Top,BG);Rect info={Margin,Top+4,W-2*Margin,Bottom-Top-8};g.fillRect(info.x,info.y,info.w,info.h,BG);c.card(info);c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Clear chat","Send GPS position",s.chatOpenUnread?"Open at: unread":"Open at: latest","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
  if(s.scopePicker){
   Rect panel=overlayPanel();c.text(Margin+8,Top+12,s.notice.empty()?"Region scope":s.notice,s.notice.empty()?Font::ChatTitle:Font::ChatMeta,FG,panel.w-16);
   int offset=std::max(0,std::min(s.scopeOffset,std::max(0,int(s.regionScopes.size())-1)));
@@ -926,7 +932,7 @@ void Renderer::section(const State &s){
   if(n){g.fillRect(x0,y0,side,side,BG);for(int y=0;y<n;y++)for(int x=0;x<n;x++)if(modules[y*n+x])g.fillRect(x0+(x+2)*scale,y0+(y+2)*scale,scale,scale,FG);}
   const int w=W-2*Margin;int y=n?y0+side+8:qrY+8;
   auto para=[&](const std::string &text,Font f,int step){for(auto &line:c.lines(text,w,f)){c.centered(Margin,y,w,line,f);y+=step;}};
-  if(unlock){para("RPT Scanner, RPT Diagnostic, RX Log, Noise Floor.",Font::ChatMeta,14);y+=4;c.centered(Margin,y,w,"Your unlock code",Font::ChatMeta);c.centered(Margin,y+15,w,s.unlockCode,Font::ChatTitle);y+=40;para("Buy on Ko-fi, then redeem at mattermeshos.com/unlock",Font::ChatMeta,14);}
+  if(unlock){para("Every Extra app, today and future ones. The list: mattermeshos.com/#apps",Font::ChatMeta,14);y+=4;c.centered(Margin,y,w,"Your unlock code",Font::ChatMeta);c.centered(Margin,y+15,w,s.unlockCode,Font::ChatTitle);y+=40;para("Buy on Ko-fi, then redeem at mattermeshos.com/unlock",Font::ChatMeta,14);}
   else{para("MatterMesh OS is free. A donation of any amount on Ko-fi helps hardware and field tests.",Font::ChatMeta,14);y+=4;para("ko-fi.com/mattermeshos",Font::ChatMeta,14);}
  }else if(s.page==Page::Battery){
   c.icon(Icon::Battery,(W-32)/2,Top+10,32);c.centered(Margin,Top+50,W-2*Margin,s.status.battery<0?"--%":std::to_string(s.status.battery)+"%",Font::Clock);

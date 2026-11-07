@@ -11,6 +11,8 @@ int main(){using namespace device;
  assert(messageOpening("")&&messageOpening("@[Mario] ")&&messageOpening("@[Mario] @[Anna K] ")&&!messageOpening("ciao")&&!messageOpening("@[Mario] ciao ")&&!messageOpening("@[Mar"));
  assert(accented('e',"@[Mario] ",false)=="\xc3\x88");
  assert(accented('e',"perch",false)=="\xc3\xa9"&&accented('e',"",false)=="\xc3\x88"&&accented('e',"lui ",false)=="\xc3\xa8"&&accented('a',"citt",false)=="\xc3\xa0"&&accented('O',"per",true)=="\xc3\x92"&&accented('x',"",false).empty());
- m.update(32,true);assert(m.symbols());m.update(32,false);assert(!m.symbols());
+ m.update(32,true);assert(m.symbols());m.update(12,true);m.update(12,false);m.update(32,false);assert(!m.symbols());/* sym held with a key: off when released */
+ m.update(32,true);m.update(32,false);assert(m.symbols()&&m.symLatch);m.typed();assert(!m.symbols());/* sym tapped alone: the next key only */
+ m.update(32,true);m.update(32,false);m.update(32,true);m.update(32,false);assert(!m.symbols());/* a second tap cancels it */
  std::cout<<"PASS: case-sensitive password/CLI/name editors, case-insensitive menus, Alt/Sym/Shift, accented vowels\n";
 }

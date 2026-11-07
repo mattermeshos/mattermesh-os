@@ -10,17 +10,19 @@ static bool mwOn=false;static char mwCode[5]="";static String mwToken,mwPeer;sta
 enum class MwStep {Idle,Header,Body};static MwStep mwStep=MwStep::Idle;static std::string mwHead,mwBody,mwMethod,mwTarget;static size_t mwLength=0;static uint32_t mwLast=0;
 static constexpr uint32_t MwHeaderTimeoutMs=5000,MwBudgetMs=25,MwSessionIdleMs=120000;static constexpr size_t MwMaxBody=2048;
 
-static void mwNewCode(){snprintf(mwCode,sizeof mwCode,"%04u",unsigned(esp_random()%10000));mwFails=0;}
+static void mwNewCode(){snprintf(mwCode,sizeof mwCode,"%04u",unsigned(esp_random()%10000));mwFails=0;device::prefPutString("mmweb","code",String(mwCode));}
 static bool mwLinked(){return mwToken.length()&&millis()-mwSeenAt<MwSessionIdleMs;}
 static String mwAddress(){auto c=device::connectivityStatus();return c.connected&&c.address.length()?"http://"+c.address:String();}
-// Only the switch on its page turns it on (never at boot); a restart leaves it off.
+/* The switch on its page turns it on or off; that choice is kept (NVS mmweb/on): after a restart (an OTA update too)
+   it comes back on with the same code and the same browser session, so the open page carries on. */
 static bool mwPaused=false;// the Trails upload page took port 80: back on when it closes
-static void webStart(){if(mwOn)return;mwNewCode();mwToken="";mwPeer="";mwServer.begin();mwOn=true;mwPaused=false;mwStep=MwStep::Idle;Serial.println("WEB_ON");}
+static void webStart(bool restore=false){if(mwOn)return;
+ if(restore&&device::prefGetString("mmweb","code").length()==4){strlcpy(mwCode,device::prefGetString("mmweb","code").c_str(),sizeof mwCode);mwFails=0;mwToken=device::prefGetString("mmweb","tok");mwSeenAt=millis();mwPeer="";}else{mwNewCode();mwToken="";mwPeer="";}mwServer.begin();mwOn=true;mwPaused=false;mwStep=MwStep::Idle;Serial.println("WEB_ON");}
 static void webStop(){if(!mwOn)return;if(mwClient)mwClient.stop();mwServer.end();mwOn=false;mwStep=MwStep::Idle;mwHead.clear();mwBody.clear();mwToken="";mwPeer="";Serial.println("WEB_OFF");}
 bool webActive(){return mwOn;}
 void webPause(){if(mwOn){webStop();mwPaused=true;}}
 void webResume(){if(mwPaused)webStart();}
-static void mwCloseSession(){mwToken="";mwPeer="";mwNewCode();}
+static void mwCloseSession(){mwToken="";device::prefPutString("mmweb","tok",String());mwPeer="";mwNewCode();}
 
 // ---- HTTP
 static void mwReply(int status,const char *type,const char *body,size_t len){
@@ -50,21 +52,39 @@ static String mwAge(uint32_t seconds){if(seconds<60)return String(seconds)+" s";
 // ---- API
 static std::string mwDevice(){auto b=device::batteryState();auto c=device::connectivityStatus();time_t now=time(nullptr);String clock=now>=MM_EPOCH_MIN?messageTime(uint32_t(now)):String("--:--");
  return "{\"name\":"+mwStr(matter::snapshot().config.name)+",\"version\":\"" MM_RELEASE_LABEL "\",\"battery\":"+std::to_string(b.percent)+",\"wifiRssi\":"+std::to_string(c.rssi)+",\"clock\":"+mwStr(clock)+",\"theme\":"+std::to_string(lockWallpaper)+"}";}
-static std::string mwState(){std::string o="{\"device\":"+mwDevice()+",\"chats\":[";time_t now=time(nullptr);
+bool chatOpenUnread();
+static std::string mwState(){std::string o="{\"openAt\":"+std::string(chatOpenUnread()?"1":"0")+",\"device\":"+mwDevice()+",\"chats\":[";/* openAt 1: Chat options > Open chats at the first unread, the page too */time_t now=time(nullptr);
  for(int i=0;i<chatCount;i++){if(i)o+=",";String preview="",age="";uint32_t total=0;
   if(auto s=radioJournal.summary(i))if(s->total){total=s->total;auto &r=s->last;preview=(r.mine?String("You: "):chats[i].direct?String():r.sender+": ")+r.body;
    if(now>=MM_EPOCH_MIN&&r.timestamp>=MM_EPOCH_MIN&&r.timestamp<=uint32_t(now)){uint32_t m=(uint32_t(now)-r.timestamp)/60;age=m<60?String(m)+"m":m<1440?String(m/60)+"h":String(m/1440)+"d";}}
   o+="{\"id\":"+std::to_string(i)+",\"name\":"+mwStr(chats[i].name)+",\"scope\":"+mwStr(chats[i].scope)+",\"direct\":"+(chats[i].direct?"true":"false")+",\"unread\":"+std::to_string(unreadMessages[i])+
    ",\"muted\":"+((mutedChannels>>i)&1?"true":"false")+",\"total\":"+std::to_string(total)+",\"limit\":"+std::to_string(messageByteLimit(i))+",\"preview\":"+mwStr(preview)+",\"age\":"+mwStr(age)+"}";}
  return o+"]}";}
-static std::string mwChat(int chat){std::string o="{\"messages\":[";bool first=true;std::vector<const matter::Record*> list;
- for(auto it=radioJournal.records.rbegin();it!=radioJournal.records.rend()&&list.size()<60;++it)if(it->chat==chat)list.push_back(&*it);
+/* A page of a chat, oldest first: the newest `limit` messages, or the `limit` before the token `before` (older history).
+   The T-Deck keeps only the last few messages in RAM: the others are read from the SD journal through its index. */
+static std::string mwChat(int chat,uint32_t before,int limit,bool seen,uint32_t since){std::string o="{\"messages\":[";bool first=true;limit=constrain(limit,1,40);
+ std::vector<uint32_t> tokens;bool started=before==0,more=false;
+ /* since: the page already has everything up to that token; only what is newer, plus the last 4 (their status and repeats change) */
+ bool passed=false;for(auto it=radioJournal.index.rbegin();it!=radioJournal.index.rend();++it){if(it->chat!=chat)continue;if(!started){started=it->token==before;continue;}if(since&&it->token==since)passed=true;if(passed&&tokens.size()>=4)break;if(int(tokens.size())==limit){more=true;break;}tokens.push_back(it->token);}
+ /* one record at a time (open, read, close), as the T-Deck reads its own history: never a journal handle kept across
+    many reads (a long-held read handle crashed in FatFs on the real Plus, 2026-11-06); the RAM copy first */
+ std::vector<matter::Record> loaded;loaded.reserve(tokens.size());
+ for(auto token:tokens){matter::Record r;if(radioJournal.readRecord(token,r,true))loaded.push_back(r);yield();}
+ /* read in the browser = read on the T-Deck (the page sends seen=1 only while it shows this chat) */
+ if(seen&&!before&&unreadMessages[chat]){auto s=radioJournal.summary(chat);uint32_t latest=s?s->lastRX:0;if(latest&&device::commitPaintedRead(radioJournal,chat,latest,latest,unreadMessages[chat],unreadMessages[chat])){markRadioDirty();if(!deviceLocked)render();}}
+ std::vector<const matter::Record*> list;for(auto &r:loaded)list.push_back(&r);
  const bool dm=chats[chat].direct;
  for(auto it=list.rbegin();it!=list.rend();++it){auto &r=**it;if(!first)o+=",";first=false;
   // As the T-Deck chat: own channel message = repeats heard ("Heard x3"), own direct message = delivery status.
   String meta=r.mine?(dm||r.status.startsWith("Not sent")||r.status.startsWith("Pending")?r.status:String("Heard x")+(r.repeaters<0?String("--"):String(r.repeaters))):(r.hops<0?String(dm?"direct":"? hop"):String(r.hops)+" hop");if(!r.mine&&!dm)meta+=" | "+r.scope;
   o+="{\"token\":"+std::to_string(r.token)+",\"mine\":"+(r.mine?"true":"false")+",\"sender\":"+mwStr(r.sender)+",\"body\":"+mwStr(r.body)+",\"time\":"+mwStr(messageTime(r.timestamp))+",\"meta\":"+mwStr(meta)+",\"heard\":"+mwStr(r.heard)+",\"repeaters\":"+std::to_string(r.repeaters)+"}";}
- return o+"]}";}
+ /* the T-Deck's line under the chat name, from the newest message: own = first repeater that repeated it, received =
+    the repeater it came in through (last flood hop), else the DM path */
+ std::string via;auto name=[](const std::string &hash){int matches=0;String n=matter::nodeNameForPrefix(hash.c_str(),matches,2);std::string label=mm::senderDisplayName(n.c_str());return matches==1&&!label.empty()?label:"["+hash+"]";};
+ if(!list.empty()){auto &r=*list.front();std::string first=r.heard.c_str();first=first.substr(0,first.find(','));
+  if(r.mine&&!first.empty())via="First RPT: "+name(first);else if(!r.mine){std::string h=device::incomingRepeater(r.path.c_str());if(!h.empty())via="Received via: "+name(h);}}
+ if(via.empty()&&dm&&peerKeys[chat].length()){uint8_t encoded=mm::DirectPathUnknown,bytes[64];if(matter::contactPath(peerKeys[chat],encoded,bytes,sizeof(bytes)))via=mm::directPathLine(encoded,bytes,int(matter::dmRouteMode(peerKeys[chat])));}
+ return o+"],\"via\":"+mwStr(via.c_str())+",\"more\":"+(more?"true":"false")+"}";}
 static std::string mwNetwork(){auto s=matter::snapshot();auto c=device::connectivityStatus();auto b=device::batteryState();uint32_t up=millis()/1000;char f[24];
  snprintf(f,sizeof f,"%.3f",s.config.frequency);std::string bw=String(s.config.bandwidth,s.config.bandwidth==int(s.config.bandwidth)?0:1).c_str();
  std::vector<matter::Node> nodes=matter::nodes(0,0,96);std::stable_sort(nodes.begin(),nodes.end(),[](const matter::Node &a,const matter::Node &b){if(a.live!=b.live)return a.live;return int32_t(a.seen-b.seen)>0;});
@@ -80,12 +100,19 @@ static std::string mwNetwork(){auto s=matter::snapshot();auto c=device::connecti
   o+="{\"name\":"+mwStr(n.name)+",\"type\":"+std::to_string(n.type)+",\"hops\":"+std::to_string(n.hops)+",\"live\":"+(n.live?"true":"false")+",\"rssi\":"+std::to_string(int(n.rssi))+",\"snr\":"+std::to_string(int(n.snr))+",\"age\":"+mwStr(n.live?mwAge(age):String("saved"))+","+p+"}";}
  return o+"]}";}
 // Message info (the T-Deck's hold on a sender / own message): route with repeater names, repeats heard, status.
+/* the position a node advertised, by key prefix or by name (only when exactly one node has it) */
+static bool mwNodeAt(const String &prefix,const String &name,double &lat,double &lon){int found=0;
+ for(auto &n:matter::nodes(0)){if(!(n.lat||n.lon))continue;bool hit=prefix.length()?n.key.startsWith(prefix):n.name==name;if(hit){lat=n.lat/1e6;lon=n.lon/1e6;found++;}}return found==1;}
+static std::string mwAt(double lat,double lon){char p[48];snprintf(p,sizeof p,",\"lat\":%.5f,\"lon\":%.5f",lat,lon);return p;}
 static std::string mwHashRows(String list,int type){std::string o="[";bool first=true;list.trim();
  while(list.length()){int split=list.indexOf(',');String hash=split<0?list:list.substring(0,split);hash.trim();hash.toLowerCase();
   if(hash.length()>=2&&hash.length()<=8){int matches=0;String name=matter::nodeNameForPrefix(hash,matches,type);
-   if(!first)o+=",";first=false;o+="{\"hash\":"+mwStr(hash)+",\"name\":"+mwStr(matches==1?String(mm::senderDisplayName(name.c_str()).c_str()):matches>1?String("ambiguous"):String(""))+"}";}
+   if(!first)o+=",";first=false;double la,lo;o+="{\"hash\":"+mwStr(hash)+",\"name\":"+mwStr(matches==1?String(mm::senderDisplayName(name.c_str()).c_str()):matches>1?String("ambiguous"):String(""))+(mwNodeAt(hash,"",la,lo)?mwAt(la,lo):"")+"}";}
   if(split<0)break;list.remove(0,split+1);}
  return o+"]";}
+/* message map: where this T-Deck is and where the sender advertised from (names as the chat shows them) */
+static std::string mwPlaces(const matter::Record &r){std::string o;auto me=device::locationState();if(me.configured||me.fix)o+=",\"self\":{"+mwAt(me.latitude,me.longitude).substr(1)+"}";
+ double la,lo;if(!r.mine&&r.sender.length()&&mwNodeAt("",r.sender,la,lo))o+=",\"from\":{"+mwAt(la,lo).substr(1)+"}";return o;}
 static void mwInfo(int chat,uint32_t token){matter::Record r;bool found=false;
  for(auto &x:radioJournal.records)if(x.token==token&&x.chat==chat){r=x;found=true;break;}
  if(!found){mwError(404,"Message not in memory");return;}
@@ -93,7 +120,7 @@ static void mwInfo(int chat,uint32_t token){matter::Record r;bool found=false;
  char date[24]="";if(r.timestamp>=MM_EPOCH_MIN){time_t t=r.timestamp;struct tm tm;localtime_r(&t,&tm);strftime(date,sizeof date,"%d/%m/%Y %H:%M:%S",&tm);}
  mwJson(200,"{\"sender\":"+mwStr(r.sender)+",\"mine\":"+(r.mine?"true":"false")+",\"direct\":"+(chats[chat].direct?"true":"false")+",\"date\":\""+date+"\",\"hops\":"+std::to_string(r.hops)+
   ",\"scope\":"+mwStr(r.scope)+",\"status\":"+mwStr(r.status)+",\"repeaters\":"+std::to_string(r.repeaters)+",\"route\":"+mwStr(route)+",\"path\":"+mwHashRows(route=="flood"?path:String(),0)+
-  ",\"heard\":"+mwHashRows(r.heard,2)+",\"body\":"+mwStr(r.body)+"}");}
+  ",\"heard\":"+mwHashRows(r.heard,2)+",\"body\":"+mwStr(r.body)+mwPlaces(r)+"}");}
 // @ in the composer: people who wrote in this chat lately first, then the saved companions (no repeaters).
 static std::string mwMention(int chat){std::vector<String> names;
  for(auto it=radioJournal.records.rbegin();it!=radioJournal.records.rend()&&names.size()<12;++it)if(it->chat==chat&&!it->mine&&it->sender.length()&&std::find(names.begin(),names.end(),it->sender)==names.end())names.push_back(it->sender);
@@ -110,6 +137,12 @@ static void mwChannel(DynamicJsonDocument &in){int form=in["form"]|1;if(form<1||
  screen=shown;section=shownSection;selected=ok&&shown==Screen::Chats?selected:shownSelected;newKey="";newName="";newScope="";notice="";render();
  if(!ok){mwError(409,message.length()?message:String("Channel not saved"));return;}
  mwJson(200,"{\"id\":"+std::to_string(chatCount-1)+",\"message\":"+mwStr(message)+"}");}
+/* RESEND from the browser, as on the T-Deck: the same body and region scope of an own message, sent again in its chat */
+static void mwResend(DynamicJsonDocument &in){int chat=in["chat"]|-1;uint32_t token=in["token"]|0u;matter::Record r;
+ if(chat<0||chat>=chatCount||!radioJournal.readRecord(token,r,true)||!r.mine||r.chat!=chat){mwError(400,"Select your sent message");return;}
+ std::vector<matter::Record> one{r};auto payload=device::resendPayload(r,chat,chat,one);if(!payload.valid){mwError(400,payload.error.c_str());return;}
+ String scope=payload.scope.c_str();uint32_t queued=0;bool ok=queueRadioMessage(payload.body.c_str(),payload.scoped?&scope:nullptr,chat,&queued);String message=notice;notice="";if(!deviceLocked)render();
+ if(!ok){mwError(409,message.length()?message:String("Not sent"));return;}mwJson(200,"{\"ok\":true,\"message\":"+mwStr(message)+"}");}
 static void mwSend(DynamicJsonDocument &in){int chat=in["chat"]|-1;String text=in["text"]|"";
  if(chat<0||chat>=chatCount){mwError(400,"Conversation unavailable");return;}
  uint32_t token=0;bool ok=queueRadioMessage(text,nullptr,chat,&token);String message=notice;notice="";if(!deviceLocked)render();
@@ -123,17 +156,19 @@ static void mwHandle(){
  DynamicJsonDocument in(mwMethod=="POST"&&mwBody.size()?MwMaxBody+512:16);/* GETs never read it: no 2.5 KB internal alloc per poll */if(mwMethod=="POST"&&mwBody.size()&&deserializeJson(in,mwBody)){mwError(400,"Bad JSON");return;}
  if(route=="/api/login"&&mwMethod=="POST"){String pin=in["pin"]|"";
   if(pin!=mwCode){if(++mwFails>=5){mwNewCode();render();mwError(401,"Too many tries: read the new code on the T-Deck");}else mwError(401,"Wrong code");return;}
-  char t[33];for(int i=0;i<4;i++)snprintf(t+i*8,9,"%08lx",(unsigned long)esp_random());mwToken=t;mwFails=0;mwSeenAt=millis();mwPeer=mwClient.remoteIP().toString();
+  char t[33];for(int i=0;i<4;i++)snprintf(t+i*8,9,"%08lx",(unsigned long)esp_random());mwToken=t;mwFails=0;device::prefPutString("mmweb","tok",mwToken);mwSeenAt=millis();mwPeer=mwClient.remoteIP().toString();
   Serial.printf("WEB_LOGIN peer=%s\n",mwPeer.c_str());render();mwJson(200,std::string("{\"token\":\"")+t+"\"}");return;}
  if(!mwToken.length()||mwQuery("t")!=mwToken||!mwLinked()){mwError(401,"Session closed");return;}
+ if(!mwPeer.length())mwPeer=mwClient.remoteIP().toString();/* a session kept across a restart: its browser */
  mwSeenAt=millis();
  if(route=="/api/state"){mwJson(200,mwState());return;}
- if(route=="/api/chat"){int id=mwQuery("id").toInt();if(id<0||id>=chatCount){mwError(404,"No such chat");return;}mwJson(200,mwChat(id));return;}
+ if(route=="/api/chat"){int id=mwQuery("id").toInt();if(id<0||id>=chatCount){mwError(404,"No such chat");return;}mwJson(200,mwChat(id,strtoul(mwQuery("before").c_str(),nullptr,10),mwQuery("limit").length()?mwQuery("limit").toInt():30,mwQuery("seen")=="1",strtoul(mwQuery("since").c_str(),nullptr,10)));return;}
  if(route=="/api/network"){mwJson(200,mwNetwork());return;}
  if(route=="/api/info"){int id=mwQuery("chat").toInt();if(id<0||id>=chatCount){mwError(404,"No such chat");return;}mwInfo(id,strtoul(mwQuery("token").c_str(),nullptr,10));return;}
  if(route=="/api/mention"){int id=mwQuery("chat").toInt();if(id<0||id>=chatCount){mwError(404,"No such chat");return;}mwJson(200,mwMention(id));return;}
  if(route=="/api/key"){mwJson(200,"{\"key\":"+mwStr(randomChannelSecret())+"}");return;}
  if(mwMethod!="POST"){mwError(404,"Unknown request");return;}
+ if(route=="/api/resend"&&mwMethod=="POST"){mwResend(in);return;}
  if(route=="/api/send"){mwSend(in);return;}
  if(route=="/api/channel"){mwChannel(in);return;}
  if(route=="/api/logout"){mwCloseSession();render();mwJson(200,"{\"ok\":true}");return;}
@@ -152,7 +187,7 @@ static void mwReadBody(){uint32_t t0=millis();
  while(mwBody.size()<mwLength&&mwClient.available()&&millis()-t0<MwBudgetMs){int c=mwClient.read();if(c<0)break;mwLast=millis();mwBody+=char(c);}
  if(mwBody.size()>=mwLength){mwHandle();return;}
  if(!mwClient.connected()||millis()-mwLast>MwHeaderTimeoutMs){mwClient.stop();mwStep=MwStep::Idle;mwHead.clear();mwBody.clear();}}
-void webLoop(){
+void webLoop(){static bool booted=false;if(!booted){booted=true;if(device::prefGetInt("mmweb","on",0)==1)webStart(true);}
  if(!mwOn)return;
  static bool shownLinked=false;bool linked=mwLinked();if(linked!=shownLinked){shownLinked=linked;if(screen==Screen::Section&&section==mm::WebAppSection)render();}
  if(mwStep==MwStep::Idle){WiFiClient next=mwServer.available();if(!next)return;mwClient=next;mwStep=MwStep::Header;mwHead.clear();mwLast=millis();}
@@ -160,7 +195,7 @@ void webLoop(){
 
 // ---- the T-Deck page (section 47)
 void webCompose(mm::State &v){v.webOn=mwOn;v.webAddress=mwAddress().c_str();v.webCode=mwCode;v.webLinked=mwLinked();v.webPeer=mwPeer.c_str();v.webFocus=mwFocus;}
-static void mwToggle(){if(mwOn)webStop();else webStart();notice=mwOn?(mwAddress().length()?"Open the address in a browser":"Connect to Wi-Fi first"):"MatterMesh Web off";render();}
+static void mwToggle(){if(mwOn)webStop();else webStart();device::prefPutInt("mmweb","on",mwOn?1:0);notice=mwOn?(mwAddress().length()?"Open the address in a browser":"Connect to Wi-Fi first"):"MatterMesh Web off";render();}
 static void mwAction(int i){if(i==0){mwToggle();return;}if(!mwOn)return;
  if(i==1){mwCloseSession();notice="Session closed / new code";render();return;}}
 bool webKey(char c){if(!(screen==Screen::Section&&section==mm::WebAppSection))return false;
@@ -171,5 +206,5 @@ bool webTap(int x,int y){if(!(screen==Screen::Section&&section==mm::WebAppSectio
  if(mm::WebAppToggle.contains(x,y)){mwToggle();return true;}if(mm::WebAppClose.contains(x,y)){mwAction(1);return true;}return true;}
 // Serial (tests): "web status|on|off|code|close".
 bool webSerial(const String &s){if(!s.startsWith("web ")&&s!="web")return false;
- if(s=="web on"){webStart();render();}else if(s=="web off"){webStop();render();}else if(s=="web close"){mwCloseSession();render();}
+ if(s=="web on"){webStart();device::prefPutInt("mmweb","on",1);render();}else if(s=="web off"){webStop();device::prefPutInt("mmweb","on",0);render();}else if(s=="web close"){mwCloseSession();render();}
  Serial.printf("WEB_STATUS on=%d address=%s code=%s linked=%d peer=%s fails=%d\n",mwOn,mwAddress().c_str(),s=="web code"?mwCode:"****",mwLinked(),mwPeer.c_str(),mwFails);return true;}

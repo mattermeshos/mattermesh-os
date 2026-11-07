@@ -107,7 +107,7 @@ bool batteryEstimated=false,batteryCharging=false,batteryFull=false;
  uint32_t radioPacketsRX=0,radioPacketsTX=0;
  float radioFrequency=869.618f,radioBW=62.5f;
  std::string radioName="MatterMesh";std::vector<Node> nodes;
- bool sd=false,touch=false,keyboard=false,hapticReady=false,haptic=true,caps=false,symbols=false,accent=false;
+ bool sd=false,touch=false,keyboard=false,hapticReady=false,haptic=true,caps=false,symbols=false,accent=false,composerSym=false,composerSymOnce=false;/* composerSym: sym held or tapped once, shown in the emoji button space */bool chatOpenUnread=false;/* Chat options > Open chats at: the first unread message (else the latest) */
  int cpuMHz=240;uint32_t stackFree=0,rasterMs=0,paintMs=0;
  int heapKB=0,flashMB=16;
  int keyboardLight=180,displayLight=100,voltage=-1;

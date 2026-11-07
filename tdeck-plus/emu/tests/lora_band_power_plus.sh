@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LoRa page band buttons and the TX power draft: 868 at 14 dBm -> 900 keeps 14, -> 433 takes 10 (band default),
+# LoRa page band buttons and the TX power draft: 868 at 14 dBm -> 915 keeps 14, -> 433 takes 10 (band default),
 # -> back to 868 (the saved band) restores 14. Read from the page with the trackball/keys ('b' = next band).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -19,6 +19,6 @@ cat > "$d/a.emu" <<'S'
 S
 timeout 40 artifacts/emu-plus --headless --data "$d/A" --port-offset 1500 --script "$d/a.emu" < /dev/null > "$d/a.log" 2>&1||true
 got=$(grep -o 'RADIO_DRAFT loaded=1 band=[0-9]* power=[0-9]*' "$d/a.log"|tr '\n' ' ')
-want='RADIO_DRAFT loaded=1 band=868 power=14 RADIO_DRAFT loaded=1 band=900 power=14 RADIO_DRAFT loaded=1 band=433 power=10 RADIO_DRAFT loaded=1 band=868 power=14 '
+want='RADIO_DRAFT loaded=1 band=868 power=14 RADIO_DRAFT loaded=1 band=915 power=14 RADIO_DRAFT loaded=1 band=433 power=10 RADIO_DRAFT loaded=1 band=868 power=14 '
 [ "$got" = "$want" ]||{ echo "FAIL: band power drafts: $got";grep -v '^\[I\]' "$d/a.log"|tail -15;exit 1; }
-echo "PASS: LoRa band buttons - 868 at 14 dBm, 900 keeps 14, 433 takes 10, back to 868 restores 14"
+echo "PASS: LoRa band buttons - 868 at 14 dBm, 915 keeps 14, 433 takes 10, back to 868 restores 14"

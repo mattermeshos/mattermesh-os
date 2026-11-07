@@ -154,7 +154,7 @@ constexpr Rect messageMapRect(){return {Margin+8+(W-2*Margin-16)-MessageMapW,Top
 constexpr int receivedMessageAction(int row){return row==0?0:row==1?2:row==2?5:row==3?1:3;}
 constexpr Rect messageActionRect(int index){return {Margin+8,Top+40+index*32,W-2*Margin-16,28};}
 inline Rect chatOptionRect(int index){return {Margin+8,Top+36+index*44,W-2*Margin-16,38};}
-constexpr int ChatOptionCount=3;// channels; a direct chat adds Path
+constexpr int ChatOptionCount=4;/* + Open chats at */// channels; a direct chat adds Path
 inline int chatOptionCount(bool direct){return direct?ChatOptionCount+1:ChatOptionCount;}
 // Channel options rows: notifications, show key + QR (channels only), delete.
 inline Rect channelOptionRect(int slot){return {Margin+8,Top+78+slot*48,W-2*Margin-16,38};}

@@ -159,7 +159,7 @@ std::vector<NavEntry> navigation;
 
 int homeSelection=-1,section=0,discoverFilter=0,homeScroll=0;
 // Section 30 is the CLI (cli_app.inc).
-void openContact(int index);void contactPage(int direction);void openSection(int id,bool paint=true);void scrollChat(int delta);void touchScroll(int dy);void swipe(int dy);void loadMapStyle();
+void openContact(int index);void contactPage(int direction);void openSection(int id,bool paint=true);void scrollChat(int delta);void touchScroll(int dy);void swipe(int dy);int mapStyleNow();
 // Secrets (passwords, deferred commands) are zeroed before the String is released.
 static void wipeString(String &s){for(unsigned i=0;i<s.length();i++)s.setCharAt(i,0);s="";}
 void weatherTabsCompose(mm::State &v);bool weatherTabKey(char c);bool weatherTabTap(int x,int y);void weatherAppsTick();extern int weatherTab;
@@ -404,7 +404,11 @@ void clearActiveChat(){
  unreadMessages[activeChat]=0;if(lastReceivedChat==activeChat)refreshLastReceived();lockScreenDirty=true;firstRepeater=device::FirstRepeater{};firstRepeaterPainted=false;
  archivePager.close();chatOffset=0;chatPixel=0;chatDetails=clearChatConfirm=messageActions=messagePath=false;notice="";showChatError("Chat cleared",1500);render();
 }
-void chatOption(int index){chatMenuFocus=index;if(index==3){chatDetails=false;dmPathOpen(activeChat);return;}if(index==0)openScopePicker();else{chatDetails=false;clearChatConfirm=index==1;positionShare=index==2;notice="";render();}}
+/* Chat options > Open chats at (all chats, NVS mmui/openat): the latest message, or the first one not read yet */
+static int openAtCache=-1;/* -1 not read yet from NVS */
+bool chatOpenUnread(){if(openAtCache<0)openAtCache=device::prefGetInt("mmui","openat",0)?1:0;return openAtCache==1;}
+void chatOption(int index){chatMenuFocus=index;if(index==4){chatDetails=false;dmPathOpen(activeChat);return;}
+ if(index==3){const bool on=!chatOpenUnread();device::prefPutInt("mmui","openat",on?1:0);openAtCache=on?1:0;notice=on?"Chats open at the first unread":"Chats open at the latest";render();return;}if(index==0)openScopePicker();else{chatDetails=false;clearChatConfirm=index==1;positionShare=index==2;notice="";render();}}
 void loadChats() {
  chats[0]={"Public","*",false};// fallback when the SD catalog is missing
  if(!sdReady)return;
@@ -517,7 +521,7 @@ void openConversation(int id,Screen parent,int parentSection=0){
  accentReset();
  if(screen==Screen::Chat)chatDrafts.leave(activeChat,input);
  chatParent=parent;chatParentSection=parentSection;activeChat=selected=id;composerExpanded=false;chatDrafts.take(id,input);inputCursor=-1;
- archivePager.close();screen=Screen::Chat;chatOffset=0;chatPixel=0;searching=chatDetails=messageActions=messagePath=messageBodyView=false;notice="";render();
+ archivePager.close();screen=Screen::Chat;chatOffset=chatOpenUnread()&&unreadMessages[id]>0?max(0,int(unreadMessages[id])-3):0;/* Open at: unread: the first unread a little above the bottom, the newer ones below it */chatPixel=0;searching=chatDetails=messageActions=messagePath=messageBodyView=false;notice="";render();
 }
 // Contacts page: a companion opens (or creates) its direct chat.
 void openContact(int index){auto page=matter::contacts(discoverFilter,contactQuery.c_str(),index,1);if(page.rows.empty())return;auto n=page.rows[0];if(n.type!=1){notice="Not a chat contact";render();return;}int id=directConversation(n.key,n.name);if(id<0){notice="Cannot save contact conversation";render();return;}openConversation(id,screen,section);}
@@ -641,7 +645,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
  if(section==2&&radioDraftLoaded){v.radioName=radioDraft.name.c_str();v.radioPathBytes=radioDraft.pathBytes;v.radioFrequency=radioDraft.frequency;v.radioBW=radioDraft.bandwidth;v.radioSF=radioDraft.sf;v.radioCR=radioDraft.cr;v.radioPower=radioDraft.power;v.radioEditField=radioEditField;v.radioPreset=radioPresetSelection;v.radioBand=radioBandSelection;v.radioDraftChanged=radioDraft.name!=radio.config.name||radioDraft.pathBytes!=radio.config.pathBytes||radioDraft.frequency!=radio.config.frequency||radioDraft.bandwidth!=radio.config.bandwidth||radioDraft.sf!=radio.config.sf||radioDraft.cr!=radio.config.cr||radioDraft.power!=radio.config.power;}
  if(!deviceLocked&&screen==Screen::Section&&section==1){auto page=matter::contacts(discoverFilter,contactQuery.c_str(),nodeScroll,mm::ContactRows);v.contactMenu=contactMenu;v.contactMenuFocus=contactMenuFocus;v.contactDialog=contactDialog;v.contactButton=contactButton;v.contactAmount=contactAmount;v.contactDeletable=contactDeletable;v.contactAddNew=matter::contactsAddNew();v.contactReplace=matter::contactsReplaceOldest();if(contactMenu||contactDialog)v.contactSaved=matter::contactsCount(0,"");v.contactCapacity=matter::NODE_CAPACITY;time_t epochNow=time(nullptr);v.filteredNodeCount=page.total;v.contactQuery=contactQuery.c_str();v.contactSearching=contactSearching;v.contactFocus=contactFocus;auto gps=device::locationState();bool here=gps.fix&&(gps.latitude!=0||gps.longitude!=0);for(auto &n:page.rows){mm::Node node;node.name=n.name.c_str();node.key=n.key.c_str();node.type=n.type;node.live=n.live;node.age=n.live?(millis()-n.seen)/1000:n.advertAt&&epochNow>=MM_EPOCH_MIN&&uint32_t(epochNow)>=n.advertAt?uint32_t(epochNow)-n.advertAt:~0u;node.rssi=n.rssi;node.snr=n.snr;node.hops=n.hops;if(here&&(n.lat||n.lon)){double lat=n.lat/1e6,lon=n.lon/1e6;node.distance=mm::formatDistance(mm::geoDistanceMeters(gps.latitude,gps.longitude,lat,lon),mm::geoHeading(gps.latitude,gps.longitude,lat,lon));}v.nodes.push_back(node);}}
  v.caps=shiftHeld();if(accentTaps&&!accentContext())accentReset();// a tap left in a chat ends with it, whatever path left it (an emoji picker opening too)
- v.accent=accentContext()&&(accentTaps>0||accentHeld());v.accentTaps=accentTaps;v.accentMode=accentMode;v.accentFocus=accentFocus;v.symbols=keyboardModifiers.symbols();
+ v.accent=accentContext()&&(accentTaps>0||accentHeld());v.composerSym=accentContext()&&keyboardModifiers.symShown();/* in the emoji button space, as the accent Shift */v.composerSymOnce=v.composerSym&&keyboardModifiers.symLatch&&!keyboardModifiers.sym;v.accentTaps=accentTaps;v.accentMode=accentMode;v.accentFocus=accentFocus;v.symbols=keyboardModifiers.symbols();
  v.field=formField;v.newName=newName.c_str();v.newScope=newScope.c_str();v.newKey=newKey.c_str();v.newForm=newForm;v.messageMenuFocus=messageMenuFocus;
  // The manual clock editor: the welcome clock step and Settings > Date / time.
  if(screen==Screen::Welcome||(screen==Screen::Section&&section==16)){for(int i=0;i<5;i++)v.dtField[i]=dtField[i];v.dtFocus=dtFocus;int zone=device::timeZone();v.timeZoneIndex=zone;v.timeZonePicking=tzPicking;v.timeZoneScroll=screen==Screen::Welcome?tzScrollFor(zone,mm::WelcomeRows):tzScroll;}
@@ -657,7 +661,7 @@ v.advertGps=advertGps;v.radioTX=radio.tx;v.radioError=radio.error;v.radioFrequen
   else if(firstRepeater.visible(activeChat,millis())){int matches=0;String name=matter::nodeNameForPrefix(firstRepeater.hash.c_str(),matches,2);std::string label=mm::senderDisplayName(name.c_str());if(matches!=1||label.empty())label="["+firstRepeater.hash+"]";v.firstRepeater="First RPT: "+label;if(matches>1)v.firstRepeater+=" / ambiguous";}
   else if(chats[activeChat].direct&&peerKeys[activeChat].length()){uint8_t encoded=mm::DirectPathUnknown,bytes[64];if(matter::contactPath(peerKeys[activeChat],encoded,bytes,sizeof(bytes)))v.firstRepeater=mm::directPathLine(encoded,bytes,int(matter::dmRouteMode(peerKeys[activeChat])));}// kept under DM chats; First RPT / Received via take the slot for a few seconds
   v.messageBodyView=messageBodyView;v.quickPending=quickReply.pending;v.messageActions=messageActions;v.messagePath=messagePath;if(messagePath&&messageRouteView)routeCompose(v);v.pathOffset=messagePathOffset;if(messageActions||messagePath){v.contextMessage=contextSnapshot();v.contextHasLink=!v.contextMessage.mine&&!device::linkFind(v.contextMessage.body).empty();v.heardPeers=repeaterRows(v.contextMessage);}v.heardOffset=heardOffset;v.channelMuted=mutedChannels&(uint32_t(1)<<activeChat);if(messagePath)v.pathText=fullMessagePath().c_str();
-  v.chatDirect=chats[activeChat].direct;v.chatName=chats[activeChat].name.c_str();v.scope=chats[activeChat].scope.c_str();v.chatOffset=chatOffset;v.chatPixel=chatPixel;v.messageMenu=chatDetails;
+  v.chatDirect=chats[activeChat].direct;v.chatOpenUnread=chatOpenUnread();v.chatName=chats[activeChat].name.c_str();v.scope=chats[activeChat].scope.c_str();v.chatOffset=chatOffset;v.chatPixel=chatPixel;v.messageMenu=chatDetails;
   v.latestOwnMessage=-1;
   // Logical history = demo/local rows, then all SD rows. Rows hold newest-indices [rowsOffset, rowsOffset+size).
   auto summary=radioJournal.summary(activeChat);int radioTotal=summary?int(summary->total):0;
@@ -1690,12 +1694,12 @@ void keyboardEvent(int event,uint32_t capturedAt=0,bool hardwareDebounced=false)
     else if(quickCountdownAt){if(action==device::EnterAction::Hold){openQuickReply();return;}quickCountdownAt=0;lockShowNext(pendingQuickOriginal.token);}}
   }else if(quickReply.active){
    if(code==accentCode()&&(!pressed||accentContext()))accentKey(pressed);
-   if(keyboardModifiers.update(code,pressed))return;
+   if(keyboardModifiers.update(code,pressed)){keyboardModifiers.symLatch=false;return;}/* the quick reply keeps sym as before */
    if(code==device::SPACE_KEYCODE){if(pressed&&keyboardModifiers.alt&&mm_kbd::enabledCount(kbdMask)>=2){switchKeyboardLanguage();return;}if(pressed){accentReset();quickReplyKey(' ');}return;}
-   int k=code-1;if(k<0||k>=40)return;if(code==device::MICROPHONE_KEYCODE){if(pressed){accentReset();if(keyboardModifiers.symbols())quickReplyKey('0');}return;}
+   int k=code-1;if(k<0||k>=40)return;if(code==device::MICROPHONE_KEYCODE){if(pressed){accentReset();if(keyboardModifiers.symbols()){quickReplyKey('0');keyboardModifiers.typed();}}return;}
    char ch=keys[k/10][9-k%10];
    if(ch=='\b'){deleteHeld=pressed;if(pressed){accentReset();deleteAt=repeatAt=millis();quickReplyKey('\b');}return;}
-   if(pressed){if(keyboardModifiers.symbols())ch=symbols[k/10][9-k%10];else if(shiftHeld()&&ch>='a'&&ch<='z')ch=ch-'a'+'A';if(accentLetter(ch))return;if(ch)quickReplyKey(ch);}
+   if(pressed){if(keyboardModifiers.symbols()){ch=symbols[k/10][9-k%10];keyboardModifiers.typed();}else if(shiftHeld()&&ch>='a'&&ch<='z')ch=ch-'a'+'A';if(accentLetter(ch))return;if(ch)quickReplyKey(ch);}
   }else if(pressed)showLockHint();// Plus: the trackball unlocks, Space only shows the hint
   return;
  }
@@ -1703,8 +1707,8 @@ void keyboardEvent(int event,uint32_t capturedAt=0,bool hardwareDebounced=false)
  if(code==device::SPACE_KEYCODE){if(pressed&&keyboardModifiers.alt&&mm_kbd::enabledCount(kbdMask)>=2){device::activity();switchKeyboardLanguage();return;}if(pressed){accentReset();device::activity();key(' ');}return;}
  if(pressed)device::activity();int k=(event&0x7f)-1;
  if(k<0||k>=40)return;
- if(code==device::MICROPHONE_KEYCODE){if(pressed){accentReset();key('0');}return;}// no dictation on the Plus: the MIC key is the digit 0
- keyboardEvents++;if(code==accentCode()&&(!pressed||accentContext()))accentKey(pressed);if(keyboardModifiers.update(code,pressed)){repaintSettled();return;}int r=k/10,c=9-k%10;char ch=keys[r][c];
+ if(code==device::MICROPHONE_KEYCODE){if(pressed){accentReset();key('0');keyboardModifiers.typed();}return;}// no dictation on the Plus: the MIC key is the digit 0
+ keyboardEvents++;if(code==accentCode()&&(!pressed||accentContext()))accentKey(pressed);if(keyboardModifiers.update(code,pressed)){if(!accentContext())keyboardModifiers.symLatch=false;/* sym tapped once: only in the chat composer */repaintSettled();return;}int r=k/10,c=9-k%10;char ch=keys[r][c];
  if(screen==Screen::Chat&&pressed&&keyboardModifiers.alt&&(keyboardModifiers.leftShift||keyboardModifiers.rightShift)&&editableField()==&input&&(ch=='w'||ch=='s')){if(accentHeld())accentTyped=true;scrollChat(ch=='w'?1:-1);return;}// the accent Shift used here does not stay armed
  if(screen==Screen::Section&&section==4&&wifiEditing&&pressed&&keyboardModifiers.alt&&ch=='v'){wifiShowPassword=!wifiShowPassword;render();return;}
  if(screen==Screen::Section&&section==mm::CliSection&&pressed&&keyboardModifiers.alt&&cliAltKey(ch))return;
@@ -1713,7 +1717,7 @@ void keyboardEvent(int event,uint32_t capturedAt=0,bool hardwareDebounced=false)
   if(pressed){accentReset();deleteAt=repeatAt=millis();key('\b');}return;
  }
  if(!pressed)return;
- if(keyboardModifiers.symbols())ch=symbols[r][c];
+ if(keyboardModifiers.symbols()){ch=symbols[r][c];keyboardModifiers.typed();}
  else if(shiftHeld()&&ch>='a'&&ch<='z')ch=ch-'a'+'A';
  if(accentLetter(ch))return;
  // Menu shortcuts remain case-insensitive when caps mode is enabled.
@@ -1924,7 +1928,7 @@ void handle(const String &s) {
   return;
  }
  if(s=="wallpaper status"){Serial.printf("WALLPAPER index=%d name=%s focus=%d count=%d\n",lockWallpaper,WALLPAPER_NAME(lockWallpaper),wallpaperFocus,WALLPAPER_COUNT);return;}
- if(s=="map style"||s=="map style light"||s=="map style night"){int want=s.endsWith("night")?1:s.endsWith("light")?0:-1;if(want>=0&&want!=mapStyleIndex)mapToggleStyle();else if(want<0&&screen==Screen::Section&&section==9)mapToggleStyle();Serial.printf("MAP_STYLE style=%d look=%s\n",mapStyleIndex,mapStyleIndex?"night":"light");return;}
+ if(s=="map style"){Serial.printf("MAP_STYLE style=%d look=%s\n",mapStyleNow(),mapStyleNow()?"night":"light");return;}/* follows the theme */
  if(s=="storm status"){auto st=device::stormState();Serial.printf("STORM_STATUS phase=%d count=%u updated=%lu alerts=%d message=%s\n",int(st.phase),st.count,(unsigned long)st.updated,st.alerts,st.message.c_str());for(int i=0;i<st.count;i++)Serial.printf("STORM_EVENT %lu %lu kinds=%u gust=%.0f rain=%.1f cape=%.0f\n",(unsigned long)st.events[i].start,(unsigned long)st.events[i].end,st.events[i].kinds,st.events[i].gust,st.events[i].rain,st.events[i].cape);return;}
  if(s=="storm check"){device::stormRefresh();Serial.println("STORM_CHECK queued");return;}
  if(s=="time zone"||s.startsWith("time zone ")){if(s.length()>10)tzSet(s.substring(10).toInt());time_t now=time(nullptr);struct tm tm={},utc={};localtime_r(&now,&tm);gmtime_r(&now,&utc);Serial.printf("TIME_ZONE index=%d id=%d name=%s tz=%s local=%02d:%02d utc=%02d:%02d picking=%d\n",device::timeZone(),device::TIME_ZONES[device::timeZone()].id,device::TIME_ZONES[device::timeZone()].name,device::timeZonePosix(),tm.tm_hour,tm.tm_min,utc.tm_hour,utc.tm_min,tzPicking);render();return;}
@@ -1988,6 +1992,9 @@ void handle(const String &s) {
  if(s=="resend preview"){String body;bool ok=resendBody(body);uint32_t hash=2166136261u;for(unsigned i=0;i<body.length();i++){hash^=uint8_t(body[i]);hash*=16777619u;}Serial.printf("RESEND_PREVIEW ok=%d chat=%d token=%08lx bytes=%u hash=%08lx draft_bytes=%u\n",ok,activeChat,contextMessage.token,body.length(),hash,input.length());return;}
  if(s=="scope list"){StaticJsonDocument<3072> json;auto list=json.to<JsonArray>();for(auto &name:regionScopes)list.add(name);Serial.print("SCOPE_LIST ");serializeJson(json,Serial);Serial.println();return;}
  if(s.startsWith("scope import ")){StaticJsonDocument<3072> json;bool ok=!deserializeJson(json,s.substring(13))&&json.is<JsonArray>();std::vector<std::string> next;if(ok)for(JsonVariant value:json.as<JsonArray>()){if(!value.is<const char*>()){ok=false;break;}auto name=device::normalizedScope(value.as<const char*>());if(name.empty()||std::find(next.begin(),next.end(),name)!=next.end()||next.size()>=device::MAX_REGION_SCOPES){ok=false;break;}next.push_back(name);}if(next.empty())ok=false;if(ok){auto old=regionScopes;regionScopes=next;if(!saveRegionScopes()){regionScopes=old;ok=false;}else for(auto &name:regionScopes)matter::registerScope(name.c_str());}Serial.printf("SCOPE_IMPORTED ok=%d count=%u\n",ok,unsigned(regionScopes.size()));return;}
+ if(s=="composer text"){Serial.printf("COMPOSER_TEXT [%s] sym=%d latch=%d\n",input.c_str(),keyboardModifiers.sym,keyboardModifiers.symLatch);return;}/* tests */
+ if(s.startsWith("chat open ")){int id=s.substring(10).toInt();openConversation(id,Screen::Chats);Serial.printf("CHAT_OPEN id=%d offset=%d unread=%u\n",activeChat,chatOffset,unsigned(id>=0&&id<chatCount?unreadMessages[id]:0));return;}/* tests */
+ if(s=="chat openat unread"||s=="chat openat latest"){openAtCache=s.endsWith("unread")?1:0;device::prefPutInt("mmui","openat",openAtCache);Serial.printf("CHAT_OPENAT unread=%d\n",openAtCache);return;}/* tests: Chat options > Open chats at */
  if(s=="chat storage selftest"){
   String path="/mattermesh/.chat-clear-test-"+String(esp_random(),HEX)+".tsv";bool unique=!SD.exists(path),ok=sdReady&&unique&&chatStorageSelftest(path),cleaned=sdReady&&unique&&SD.remove(path);
   Serial.printf("CHAT_STORAGE_TEST ok=%d isolated=%d cleanup=%d\n",ok&&cleaned,unique,cleaned);return;
@@ -2188,7 +2195,6 @@ void setup(){
  if(sdReady&&!device::prefGetInt("mmsetup","archived",1)){bool done=false;welcomeArchive=archiveSdData(done);if(done)device::prefPutInt("mmsetup","archived",1);}
  loadLights();device::powerBegin(displayBrightness,keyboardBrightness);loadChats();loadRegionScopes();loadChannelNotifications();loadWallpaper();loadTextSize();loadHomeWidget();loadHomeMain();loadAccentMode();loadKeyboardLanguages();
  advertGps=device::prefGetInt("mmadvert","gps",0)!=0;batteryLogOn=device::prefGetInt("mmbatlog","on",0)!=0;// off by default; "battery log on" enables it (saved)
-loadMapStyle();
  device::audioBegin();
  if(sdReady){loadBindings();radioJournal.begin(SD);
   uint32_t latest[MAX_CHATS]={};for(auto &record:radioJournal.index)if(!record.mine&&record.chat>=0&&record.chat<chatCount)latest[record.chat]=record.token;

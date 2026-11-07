@@ -4,11 +4,10 @@
 struct MapView {int zoom=13;double lat=0,lon=0;bool follow=false,ready=false;} mapView;
 // Zoom limit (z6 out, z16 in): the map stays put and the status label says so until the next pan or zoom.
 static int mapZoomLimit=0;// -1 out, +1 in
-// Map look (Plus): 0 LIGHT = OpenStreetMap as served, 1 NIGHT = the same tiles darkened on the device
-// (services/map_math.h mapNightLook), so it also works offline on the cached tiles. NVS "mmmap"/"style".
-int mapStyleIndex=0;
-void loadMapStyle(){mapStyleIndex=device::prefGetInt("mmmap","style",0)?1:0;}
-void mapToggleStyle(){mapStyleIndex^=1;device::prefPutInt("mmmap","style",mapStyleIndex);render();}
+// Map look (Plus): follows the theme. A dark theme (Night Ridge) darkens the tiles on the device (services/map_math.h
+// mapNightLook, so it also works offline on the cached tiles); a light one (Alpine Light, Expedition) keeps OpenStreetMap
+// as served. Every map (Maps, Trails, Weather radar, Flights) asks here. 1 night, 0 light.
+int mapStyleNow(){const uint16_t c=mm::panelToRgb565(mm::BG);/* theme colors are byte-swapped for the panel */const int r=(c>>11)<<3,g=((c>>5)&63)<<2,b=(c&31)<<3;return (r*299+g*587+b*114)/1000<128?1:0;}
 static uint8_t *mapViewBits=nullptr;static int mapVisibleCount=0,mapMissingCount=0;
 static struct {double lat=0,lon=0;int z=-1,style=-1;uint32_t rev=0;} composed;// what mapViewBits holds (z=-1: nothing)
 constexpr size_t MapViewBytes=(size_t(mm::MapArea.w)*mm::MapArea.h*2);// RGB565 view on the Plus
@@ -21,7 +20,7 @@ static int mapComposeTiles(uint8_t *bits,double lat,double lon,int z,bool reuse=
  {uint16_t *view=reinterpret_cast<uint16_t*>(bits);for(int i=0;i<w*h;i++)view[i]=mm::Mist;}int missing=0;// missing tiles show the theme mist
  for(int i=0;i<visible;i++){const uint8_t *tile=device::mapTile(z,refs[i].x,refs[i].y,true);if(!tile){missing++;continue;}
   device::mapBlitColor(reinterpret_cast<const uint16_t*>(tile),refs[i].screenX,refs[i].screenY,reinterpret_cast<uint16_t*>(bits),w,h);}
- if(mapStyleIndex==1)device::mapNightLook(reinterpret_cast<uint16_t*>(bits),w*h);
+ if(mapStyleNow()==1)device::mapNightLook(reinterpret_cast<uint16_t*>(bits),w*h);
  mapVisibleCount=visible;return missing;
 }
 // Screen position inside MapArea for a view centred on (clat,clon) at zoom z (unclipped).
@@ -60,12 +59,12 @@ void mapCenter(){
 // W/A/S/D pan a third of the view, I/O (or +/-) zoom, C or ENTER centre on GPS.
 bool mapKey(char c){
  switch(c){case 'w':mapPan(0,-mm::MapArea.h/3);return true;case 's':mapPan(0,mm::MapArea.h/3);return true;case 'a':mapPan(-mm::MapArea.w/3,0);return true;case 'd':mapPan(mm::MapArea.w/3,0);return true;
-  case 'i':case '+':case '=':mapZoom(1);return true;case 'o':case '-':mapZoom(-1);return true;case 'c':case '\n':mapCenter();return true;case 'm':{mapToggleStyle();return true;}}
+  case 'i':case '+':case '=':mapZoom(1);return true;case 'o':case '-':mapZoom(-1);return true;case 'c':case '\n':mapCenter();return true;}
  return false;
 }
 // Buttons: zoom out / centre / zoom in. A tap on the map brings that point to the centre.
 bool mapTap(int x,int y){
- {if(mm::MapBackFloat.contains(x,y)){back();return true;}if(mm::MapStyleButton.contains(x,y)){mapToggleStyle();return true;}}
+ {if(mm::MapBackFloat.contains(x,y)){back();return true;}}
  if(mm::mapButtonRect(0).contains(x,y)){mapZoom(-1);return true;}if(mm::mapButtonRect(1).contains(x,y)){mapCenter();return true;}if(mm::mapButtonRect(2).contains(x,y)){mapZoom(1);return true;}
  if(mm::MapArea.contains(x,y)){mapPan(x-(mm::MapArea.x+mm::MapArea.w/2),y-(mm::MapArea.y+mm::MapArea.h/2));return true;}
  return false;
@@ -76,10 +75,10 @@ void mapCompose(mm::State &v){
  const int w=mm::MapArea.w,h=mm::MapArea.h,z=mapView.zoom;
  // Plus: a frame that only moves pins or the clock reuses the composed view (fill + blit + NIGHT look).
 uint32_t rev=device::mapTilesRevision();
- bool reuse=composed.z==z&&composed.lat==mapView.lat&&composed.lon==mapView.lon&&composed.style==mapStyleIndex&&composed.rev==rev;
+ bool reuse=composed.z==z&&composed.lat==mapView.lat&&composed.lon==mapView.lon&&composed.style==mapStyleNow()&&composed.rev==rev;
  int missing=mapComposeTiles(mapViewBits,mapView.lat,mapView.lon,z,reuse);
- if(!reuse){if(missing==0){composed.lat=mapView.lat;composed.lon=mapView.lon;composed.z=z;composed.style=mapStyleIndex;composed.rev=rev;}else composed.z=-1;}
- mapMissingCount=missing;v.mapStyle=mapStyleIndex;v.mapPixels=reinterpret_cast<const uint16_t*>(mapViewBits);v.mapFollow=mapView.follow;
+ if(!reuse){if(missing==0){composed.lat=mapView.lat;composed.lon=mapView.lon;composed.z=z;composed.style=mapStyleNow();composed.rev=rev;}else composed.z=-1;}
+ mapMissingCount=missing;v.mapStyle=mapStyleNow();v.mapPixels=reinterpret_cast<const uint16_t*>(mapViewBits);v.mapFollow=mapView.follow;
  auto center=device::mapProject(mapView.lat,mapView.lon,z);double north,west,south,east;device::mapUnproject({center.x-w/2.0,center.y-h/2.0},z,north,west);device::mapUnproject({center.x+w/2.0,center.y+h/2.0},z,south,east);
  matter::NodePin pins[24];int count=matter::nodePins(south,west,north,east,pins,24);
  for(int i=0;i<count;i++){double x,y;mapScreen(pins[i].lat,pins[i].lon,mapView.lat,mapView.lon,z,x,y);if(!mapInside(x,y))continue;mm::MapPin pin;pin.x=lround(x);pin.y=lround(y);pin.repeater=pins[i].repeater;pin.name=mm::senderDisplayName(pins[i].name);v.mapPins.push_back(pin);}

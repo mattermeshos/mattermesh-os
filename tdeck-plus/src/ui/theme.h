@@ -216,7 +216,7 @@ constexpr int receivedMessageAction(int row){return row==0?0:row==1?2:row==2?5:r
 constexpr Rect messageActionRect(int index){return {Margin+8,MessageActionY+index*MessageActionStep,W-2*Margin-16,MessageActionH};}
 // Landscape: the options as a 2-column grid (a direct chat adds Path as the fourth) (one column of 44 px rows ran off the 240 px screen).
 inline Rect chatOptionRect(int index){int w=(W-2*Margin-16-8)/2;return {Margin+8+(index%2)*(w+8),Top+36+(index/2)*46,w,38};}
-constexpr int ChatOptionCount=3;// channels; a direct chat adds Path
+constexpr int ChatOptionCount=4;/* channels (Region scope, Clear chat, Send GPS position, Open chats at); a direct chat adds Path */
 inline int chatOptionCount(bool direct){return direct?ChatOptionCount+1:ChatOptionCount;}
 
 // Channel options rows: notifications, show key + QR (channels only), delete.

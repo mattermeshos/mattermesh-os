@@ -43,8 +43,8 @@ static void radarCompose(mm::State &v){
  if(!radarBase)radarBase=mapAllocView();if(!radarView)radarView=mapAllocView();if(!radarBase||!radarView){radarRelease();v.radarMessage="Not enough memory for the map";return;}
  double lat,lon;radarCenter(lat,lon);const int z=radarZoom,w=mm::MapArea.w,h=mm::MapArea.h;
  uint32_t mapRev=device::mapTilesRevision(),radarRev=device::radarRevision();
- bool baseOk=radarComposed.z==z&&radarComposed.lat==lat&&radarComposed.lon==lon&&radarComposed.mapRev==mapRev&&radarComposed.style==mapStyleIndex;
- if(!baseOk){int missing=mapComposeTiles(radarBase,lat,lon,z);radarComposed.lat=lat;radarComposed.lon=lon;radarComposed.z=missing?-1:z;radarComposed.mapRev=mapRev;radarComposed.style=mapStyleIndex;radarComposed.overlay=false;}
+ bool baseOk=radarComposed.z==z&&radarComposed.lat==lat&&radarComposed.lon==lon&&radarComposed.mapRev==mapRev&&radarComposed.style==mapStyleNow();
+ if(!baseOk){int missing=mapComposeTiles(radarBase,lat,lon,z);radarComposed.lat=lat;radarComposed.lon=lon;radarComposed.z=missing?-1:z;radarComposed.mapRev=mapRev;radarComposed.style=mapStyleNow();radarComposed.overlay=false;}
  if(!baseOk||!radarComposed.overlay||radarComposed.radarRev!=radarRev){
   memcpy(radarView,radarBase,MapViewBytes);auto center=device::mapProject(lat,lon,z);device::MapTileRef refs[16];int count=device::mapVisibleTiles(center,z,w,h,0,refs,16),have=0;
   for(int i=0;i<count;i++){const uint16_t *rgb;const uint8_t *alpha;if(device::radarTile(z,refs[i].x,refs[i].y,rgb,alpha)){radarBlend(reinterpret_cast<uint16_t*>(radarView),w,h,rgb,alpha,refs[i].screenX,refs[i].screenY);have++;}}

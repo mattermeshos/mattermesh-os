@@ -450,8 +450,14 @@ void Renderer::chat(const State &s){
  // emoji button turns into an accent mark with the tap count.
  if(s.accent){auto letters=accentBarText(s);if(!letters.empty()){Rect bar={composer.x,composer.y-32,composer.w,28};c.fillRound(bar.x,bar.y,bar.w,bar.h,8,FG);c.centered(bar.x,bar.y+(bar.h-c.lineHeight(Font::ChatTitle))/2,bar.w,letters,Font::ChatTitle,BG);}
   c.fillRound(ComposerEmoji.x+2,ComposerEmoji.y+2,ComposerEmoji.w-4,ComposerEmoji.h-5,5,FG);c.centered(ComposerEmoji.x,ComposerEmoji.y+(ComposerEmoji.h-c.lineHeight(Font::ChatTitle))/2,ComposerEmoji.w,s.accentTaps>1?"\xc2\xb4"+std::to_string(s.accentTaps):std::string("\xc2\xb4"),Font::ChatTitle,BG);}
+ if(s.composerSym&&!s.accent){/* sym held or tapped once: the emoji button's own space turns accent with "sym", one pixel inside the
+    bubble's border, its right corners following the bubble's; a small mark in its corner while it lasts for one key only */
+  const int x0=ComposerEmoji.x,x1=composer.x+composer.w-2,yb=composer.y+composer.h-2,y0=std::max(composer.y+2,int(ComposerEmoji.y)),r=7;
+  c.fillRound(x0,y0,x1-x0,yb-y0,r,Accent);g.fillRect(x0,y0,r,yb-y0,Accent);if(y0>composer.y+2)g.fillRect(x0,y0,x1-x0,r,Accent);
+  c.centered(x0,y0+(yb-y0-c.lineHeight(Font::ChatMeta))/2,x1-x0,"sym",Font::ChatMeta,OnAccent);
+  if(s.composerSymOnce)g.fillTriangle(x1-8,yb-3,x1-4,yb-3,x1-4,yb-7,OnAccent);}
  if(s.emojiPicker)emojiPopup(s);
- if(s.messageMenu){Rect info=dialogPanel();c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Clear chat","Send GPS position","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
+ if(s.messageMenu){Rect info=dialogPanel();c.text(info.x+8,info.y+8,"Chat options",Font::ChatTitle);const char *labels[]={"Region scope","Clear chat","Send GPS position",s.chatOpenUnread?"Open at: unread":"Open at: latest","Path"};for(int i=0;i<chatOptionCount(s.chatDirect);i++)c.button(chatOptionRect(i),labels[i],s.chatMenuFocus==i);}
  if(s.scopePicker){
   Rect panel=dialogPanel();c.text(Margin+8,Top+12,s.notice.empty()?"Region scope":s.notice,s.notice.empty()?Font::ChatTitle:Font::ChatMeta,FG,panel.w-16);
   int offset=std::max(0,std::min(s.scopeOffset,std::max(0,int(s.regionScopes.size())-1)));
@@ -827,7 +833,6 @@ void Renderer::section(const State &s){
   {// floating controls over the map
    auto round=[&](Rect r){c.fillRound(r.x,r.y,r.w,r.h,r.h/2,Surface);g.drawRoundRect(r.x,r.y,r.w,r.h,r.h/2,Line);};
    round(MapBackFloat);c.icon(Icon::Back,MapBackFloat.x+6,MapBackFloat.y+6,16);
-   round(MapStyleButton);c.centered(MapStyleButton.x,MapStyleButton.y+5,MapStyleButton.w,s.mapStyle?"NIGHT":"LIGHT",Font::Bold);
    for(int i=0;i<3;i++){Rect r=mapButtonRect(i);bool on=i==1&&s.mapFollow;if(on)c.fillRound(r.x,r.y,r.w,r.h,r.h/2,Accent);else round(r);uint16_t ink=on?OnAccent:FG;int cx=r.x+r.w/2,cy=r.y+r.h/2;
     if(i==1)c.icon(Icon::GPS,cx-8,cy-8,16,ink);else{g.fillRect(cx-6,cy-1,12,2,ink);if(i==2)g.fillRect(cx-1,cy-6,2,12,ink);}}
   }
@@ -1025,8 +1030,8 @@ void Renderer::section(const State &s){
   if(n){g.fillRect(x0,y0,side,side,qrLight);for(int y=0;y<n;y++)for(int x=0;x<n;x++)if(modules[y*n+x])g.fillRect(x0+(x+2)*scale,y0+(y+2)*scale,scale,scale,qrDark);}
   int x=n?x0+side+12:Margin,w=W-Margin-x,y=SupportQrY+2;
   auto para=[&](const std::string &text,Font f,uint16_t ink,int step){for(auto &line:c.lines(text,w,f)){c.text(x,y,line,f,ink,w);y+=step;}};
-  if(unlock){para("RPT Scanner, RPT Diagnostic, RX Log, Noise Floor, Trails, Spectrum.",Font::ChatMeta,Muted,14);
-   y+=6;c.text(x,y,"Your unlock code",Font::ChatMeta,FG,w);c.text(x,y+15,s.unlockCode,Font::ChatTitle,Accent,w);y+=40;para("Buy on Ko-fi, then redeem at mattermeshos.com/unlock",Font::ChatMeta,Muted,14);}
+  if(unlock){para("Every Extra app, today and future ones. The list: mattermeshos.com/#apps",Font::ChatMeta,Muted,14);
+   y+=4;c.text(x,y,"Your unlock code",Font::ChatMeta,FG,w);c.text(x,y+15,s.unlockCode,Font::ChatTitle,Accent,w);y+=38;para("Scan, buy, then redeem at mattermeshos.com/unlock",Font::ChatMeta,Muted,13);}
   else{{para("Support MatterMesh OS",Font::ChatTitle,FG,20);y+=2;}para("MatterMesh OS is free. A donation of any amount on Ko-fi helps hardware and field tests.",Font::ChatMeta,Muted,14);y+=6;para("ko-fi.com/mattermeshos",Font::ChatMeta,FG,14);}
  }else if(s.page==Page::Battery){
   // Landscape: icon and percentage on the left, the three detail cards stacked on the right.
